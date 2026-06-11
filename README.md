@@ -45,7 +45,9 @@ npm run tauri build  # gera o instalador/binário de produção
 3. Configure a OAuth consent screen (tipo External; adicione sua conta como test user
    enquanto o app não for publicado);
 4. Crie uma credencial **OAuth Client ID** do tipo **Desktop app**;
-5. Exporte o Client ID/Secret como variáveis de ambiente antes de rodar `tauri dev`/`build`.
+5. Copie `.env.example` para `.env` na raiz do repositório e preencha o Client ID/Secret.
+   O `src-tauri/build.rs` injeta essas variáveis em build-time; alternativamente, exporte-as
+   no shell antes de rodar `tauri dev`/`build` (o shell tem precedência sobre o `.env`).
 
 | Variável                         | Uso                                                                                             |
 | -------------------------------- | ----------------------------------------------------------------------------------------------- |

@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Credenciais OAuth (use .env.example como modelo)
+.env
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
