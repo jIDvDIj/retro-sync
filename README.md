@@ -38,11 +38,22 @@ npm run tauri dev    # app em modo desenvolvimento (compila o Rust na 1ª vez)
 npm run tauri build  # gera o instalador/binário de produção
 ```
 
-### Variáveis de ambiente
+### Credenciais OAuth (Google Cloud)
 
-| Variável                     | Uso                                                                                       |
-| ---------------------------- | ----------------------------------------------------------------------------------------- |
-| `RETROSYNC_GOOGLE_CLIENT_ID` | Client ID OAuth2 (Desktop) do Google Cloud Console, lido em build-time. Nunca commitá-lo. |
+1. Crie um projeto em [console.cloud.google.com](https://console.cloud.google.com/);
+2. Ative a **Google Drive API** (APIs & Services → Library);
+3. Configure a OAuth consent screen (tipo External; adicione sua conta como test user
+   enquanto o app não for publicado);
+4. Crie uma credencial **OAuth Client ID** do tipo **Desktop app**;
+5. Exporte o Client ID/Secret como variáveis de ambiente antes de rodar `tauri dev`/`build`.
+
+| Variável                         | Uso                                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `RETROSYNC_GOOGLE_CLIENT_ID`     | Client ID OAuth2 (Desktop) — lido em build-time, com fallback para runtime em dev.              |
+| `RETROSYNC_GOOGLE_CLIENT_SECRET` | Client secret do cliente Desktop. O Google o exige no token endpoint para este tipo de cliente; |
+|                                  | não é tratado como confidencial em apps instalados, mas mantenha fora do código/commits.        |
+
+O app usa o escopo `drive.file`: só enxerga arquivos e pastas criados por ele mesmo.
 
 ## Qualidade de código
 

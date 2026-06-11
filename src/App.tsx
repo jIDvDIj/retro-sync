@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { ConnectDrive } from "./components/ConnectDrive";
 import { healthCheck } from "./lib/ipc";
 import "./App.css";
 
@@ -15,7 +16,8 @@ function App() {
   return (
     <main className="container">
       <h1>RetroSync</h1>
-      <p className="status">{backendStatus}</p>
+      <ConnectDrive />
+      <footer className="status">{backendStatus}</footer>
     </main>
   );
 }

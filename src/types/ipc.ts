@@ -39,7 +39,15 @@ export interface SyncProgress {
 
 /** `error::AppError` serializado — todo comando rejeita com este shape */
 export interface AppErrorPayload {
-  code: "io" | "database" | "network" | "keyring" | "auth" | "emulator_not_detected" | "other";
+  code:
+    | "io"
+    | "database"
+    | "network"
+    | "keyring"
+    | "serialization"
+    | "auth"
+    | "emulator_not_detected"
+    | "other";
   message: string;
 }
 

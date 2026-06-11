@@ -22,6 +22,9 @@ pub enum AppError {
     #[error("erro no cofre de credenciais: {0}")]
     Keyring(#[from] keyring::Error),
 
+    #[error("erro de serialização: {0}")]
+    Serialization(#[from] serde_json::Error),
+
     #[error("erro de autenticação: {0}")]
     Auth(String),
 
@@ -39,6 +42,7 @@ impl AppError {
             AppError::Database(_) => "database",
             AppError::Network(_) => "network",
             AppError::Keyring(_) => "keyring",
+            AppError::Serialization(_) => "serialization",
             AppError::Auth(_) => "auth",
             AppError::EmulatorNotDetected(_) => "emulator_not_detected",
             AppError::Other(_) => "other",

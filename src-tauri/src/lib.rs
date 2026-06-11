@@ -18,13 +18,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .manage(state::AppState::default())
+        .manage(state::AppState::new())
         .setup(|app| {
             init_logging(app.handle())?;
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "RetroSync iniciado");
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![commands::health_check])
+        .invoke_handler(tauri::generate_handler![
+            commands::health_check,
+            commands::connect_google_drive,
+            commands::get_auth_status,
+            commands::disconnect_google_drive
+        ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o RetroSync");
 }

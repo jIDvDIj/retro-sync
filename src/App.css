@@ -19,6 +19,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1.5rem;
   min-height: 100vh;
   box-sizing: border-box;
   text-align: center;
@@ -26,4 +27,64 @@ body {
 
 .status {
   color: #9a9aa5;
+  font-size: 0.85rem;
+}
+
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 0.7rem 1.4rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  background-color: #3b82f6;
+  color: #fff;
+  transition: background-color 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background-color: #2563eb;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+button.secondary {
+  background-color: transparent;
+  border: 1px solid #4b4b55;
+  color: #c5c5cf;
+  font-weight: 400;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.9rem;
+}
+
+button.secondary:hover {
+  background-color: #26262d;
+}
+
+.connect-drive .connected {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 0.35rem;
+}
+
+.dot-on {
+  background-color: #22c55e;
+}
+
+.error {
+  color: #f87171;
+  max-width: 32rem;
+  font-size: 0.9rem;
 }
