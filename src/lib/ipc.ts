@@ -5,7 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AuthStatus, HealthStatus } from "../types/ipc";
+import type { AuthStatus, EmulatorProfile, HealthStatus } from "../types/ipc";
 
 export function healthCheck(): Promise<HealthStatus> {
   return invoke<HealthStatus>("health_check");
@@ -23,4 +23,9 @@ export function getAuthStatus(): Promise<AuthStatus> {
 
 export function disconnectGoogleDrive(): Promise<AuthStatus> {
   return invoke<AuthStatus>("disconnect_google_drive");
+}
+
+/** `null` = pasta válida, mas nenhum emulador suportado reconhecido nela. */
+export function detectEmulator(path: string): Promise<EmulatorProfile | null> {
+  return invoke<EmulatorProfile | null>("detect_emulator", { path });
 }

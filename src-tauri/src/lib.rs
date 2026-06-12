@@ -28,7 +28,8 @@ pub fn run() {
             commands::health_check,
             commands::connect_google_drive,
             commands::get_auth_status,
-            commands::disconnect_google_drive
+            commands::disconnect_google_drive,
+            commands::detect_emulator
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o RetroSync");
