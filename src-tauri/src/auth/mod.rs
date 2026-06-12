@@ -150,6 +150,12 @@ impl AuthManager {
         Ok(tokens.access_token)
     }
 
+    /// Descarta o access token em cache (ex.: após um 401 do Drive),
+    /// forçando renovação via refresh token na próxima chamada.
+    pub async fn invalidate_cached_token(&self) {
+        *self.cached.write().await = None;
+    }
+
     async fn cache_token(&self, tokens: &oauth::TokenResponse) {
         *self.cached.write().await = Some(CachedToken {
             access_token: tokens.access_token.clone(),

@@ -1,24 +1,15 @@
-//! Estado global gerenciado pelo Tauri (`app.manage(AppState)`), acessado
-//! pelos comandos via `tauri::State<AppState>`. Os próximos passos adicionam
-//! aqui: conexão SQLite (Passo 5), handle do SyncEngine (Passo 5) e do
-//! process watcher (Passo 6).
+//! Estado global gerenciado pelo Tauri, construído no `setup` (precisa do
+//! `AppHandle` para o diretório de dados e para o engine emitir eventos) e
+//! acessado pelos comandos via `tauri::State<AppState>`.
+
+use std::sync::Arc;
 
 use crate::auth::AuthManager;
+use crate::storage::db::Db;
+use crate::sync::SyncEngine;
 
 pub struct AppState {
-    /// Cliente HTTP compartilhado (pool de conexões) — clonável e barato.
-    /// Consumido pelo módulo `drive` a partir do Passo 5.
-    #[allow(dead_code)]
-    pub http: reqwest::Client,
-    pub auth: AuthManager,
-}
-
-impl AppState {
-    pub fn new() -> Self {
-        let http = reqwest::Client::new();
-        Self {
-            auth: AuthManager::new(http.clone()),
-            http,
-        }
-    }
+    pub auth: Arc<AuthManager>,
+    pub db: Db,
+    pub engine: Arc<SyncEngine>,
 }

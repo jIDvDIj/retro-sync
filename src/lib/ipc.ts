@@ -5,7 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AuthStatus, EmulatorProfile, HealthStatus } from "../types/ipc";
+import type { AuthStatus, EmulatorProfile, HealthStatus, SyncSummary } from "../types/ipc";
 
 export function healthCheck(): Promise<HealthStatus> {
   return invoke<HealthStatus>("health_check");
@@ -28,4 +28,23 @@ export function disconnectGoogleDrive(): Promise<AuthStatus> {
 /** `null` = pasta válida, mas nenhum emulador suportado reconhecido nela. */
 export function detectEmulator(path: string): Promise<EmulatorProfile | null> {
   return invoke<EmulatorProfile | null>("detect_emulator", { path });
+}
+
+/** Detecta e registra o emulador da pasta para sincronização. */
+export function addEmulator(path: string): Promise<EmulatorProfile> {
+  return invoke<EmulatorProfile>("add_emulator", { path });
+}
+
+export function listEmulators(): Promise<EmulatorProfile[]> {
+  return invoke<EmulatorProfile[]>("list_emulators");
+}
+
+/** Remove da sincronização; nada é apagado no Drive nem no disco. */
+export function removeEmulator(name: string): Promise<void> {
+  return invoke<void>("remove_emulator", { name });
+}
+
+/** Sync manual bidirecional; resolve com o resumo ao terminar. */
+export function syncNow(): Promise<SyncSummary> {
+  return invoke<SyncSummary>("sync_now");
 }

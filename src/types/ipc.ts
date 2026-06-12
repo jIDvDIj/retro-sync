@@ -37,6 +37,28 @@ export interface SyncProgress {
   direction: SyncDirection;
 }
 
+/** `sync::SyncSummary` — retorno de `sync_now` e payload de `sync:completed` */
+export interface SyncSummary {
+  uploaded: number;
+  downloaded: number;
+  skipped: number;
+  failed: number;
+  queued: number;
+  durationMs: number;
+}
+
+/** `sync::engine::SyncStarted` — payload do evento `sync:started` */
+export interface SyncStarted {
+  trigger: string;
+  direction: SyncDirection;
+}
+
+/** `sync::engine::SyncError` — payload do evento `sync:error` */
+export interface SyncErrorEvent {
+  emulator: string | null;
+  message: string;
+}
+
 /** `error::AppError` serializado — todo comando rejeita com este shape */
 export interface AppErrorPayload {
   code:

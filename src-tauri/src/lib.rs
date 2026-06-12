@@ -10,6 +10,8 @@ mod storage;
 mod sync;
 mod watcher;
 
+use std::sync::Arc;
+
 use tauri::Manager;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -18,10 +20,44 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .manage(state::AppState::new())
         .setup(|app| {
             init_logging(app.handle())?;
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "RetroSync iniciado");
+
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&data_dir)?;
+            let db = storage::db::Db::open(&data_dir.join(constants::LOCAL_DB_FILE))?;
+
+            let http = reqwest::Client::new();
+            let auth = Arc::new(auth::AuthManager::new(http.clone()));
+            let drive = Arc::new(drive::DriveClient::new(http, auth.clone()));
+            let engine = Arc::new(sync::SyncEngine::new(
+                db.clone(),
+                drive,
+                auth.clone(),
+                app.handle().clone(),
+            ));
+
+            app.manage(state::AppState {
+                auth,
+                db,
+                engine: engine.clone(),
+            });
+
+            // Gatilho "ao iniciar o RetroSync": sync bidirecional em background.
+            tauri::async_runtime::spawn(async move {
+                match engine
+                    .sync_all(
+                        sync::SyncDirection::Bidirectional,
+                        constants::TRIGGER_STARTUP,
+                    )
+                    .await
+                {
+                    Ok(summary) => tracing::info!(?summary, "sync de inicialização concluído"),
+                    Err(err) => tracing::warn!(error = %err, "sync de inicialização não executado"),
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -29,7 +65,11 @@ pub fn run() {
             commands::connect_google_drive,
             commands::get_auth_status,
             commands::disconnect_google_drive,
-            commands::detect_emulator
+            commands::detect_emulator,
+            commands::add_emulator,
+            commands::list_emulators,
+            commands::remove_emulator,
+            commands::sync_now
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o RetroSync");

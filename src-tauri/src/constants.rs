@@ -30,3 +30,14 @@ pub const DRIVE_MAX_RETRIES: u32 = 3;
 
 /// Máximo de transferências simultâneas com o Drive.
 pub const DRIVE_MAX_CONCURRENT_TRANSFERS: usize = 3;
+
+/// Sufixo de arquivos temporários de download (gravação atômica via rename).
+/// O scan local ignora arquivos com este sufixo.
+pub const TMP_SUFFIX: &str = ".retrosync-tmp";
+
+/// Identificação dos gatilhos de sync (logs e evento `sync:started`).
+pub const TRIGGER_STARTUP: &str = "startup";
+pub const TRIGGER_SHUTDOWN: &str = "shutdown";
+pub const TRIGGER_MANUAL: &str = "manual";
+pub const TRIGGER_EMULATOR_START: &str = "emulator-start";
+pub const TRIGGER_EMULATOR_STOP: &str = "emulator-stop";

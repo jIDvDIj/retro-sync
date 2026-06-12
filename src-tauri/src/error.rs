@@ -31,6 +31,9 @@ pub enum AppError {
     #[error("emulador não reconhecido em: {0}")]
     EmulatorNotDetected(String),
 
+    #[error("arquivo em uso (modificado durante a leitura): {0}")]
+    FileBusy(String),
+
     #[error("{0}")]
     Other(String),
 }
@@ -45,6 +48,7 @@ impl AppError {
             AppError::Serialization(_) => "serialization",
             AppError::Auth(_) => "auth",
             AppError::EmulatorNotDetected(_) => "emulator_not_detected",
+            AppError::FileBusy(_) => "file_busy",
             AppError::Other(_) => "other",
         }
     }

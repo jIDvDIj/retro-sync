@@ -1,10 +1,11 @@
-//! Persistência local em SQLite via `rusqlite` (Passo 5).
+//! Persistência local em SQLite via `rusqlite`.
 //!
-//! Responsabilidades:
-//! - Conexão e migrações do banco (`retrosync.db` no diretório de dados do app);
-//! - Tabela `sync_manifest`: estado conhecido de cada arquivo (hash, mtime
-//!   local, modifiedTime e fileId no Drive) — fonte de verdade do diff;
-//! - Tabela de fila de operações pendentes (resiliência offline);
-//! - Emuladores configurados pelo usuário.
-//!
-//! `rusqlite` é síncrono: todo acesso passa por `tokio::task::spawn_blocking`.
+//! - `db`: conexão única + migrações, acesso async via `spawn_blocking`;
+//! - `manifest`: tabela `sync_manifest` — estado de cada arquivo no último sync;
+//! - `queue`: fila de operações pendentes (resiliência offline);
+//! - `emulators`: perfis configurados pelo usuário.
+
+pub mod db;
+pub mod emulators;
+pub mod manifest;
+pub mod queue;
