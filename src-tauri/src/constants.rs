@@ -46,3 +46,11 @@ pub const TRIGGER_SHUTDOWN: &str = "shutdown";
 pub const TRIGGER_MANUAL: &str = "manual";
 pub const TRIGGER_EMULATOR_START: &str = "emulator-start";
 pub const TRIGGER_EMULATOR_STOP: &str = "emulator-stop";
+
+/// Label da janela principal (definida pelo Tauri quando não há `label`).
+pub const MAIN_WINDOW_LABEL: &str = "main";
+
+/// IDs dos itens do menu da bandeja do sistema.
+pub const TRAY_MENU_OPEN: &str = "tray-open";
+pub const TRAY_MENU_SYNC: &str = "tray-sync";
+pub const TRAY_MENU_QUIT: &str = "tray-quit";

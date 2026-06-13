@@ -5,7 +5,13 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { AuthStatus, EmulatorProfile, HealthStatus, SyncSummary } from "../types/ipc";
+import type {
+  AuthStatus,
+  EmulatorProfile,
+  HealthStatus,
+  LastSync,
+  SyncSummary,
+} from "../types/ipc";
 
 export function healthCheck(): Promise<HealthStatus> {
   return invoke<HealthStatus>("health_check");
@@ -47,4 +53,9 @@ export function removeEmulator(name: string): Promise<void> {
 /** Sync manual bidirecional; resolve com o resumo ao terminar. */
 export function syncNow(): Promise<SyncSummary> {
   return invoke<SyncSummary>("sync_now");
+}
+
+/** Último sync concluído nesta execução; `null` se ainda não houve nenhum. */
+export function getLastSync(): Promise<LastSync | null> {
+  return invoke<LastSync | null>("get_last_sync");
 }

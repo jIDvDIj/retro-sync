@@ -14,7 +14,7 @@ use crate::error::{AppError, AppResult};
 use crate::events::EVT_AUTH_STATUS;
 use crate::state::AppState;
 use crate::storage::{emulators, manifest, queue};
-use crate::sync::{SyncDirection, SyncSummary};
+use crate::sync::{LastSync, SyncDirection, SyncSummary};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -131,4 +131,15 @@ pub async fn sync_now(state: State<'_, AppState>) -> AppResult<SyncSummary> {
         .engine
         .sync_all(SyncDirection::Bidirectional, TRIGGER_MANUAL)
         .await
+}
+
+/// Último sync concluído (para a UI exibir ao montar). `None` se ainda não
+/// houve nenhum nesta execução.
+#[tauri::command]
+pub fn get_last_sync(state: State<'_, AppState>) -> AppResult<Option<LastSync>> {
+    let guard = state
+        .last_sync
+        .lock()
+        .map_err(|_| AppError::Other("lock do último sync envenenado".into()))?;
+    Ok(guard.clone())
 }

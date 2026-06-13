@@ -1,60 +1,68 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { errorMessage } from "../lib/errors";
 import { connectGoogleDrive, disconnectGoogleDrive, getAuthStatus } from "../lib/ipc";
-import type { AppErrorPayload, AuthStatus } from "../types/ipc";
+import type { AuthStatus } from "../types/ipc";
 
 type FlowState = "loading" | "idle" | "connecting";
 
-function errorMessage(err: unknown): string {
-  const payload = err as Partial<AppErrorPayload>;
-  return payload?.message ?? "erro inesperado ao falar com o backend";
+interface Props {
+  onConnectionChange?: (connected: boolean) => void;
 }
 
-export function ConnectDrive() {
+export function ConnectDrive({ onConnectionChange }: Props) {
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [flow, setFlow] = useState<FlowState>("loading");
   const [error, setError] = useState<string | null>(null);
 
+  const apply = useCallback(
+    (next: AuthStatus) => {
+      setStatus(next);
+      onConnectionChange?.(next.connected);
+    },
+    [onConnectionChange],
+  );
+
   useEffect(() => {
     getAuthStatus()
-      .then(setStatus)
+      .then(apply)
       .catch((err: unknown) => setError(errorMessage(err)))
       .finally(() => setFlow("idle"));
-  }, []);
+  }, [apply]);
 
   const handleConnect = useCallback(async () => {
     setFlow("connecting");
     setError(null);
     try {
-      setStatus(await connectGoogleDrive());
+      apply(await connectGoogleDrive());
     } catch (err) {
       setError(errorMessage(err));
     } finally {
       setFlow("idle");
     }
-  }, []);
+  }, [apply]);
 
   const handleDisconnect = useCallback(async () => {
     setError(null);
     try {
-      setStatus(await disconnectGoogleDrive());
+      apply(await disconnectGoogleDrive());
     } catch (err) {
       setError(errorMessage(err));
     }
-  }, []);
+  }, [apply]);
 
   if (flow === "loading") {
-    return <p className="status">verificando conexão com o Google Drive…</p>;
+    return <p className="muted">verificando conexão com o Google Drive…</p>;
   }
 
   return (
-    <section className="connect-drive">
+    <div className="connect-drive">
       {status?.connected ? (
         <div className="connected">
-          <p>
-            <span className="dot dot-on" /> Conectado ao Google Drive
-            {status.email ? <strong> ({status.email})</strong> : null}
-          </p>
+          <span className="account">
+            <span className="dot dot-on" />
+            {status.email ?? "Conta Google conectada"}
+          </span>
           <button className="secondary" onClick={handleDisconnect}>
             Desconectar
           </button>
@@ -67,6 +75,6 @@ export function ConnectDrive() {
         </button>
       )}
       {error ? <p className="error">{error}</p> : null}
-    </section>
+    </div>
   );
 }

@@ -12,14 +12,28 @@ mod watcher;
 
 use std::sync::Arc;
 
-use tauri::Manager;
+use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Manager, WindowEvent};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .on_window_event(|window, event| {
+            // Fechar a janela apenas a esconde — o app continua vivo na
+            // bandeja. O sync de despedida roda no "Sair" do menu da tray.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == constants::MAIN_WINDOW_LABEL {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             init_logging(app.handle())?;
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "RetroSync iniciado");
@@ -28,6 +42,7 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let db = storage::db::Db::open(&data_dir.join(constants::LOCAL_DB_FILE))?;
 
+            let last_sync: sync::LastSyncStore = Arc::new(std::sync::Mutex::new(None));
             let http = reqwest::Client::new();
             let auth = Arc::new(auth::AuthManager::new(http.clone()));
             let drive = Arc::new(drive::DriveClient::new(http, auth.clone()));
@@ -36,13 +51,17 @@ pub fn run() {
                 drive,
                 auth.clone(),
                 app.handle().clone(),
+                last_sync.clone(),
             ));
 
-            app.manage(state::AppState {
+            app.manage(AppState {
                 auth,
                 db: db.clone(),
                 engine: engine.clone(),
+                last_sync,
             });
+
+            setup_tray(app.handle())?;
 
             // Process watcher: dispara sync ao abrir/fechar um emulador.
             watcher::start(db, engine.clone(), app.handle().clone());
@@ -72,10 +91,92 @@ pub fn run() {
             commands::add_emulator,
             commands::list_emulators,
             commands::remove_emulator,
-            commands::sync_now
+            commands::sync_now,
+            commands::get_last_sync
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o RetroSync");
+}
+
+/// Configura o ícone da bandeja e o menu de contexto (Abrir / Sincronizar
+/// agora / Sair).
+fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let open = MenuItem::with_id(app, constants::TRAY_MENU_OPEN, "Abrir", true, None::<&str>)?;
+    let sync = MenuItem::with_id(
+        app,
+        constants::TRAY_MENU_SYNC,
+        "Sincronizar agora",
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, constants::TRAY_MENU_QUIT, "Sair", true, None::<&str>)?;
+    let menu = Menu::with_items(
+        app,
+        &[&open, &sync, &PredefinedMenuItem::separator(app)?, &quit],
+    )?;
+
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or("ícone padrão da janela ausente")?;
+
+    TrayIconBuilder::with_id("retrosync-tray")
+        .icon(icon)
+        .tooltip("RetroSync")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(on_tray_menu_event)
+        .on_tray_icon_event(|tray, event| {
+            // Clique esquerdo simples reabre a janela.
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+fn on_tray_menu_event(app: &AppHandle, event: MenuEvent) {
+    let id = event.id.as_ref();
+    if id == constants::TRAY_MENU_OPEN {
+        show_main_window(app);
+    } else if id == constants::TRAY_MENU_SYNC {
+        spawn_sync(app.clone(), constants::TRIGGER_MANUAL, false);
+    } else if id == constants::TRAY_MENU_QUIT {
+        spawn_sync(app.clone(), constants::TRIGGER_SHUTDOWN, true);
+    }
+}
+
+/// Mostra e foca a janela principal, restaurando-a se estiver oculta/minimizada.
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// Dispara um sync bidirecional em background. Se `then_exit`, encerra o app
+/// ao terminar — é o sync de despedida do menu "Sair".
+fn spawn_sync(app: AppHandle, trigger: &'static str, then_exit: bool) {
+    tauri::async_runtime::spawn(async move {
+        let engine = app.state::<AppState>().engine.clone();
+        if let Err(err) = engine
+            .sync_all(sync::SyncDirection::Bidirectional, trigger)
+            .await
+        {
+            tracing::warn!(trigger, error = %err, "sync acionado pela bandeja falhou");
+        }
+        if then_exit {
+            app.exit(0);
+        }
+    });
 }
 
 /// Logs em stdout (dev) e em arquivo diário no diretório de logs do app

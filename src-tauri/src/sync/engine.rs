@@ -14,6 +14,7 @@ use std::time::Instant;
 use futures::stream::{self, StreamExt};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_notification::NotificationExt;
 use tokio::sync::Mutex;
 
 use super::conflict::SyncAction;
@@ -66,6 +67,21 @@ pub struct SyncError {
     pub message: String,
 }
 
+/// Resumo do último sync concluído, exposto à UI via `get_last_sync` (e
+/// atualizado ao vivo pelo evento `sync:completed`). Espelhado em
+/// `src/types/ipc.ts`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastSync {
+    pub at_ms: i64,
+    pub trigger: String,
+    pub summary: SyncSummary,
+}
+
+/// Célula compartilhada entre o `SyncEngine` (escreve) e o `AppState`
+/// (lê via comando). `std::sync::Mutex` basta: o lock é curto e sem `await`.
+pub type LastSyncStore = Arc<std::sync::Mutex<Option<LastSync>>>;
+
 enum OpOutcome {
     Uploaded,
     Downloaded,
@@ -92,17 +108,25 @@ pub struct SyncEngine {
     drive: Arc<DriveClient>,
     auth: Arc<AuthManager>,
     app: AppHandle,
+    last_sync: LastSyncStore,
     /// Serializa execuções: um sync por vez, os demais aguardam.
     running: Mutex<()>,
 }
 
 impl SyncEngine {
-    pub fn new(db: Db, drive: Arc<DriveClient>, auth: Arc<AuthManager>, app: AppHandle) -> Self {
+    pub fn new(
+        db: Db,
+        drive: Arc<DriveClient>,
+        auth: Arc<AuthManager>,
+        app: AppHandle,
+        last_sync: LastSyncStore,
+    ) -> Self {
         Self {
             db,
             drive,
             auth,
             app,
+            last_sync,
             running: Mutex::new(()),
         }
     }
@@ -181,6 +205,7 @@ impl SyncEngine {
                             message: err.to_string(),
                         },
                     );
+                    self.notify_error(&target.label, &err.to_string());
                 }
             }
         }
@@ -191,8 +216,33 @@ impl SyncEngine {
 
         summary.duration_ms = started_at.elapsed().as_millis() as u64;
         tracing::info!(?summary, trigger, "sync concluído");
+
+        let last = LastSync {
+            at_ms: chrono::Utc::now().timestamp_millis(),
+            trigger: trigger.to_string(),
+            summary: summary.clone(),
+        };
+        if let Ok(mut guard) = self.last_sync.lock() {
+            *guard = Some(last);
+        }
+
         let _ = self.app.emit(EVT_SYNC_COMPLETED, &summary);
         Ok(summary)
+    }
+
+    /// Notificação nativa do SO para erro crítico de sync. Útil quando o
+    /// gatilho é automático (startup/watcher/shutdown) e a janela está oculta.
+    fn notify_error(&self, emulator: &str, message: &str) {
+        if let Err(err) = self
+            .app
+            .notification()
+            .builder()
+            .title("RetroSync — falha na sincronização")
+            .body(format!("{emulator}: {message}"))
+            .show()
+        {
+            tracing::debug!(error = %err, "não foi possível exibir notificação nativa");
+        }
     }
 
     async fn sync_target(

@@ -53,6 +53,13 @@ export interface SyncStarted {
   direction: SyncDirection;
 }
 
+/** `sync::engine::LastSync` — retorno de `get_last_sync` */
+export interface LastSync {
+  atMs: number;
+  trigger: string;
+  summary: SyncSummary;
+}
+
 /** `sync::engine::SyncError` — payload do evento `sync:error` */
 export interface SyncErrorEvent {
   emulator: string | null;
