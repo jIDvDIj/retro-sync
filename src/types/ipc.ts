@@ -59,6 +59,12 @@ export interface SyncErrorEvent {
   message: string;
 }
 
+/** `watcher::EmulatorStatusEvent` — payload do evento `emulator:status` */
+export interface EmulatorStatusEvent {
+  emulator: string;
+  running: boolean;
+}
+
 /** `error::AppError` serializado — todo comando rejeita com este shape */
 export interface AppErrorPayload {
   code:
@@ -69,6 +75,7 @@ export interface AppErrorPayload {
     | "serialization"
     | "auth"
     | "emulator_not_detected"
+    | "file_busy"
     | "other";
   message: string;
 }

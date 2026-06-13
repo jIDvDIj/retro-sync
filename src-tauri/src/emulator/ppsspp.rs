@@ -10,8 +10,7 @@ use super::EmulatorProfile;
 
 pub const NAME: &str = "PPSSPP";
 
-/// Nomes de processo monitorados pelo watcher (Passo 6).
-#[allow(dead_code)]
+/// Nomes de processo monitorados pelo watcher.
 pub const PROCESS_NAMES: &[&str] = &["PPSSPPWindows64.exe", "PPSSPPWindows.exe", "PPSSPPSDL"];
 
 const PSP_DIR: &str = "PSP";

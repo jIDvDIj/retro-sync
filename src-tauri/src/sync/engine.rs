@@ -116,8 +116,7 @@ impl SyncEngine {
         self.sync_filtered(None, direction, trigger).await
     }
 
-    /// Sincroniza um único emulador (gatilhos do process watcher — Passo 6).
-    #[allow(dead_code)]
+    /// Sincroniza um único emulador (gatilhos do process watcher).
     pub async fn sync_emulator(
         &self,
         name: &str,

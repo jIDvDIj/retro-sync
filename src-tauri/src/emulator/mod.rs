@@ -37,6 +37,16 @@ pub fn detect_emulator(root_path: &Path) -> Option<EmulatorProfile> {
     ppsspp::detect(root_path).or_else(|| pcsx2::detect(root_path))
 }
 
+/// Nomes de processo do SO associados a um emulador, para o process watcher.
+/// Vazio se o nome canônico não corresponder a um perfil suportado.
+pub fn process_names(emulator_name: &str) -> &'static [&'static str] {
+    match emulator_name {
+        ppsspp::NAME => ppsspp::PROCESS_NAMES,
+        pcsx2::NAME => pcsx2::PROCESS_NAMES,
+        _ => &[],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;

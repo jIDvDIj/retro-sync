@@ -25,6 +25,11 @@ pub const KEYRING_REFRESH_TOKEN_KEY: &str = "google_drive_refresh_token";
 /// Intervalo de polling do process watcher.
 pub const WATCHER_POLL_INTERVAL_SECS: u64 = 2;
 
+/// Ticks consecutivos sem o processo antes de declarar o emulador encerrado.
+/// Debounce contra flapping; a abertura é detectada sem atraso. Com 2 ticks
+/// de 2s, são ~4s de ausência confirmada antes do sync Local → Drive.
+pub const WATCHER_STOP_DEBOUNCE_TICKS: u32 = 2;
+
 /// Máximo de tentativas (com backoff exponencial) por chamada à API do Drive.
 pub const DRIVE_MAX_RETRIES: u32 = 3;
 

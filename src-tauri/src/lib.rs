@@ -40,9 +40,12 @@ pub fn run() {
 
             app.manage(state::AppState {
                 auth,
-                db,
+                db: db.clone(),
                 engine: engine.clone(),
             });
+
+            // Process watcher: dispara sync ao abrir/fechar um emulador.
+            watcher::start(db, engine.clone(), app.handle().clone());
 
             // Gatilho "ao iniciar o RetroSync": sync bidirecional em background.
             tauri::async_runtime::spawn(async move {

@@ -10,8 +10,7 @@ use super::EmulatorProfile;
 
 pub const NAME: &str = "PCSX2";
 
-/// Nomes de processo monitorados pelo watcher (Passo 6).
-#[allow(dead_code)]
+/// Nomes de processo monitorados pelo watcher.
 pub const PROCESS_NAMES: &[&str] = &[
     "pcsx2-qt.exe",
     "pcsx2-qtx64.exe",
