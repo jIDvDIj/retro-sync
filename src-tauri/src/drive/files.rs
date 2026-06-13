@@ -128,6 +128,10 @@ impl DriveClient {
                     ("q", query.as_str()),
                     ("fields", LIST_FIELDS),
                     ("pageSize", "1"),
+                    // Determinístico: se houver duplicatas (criadas por uma
+                    // versão anterior com bug de corrida), converge sempre para
+                    // a mais antiga em vez de escolher uma ao acaso.
+                    ("orderBy", "createdTime"),
                 ])
             })
             .await?;

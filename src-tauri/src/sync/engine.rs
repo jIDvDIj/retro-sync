@@ -288,6 +288,16 @@ impl SyncEngine {
                 continue;
             }
 
+            // Pré-cria as subpastas necessárias de forma sequencial, populando
+            // o cache de IDs, ANTES dos uploads concorrentes. Sem isto, várias
+            // tarefas paralelas do mesmo jogo passam juntas pelo "miss" do cache
+            // e criam pastas duplicadas no Drive (uma por arquivo concorrente).
+            for dir in upload_dirs(&plan) {
+                self.drive
+                    .ensure_subpath(&folder_id, &folder_key, dir)
+                    .await?;
+            }
+
             let ctx = CategoryCtx {
                 emulator: target.label.clone(),
                 category: *category,
@@ -539,4 +549,58 @@ fn split_rel_path(rel_path: &str) -> (Option<&str>, &str) {
 /// Caminho relativo com `/` → `PathBuf` nativo da plataforma.
 fn rel_to_native(rel_path: &str) -> PathBuf {
     rel_path.split('/').collect()
+}
+
+/// Diretórios (relativos à categoria) que precisam existir no Drive para os
+/// uploads do plano — únicos e ordenados, para que pastas-pai sejam criadas
+/// antes das filhas e cada uma só uma vez.
+fn upload_dirs(plan: &[PlannedOp]) -> Vec<&str> {
+    let mut dirs: Vec<&str> = plan
+        .iter()
+        .filter(|op| op.action == SyncAction::Upload)
+        .filter_map(|op| op.rel_path.rsplit_once('/').map(|(dir, _)| dir))
+        .collect();
+    dirs.sort_unstable();
+    dirs.dedup();
+    dirs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::upload_dirs;
+    use crate::sync::conflict::SyncAction;
+    use crate::sync::diff::PlannedOp;
+
+    fn op(rel_path: &str, action: SyncAction) -> PlannedOp {
+        PlannedOp {
+            rel_path: rel_path.to_string(),
+            action,
+            local: None,
+            remote: None,
+        }
+    }
+
+    #[test]
+    fn upload_dirs_dedup_e_ordena_apenas_uploads() {
+        // Vários arquivos de uma mesma subpasta produzem o diretório uma só vez.
+        let plan = vec![
+            op("game-b/file1.bin", SyncAction::Upload),
+            op("game-a/icon.png", SyncAction::Upload),
+            op("game-a/param.sfo", SyncAction::Upload),
+            op("game-a/data.bin", SyncAction::Upload),
+            // download não cria pasta no Drive
+            op("game-c/save.bin", SyncAction::Download),
+        ];
+        assert_eq!(upload_dirs(&plan), vec!["game-a", "game-b"]);
+    }
+
+    #[test]
+    fn upload_dirs_ignora_arquivos_na_raiz_da_categoria() {
+        // Arquivos sem subpasta (ex.: savestates soltos) não geram diretório.
+        let plan = vec![
+            op("state-0.bin", SyncAction::Upload),
+            op("state-0.jpg", SyncAction::Upload),
+        ];
+        assert!(upload_dirs(&plan).is_empty());
+    }
 }
