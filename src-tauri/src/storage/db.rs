@@ -62,6 +62,26 @@ CREATE TABLE IF NOT EXISTS emulator_settings (
 );
 ";
 
+/// v4 — conflitos pendentes (ambos os lados mudaram desde o último sync).
+/// Enquanto houver linha para um emulador, o sync dele fica bloqueado.
+const SCHEMA_V4: &str = "
+CREATE TABLE IF NOT EXISTS sync_conflicts (
+    emulator       TEXT NOT NULL,
+    category       TEXT NOT NULL,
+    rel_path       TEXT NOT NULL,
+    local_mtime_ms INTEGER NOT NULL,
+    local_size     INTEGER NOT NULL,
+    local_device   TEXT,
+    drive_mtime_ms INTEGER NOT NULL,
+    drive_size     INTEGER NOT NULL,
+    drive_device   TEXT,
+    drive_file_id  TEXT NOT NULL,
+    local_abs_path TEXT NOT NULL,
+    detected_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (emulator, category, rel_path)
+);
+";
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -125,6 +145,10 @@ fn migrate(conn: &Connection) -> AppResult<()> {
     if version < 3 {
         conn.execute_batch(SCHEMA_V3)?;
         version = 3;
+    }
+    if version < 4 {
+        conn.execute_batch(SCHEMA_V4)?;
+        version = 4;
     }
     conn.pragma_update(None, "user_version", version)?;
     Ok(())

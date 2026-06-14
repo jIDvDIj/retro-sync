@@ -4,6 +4,8 @@
 //! a comparação de timestamps coerente entre máquinas. Arquivos acima de
 //! `SIMPLE_UPLOAD_MAX_BYTES` usam sessão resumable.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::json;
@@ -12,6 +14,7 @@ use super::{
     ms_to_rfc3339, DriveClient, DRIVE_API_BASE, DRIVE_UPLOAD_BASE, FILE_FIELDS, FOLDER_MIME_TYPE,
     LIST_FIELDS, OCTET_STREAM, SIMPLE_UPLOAD_MAX_BYTES,
 };
+use crate::constants::DRIVE_APP_PROP_DEVICE;
 use crate::error::{AppError, AppResult};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -27,6 +30,31 @@ pub struct DriveFile {
     #[serde(default)]
     #[allow(dead_code)]
     pub size: Option<String>,
+    /// Propriedades privadas do app (ex.: `device` = quem publicou a versão).
+    #[serde(default)]
+    pub app_properties: HashMap<String, String>,
+}
+
+impl DriveFile {
+    /// Dispositivo que publicou esta versão, se gravado em `appProperties`.
+    pub fn device(&self) -> Option<&str> {
+        self.app_properties
+            .get(DRIVE_APP_PROP_DEVICE)
+            .map(String::as_str)
+    }
+}
+
+/// Adiciona `appProperties.device` ao metadata de upload, quando há nome de
+/// dispositivo definido. Identifica a origem de cada versão no Drive.
+fn with_device(metadata: &mut serde_json::Value, device: Option<&str>) {
+    if let Some(dev) = device {
+        let mut props = serde_json::Map::new();
+        props.insert(
+            DRIVE_APP_PROP_DEVICE.to_string(),
+            serde_json::Value::String(dev.to_string()),
+        );
+        metadata["appProperties"] = serde_json::Value::Object(props);
+    }
 }
 
 impl DriveFile {
@@ -157,19 +185,22 @@ impl DriveClient {
         Ok(response.bytes().await?.to_vec())
     }
 
-    /// Cria um arquivo novo em `parent_id` preservando o mtime original.
+    /// Cria um arquivo novo em `parent_id` preservando o mtime original e
+    /// marcando o dispositivo de origem em `appProperties`.
     pub async fn upload_new(
         &self,
         parent_id: &str,
         name: &str,
         content: Vec<u8>,
         mtime_ms: i64,
+        device: Option<&str>,
     ) -> AppResult<DriveFile> {
-        let metadata = json!({
+        let mut metadata = json!({
             "name": name,
             "parents": [parent_id],
             "modifiedTime": ms_to_rfc3339(mtime_ms),
         });
+        with_device(&mut metadata, device);
         if content.len() > SIMPLE_UPLOAD_MAX_BYTES {
             let url = format!("{DRIVE_UPLOAD_BASE}/files");
             self.upload_resumable(reqwest::Method::POST, &url, &metadata, content)
@@ -181,14 +212,17 @@ impl DriveClient {
         }
     }
 
-    /// Atualiza o conteúdo de um arquivo existente preservando o mtime.
+    /// Atualiza o conteúdo de um arquivo existente preservando o mtime e
+    /// atualizando o dispositivo de origem em `appProperties`.
     pub async fn upload_existing(
         &self,
         file_id: &str,
         content: Vec<u8>,
         mtime_ms: i64,
+        device: Option<&str>,
     ) -> AppResult<DriveFile> {
-        let metadata = json!({ "modifiedTime": ms_to_rfc3339(mtime_ms) });
+        let mut metadata = json!({ "modifiedTime": ms_to_rfc3339(mtime_ms) });
+        with_device(&mut metadata, device);
         let url = format!("{DRIVE_UPLOAD_BASE}/files/{file_id}");
         if content.len() > SIMPLE_UPLOAD_MAX_BYTES {
             self.upload_resumable(reqwest::Method::PATCH, &url, &metadata, content)

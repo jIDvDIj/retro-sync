@@ -140,6 +140,9 @@ pub fn build_plan(
             SyncAction::Download | SyncAction::DownloadWithBackup => {
                 direction != SyncDirection::LocalToDrive
             }
+            // Conflito é registrado em qualquer direção — nunca queremos
+            // sobrescrever silenciosamente, mesmo num sync de mão única.
+            SyncAction::Conflict => true,
         };
 
         if allowed {
@@ -182,6 +185,7 @@ mod tests {
                 mime_type: "application/octet-stream".into(),
                 modified_time: chrono::DateTime::from_timestamp_millis(mtime),
                 size: Some("100".into()),
+                app_properties: std::collections::HashMap::new(),
             },
         }
     }
@@ -264,6 +268,22 @@ mod tests {
         assert!(ops[0].local.is_some());
         assert!(ops[0].remote.is_some());
         assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn ambos_mudaram_desde_o_ultimo_sync_vira_conflito() {
+        // local e drive divergem de (T, T) registrado → Conflict, com os dois
+        // lados disponíveis para a UI.
+        let (ops, _) = build_plan(
+            vec![local_file("save.bin", T + 300_000)],
+            vec![remote_file("save.bin", T + 60_000)],
+            vec![manifest_entry("save.bin", T, T)],
+            SyncDirection::Bidirectional,
+        );
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].action, SyncAction::Conflict);
+        assert!(ops[0].local.is_some());
+        assert!(ops[0].remote.is_some());
     }
 
     #[test]

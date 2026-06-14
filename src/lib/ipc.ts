@@ -7,6 +7,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type {
   AuthStatus,
+  Conflict,
+  ConflictResolution,
   EmulatorProfile,
   HealthStatus,
   LastSync,
@@ -87,6 +89,21 @@ export function setNotificationLevel(level: NotificationLevel): Promise<void> {
 /** Abre a pasta de backups locais no gerenciador de arquivos do SO. */
 export function openBackupFolder(): Promise<void> {
   return invoke<void>("open_backup_folder");
+}
+
+/** Conflitos pendentes (ambos os lados mudaram desde o último sync). */
+export function listConflicts(): Promise<Conflict[]> {
+  return invoke<Conflict[]>("list_conflicts");
+}
+
+/** Resolve um conflito mantendo a versão `local` ou `drive`. */
+export function resolveConflict(
+  emulator: string,
+  category: Conflict["category"],
+  relPath: string,
+  keep: ConflictResolution,
+): Promise<void> {
+  return invoke<void>("resolve_conflict", { emulator, category, relPath, keep });
 }
 
 /** Categorias de sync habilitadas para um emulador (default: todas ativas). */

@@ -70,8 +70,29 @@ export interface SyncSummary {
   queued: number;
   /** Arquivos copiados para backup antes de sobrescritos no primeiro sync. */
   backedUp: number;
+  /** Conflitos detectados neste sync (ambos os lados mudaram). */
+  conflicts: number;
   durationMs: number;
 }
+
+/** `storage::conflicts::Conflict` — conflito pendente; payload de `sync:conflict` */
+export interface Conflict {
+  emulator: string;
+  category: "saves" | "savestates" | "config";
+  relPath: string;
+  localMtimeMs: number;
+  localSize: number;
+  localDevice: string | null;
+  driveMtimeMs: number;
+  driveSize: number;
+  driveDevice: string | null;
+  driveFileId: string;
+  localAbsPath: string;
+  detectedAtMs: number;
+}
+
+/** `sync::ConflictResolution` — qual versão manter ao resolver um conflito */
+export type ConflictResolution = "local" | "drive";
 
 /** `sync::engine::SyncStarted` — payload do evento `sync:started` */
 export interface SyncStarted {
@@ -119,6 +140,7 @@ export const EVT = {
   SYNC_PROGRESS: "sync:progress",
   SYNC_COMPLETED: "sync:completed",
   SYNC_ERROR: "sync:error",
+  SYNC_CONFLICT: "sync:conflict",
   AUTH_STATUS: "auth:status",
   EMULATOR_STATUS: "emulator:status",
 } as const;

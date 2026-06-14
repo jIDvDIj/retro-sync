@@ -15,6 +15,11 @@ pub const DRIVE_CONFIG_FOLDER: &str = "config";
 /// operacional é a tabela SQLite local).
 pub const DRIVE_MANIFEST_FILE: &str = "sync_manifest.json";
 
+/// Chave de `appProperties` (privada ao app) que marca, em cada arquivo do
+/// Drive, o dispositivo que publicou aquela versão — usada na resolução de
+/// conflito para mostrar a origem da versão remota.
+pub const DRIVE_APP_PROP_DEVICE: &str = "device";
+
 /// Arquivo SQLite local (criado no diretório de dados do app).
 pub const LOCAL_DB_FILE: &str = "retrosync.db";
 

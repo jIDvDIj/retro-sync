@@ -4,8 +4,10 @@
 //! - `manifest`: tabela `sync_manifest` — estado de cada arquivo no último sync;
 //! - `queue`: fila de operações pendentes (resiliência offline);
 //! - `emulators`: perfis configurados pelo usuário;
-//! - `settings`: configurações globais (nome do dispositivo, gatilhos, etc.).
+//! - `settings`: configurações globais (nome do dispositivo, gatilhos, etc.);
+//! - `conflicts`: conflitos pendentes que bloqueiam o sync de um emulador.
 
+pub mod conflicts;
 pub mod db;
 pub mod emulators;
 pub mod manifest;

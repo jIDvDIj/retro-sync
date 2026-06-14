@@ -5,6 +5,7 @@ import { ConnectDrive } from "./components/ConnectDrive";
 import { EmulatorCard } from "./components/EmulatorCard";
 import { SettingsModal } from "./components/SettingsModal";
 import { SyncStatus } from "./components/SyncStatus";
+import { useConflicts } from "./hooks/useConflicts";
 import { useEmulators } from "./hooks/useEmulators";
 import { useSettings } from "./hooks/useSettings";
 import { useSyncEvents } from "./hooks/useSyncEvents";
@@ -14,6 +15,7 @@ function App() {
   const sync = useSyncEvents();
   const { emulators, loading, error, refresh, remove } = useEmulators();
   const { settings, reload: reloadSettings } = useSettings();
+  const { conflicts, reload: reloadConflicts } = useConflicts();
   const [connected, setConnected] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -57,7 +59,9 @@ function App() {
                 key={profile.name}
                 profile={profile}
                 running={sync.running.has(profile.name)}
+                conflicts={conflicts.filter((c) => c.emulator === profile.name)}
                 onRemove={remove}
+                onConflictResolved={reloadConflicts}
               />
             ))}
           </div>

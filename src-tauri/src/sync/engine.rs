@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use futures::stream::{self, StreamExt};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::Mutex;
@@ -24,9 +24,13 @@ use crate::auth::AuthManager;
 use crate::constants::{DRIVE_MANIFEST_FILE, DRIVE_MAX_CONCURRENT_TRANSFERS, TMP_SUFFIX};
 use crate::drive::DriveClient;
 use crate::error::{AppError, AppResult};
-use crate::events::{EVT_SYNC_COMPLETED, EVT_SYNC_ERROR, EVT_SYNC_PROGRESS, EVT_SYNC_STARTED};
+use crate::events::{
+    EVT_SYNC_COMPLETED, EVT_SYNC_CONFLICT, EVT_SYNC_ERROR, EVT_SYNC_PROGRESS, EVT_SYNC_STARTED,
+};
+use crate::storage::conflicts::{self, Conflict};
 use crate::storage::db::Db;
 use crate::storage::manifest::{self, ManifestEntry};
+use crate::storage::settings::{self, NotificationLevel};
 use crate::storage::{emulators, queue};
 
 /// Resultado agregado de um sync. Espelhado em `src/types/ipc.ts`.
@@ -41,6 +45,8 @@ pub struct SyncSummary {
     /// Arquivos locais copiados para backup antes de serem sobrescritos no
     /// primeiro sync (BUG-001). `> 0` sinaliza à UI que há backups a oferecer.
     pub backed_up: u32,
+    /// Conflitos detectados neste sync (ambos os lados mudaram — BUG-002).
+    pub conflicts: u32,
     pub duration_ms: u64,
 }
 
@@ -52,6 +58,7 @@ impl SyncSummary {
         self.failed += other.failed;
         self.queued += other.queued;
         self.backed_up += other.backed_up;
+        self.conflicts += other.conflicts;
     }
 }
 
@@ -91,8 +98,20 @@ enum OpOutcome {
     Downloaded,
     /// Download que também gerou um backup local (primeiro sync, BUG-001).
     DownloadedWithBackup,
+    /// Conflito registrado; nenhuma transferência feita (BUG-002).
+    Conflicted,
     Queued,
     Failed,
+}
+
+/// Escolha do usuário ao resolver um conflito. Espelhado em `src/types/ipc.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConflictResolution {
+    /// Manter a versão local e enviá-la ao Drive.
+    Local,
+    /// Manter a versão do Drive e baixá-la (com backup do local).
+    Drive,
 }
 
 struct CategoryCtx {
@@ -108,6 +127,10 @@ struct CategoryCtx {
     /// Pasta onde gravar backups locais desta categoria neste sync
     /// (`<backup_dir>/<emulador>/<timestamp>/<categoria>`).
     backup_base: PathBuf,
+    /// Nome deste dispositivo (marca a origem nos uploads e nos conflitos).
+    device: Option<String>,
+    /// Nível de notificação vigente (gating da notificação de conflito).
+    notif: NotificationLevel,
     total: u32,
     completed: AtomicU32,
 }
@@ -180,7 +203,12 @@ impl SyncEngine {
 
         let notif = self
             .db
-            .with(crate::storage::settings::notification_level)
+            .with(settings::notification_level)
+            .await
+            .unwrap_or_default();
+        let device = self
+            .db
+            .with(settings::device_name)
             .await
             .unwrap_or_default();
 
@@ -231,7 +259,23 @@ impl SyncEngine {
 
         let mut summary = SyncSummary::default();
         for target in &targets {
-            match self.sync_target(target, direction, &run_stamp).await {
+            // Emulador com conflito pendente fica bloqueado até o usuário
+            // resolver — nem manual nem automático sincroniza (BUG-002).
+            let name = target.label.clone();
+            let blocked = self
+                .db
+                .with(move |conn| conflicts::has_for_emulator(conn, &name))
+                .await
+                .unwrap_or(false);
+            if blocked {
+                tracing::info!(emulador = %target.label, "conflito pendente; sync do emulador bloqueado");
+                continue;
+            }
+
+            match self
+                .sync_target(target, direction, &run_stamp, device.as_deref(), notif)
+                .await
+            {
                 Ok(partial) => summary.merge(&partial),
                 Err(err) => {
                     summary.failed += 1;
@@ -293,6 +337,22 @@ impl SyncEngine {
         }
     }
 
+    /// Notificação nativa do SO de conflito (gated pelo nível de notificação).
+    fn notify_conflict(&self, emulator: &str, rel_path: &str) {
+        if let Err(err) = self
+            .app
+            .notification()
+            .builder()
+            .title("RetroSync — conflito de sincronização")
+            .body(format!(
+                "{emulator}: \"{rel_path}\" mudou nos dois lados. Resolva no app."
+            ))
+            .show()
+        {
+            tracing::debug!(error = %err, "não foi possível exibir notificação nativa");
+        }
+    }
+
     /// Notificação nativa do SO para erro crítico de sync. Útil quando o
     /// gatilho é automático (startup/watcher/shutdown) e a janela está oculta.
     fn notify_error(&self, emulator: &str, message: &str) {
@@ -313,6 +373,8 @@ impl SyncEngine {
         target: &SyncTarget,
         direction: SyncDirection,
         run_stamp: &str,
+        device: Option<&str>,
+        notif: NotificationLevel,
     ) -> AppResult<SyncSummary> {
         let mut summary = SyncSummary::default();
 
@@ -374,6 +436,8 @@ impl SyncEngine {
                     .join(&target.label)
                     .join(run_stamp)
                     .join(category.as_str()),
+                device: device.map(str::to_string),
+                notif,
                 total: plan.len() as u32,
                 completed: AtomicU32::new(0),
             };
@@ -391,6 +455,7 @@ impl SyncEngine {
                         summary.downloaded += 1;
                         summary.backed_up += 1;
                     }
+                    OpOutcome::Conflicted => summary.conflicts += 1,
                     OpOutcome::Queued => summary.queued += 1,
                     OpOutcome::Failed => summary.failed += 1,
                 }
@@ -406,6 +471,7 @@ impl SyncEngine {
             SyncAction::Upload => self.do_upload(ctx, &op).await,
             SyncAction::Download => self.do_download(ctx, &op).await,
             SyncAction::DownloadWithBackup => self.do_download_with_backup(ctx, &op).await,
+            SyncAction::Conflict => self.record_conflict(ctx, &op).await,
             SyncAction::NoOp => Ok(()),
         };
 
@@ -423,6 +489,11 @@ impl SyncEngine {
 
         match result {
             Ok(()) => {
+                // Conflito não é transferência: não limpa a pendência (o
+                // emulador fica bloqueado até a resolução).
+                if matches!(op.action, SyncAction::Conflict) {
+                    return OpOutcome::Conflicted;
+                }
                 let (emulator, category, rel) = (ctx.emulator.clone(), ctx.category, rel_path);
                 let _ = self
                     .db
@@ -488,15 +559,16 @@ impl SyncEngine {
         };
 
         let size_bytes = content.len() as i64;
+        let device = ctx.device.as_deref();
         let uploaded = match op.remote.as_ref() {
             Some(existing) => {
                 self.drive
-                    .upload_existing(&existing.id, content, mtime_after)
+                    .upload_existing(&existing.id, content, mtime_after, device)
                     .await?
             }
             None => {
                 self.drive
-                    .upload_new(&parent_id, file_name, content, mtime_after)
+                    .upload_new(&parent_id, file_name, content, mtime_after, device)
                     .await?
             }
         };
@@ -578,6 +650,51 @@ impl SyncEngine {
         .await
     }
 
+    /// Registra um conflito (ambos os lados mudaram desde o último sync). Não
+    /// transfere nada; emite evento e notifica. O emulador fica bloqueado até a
+    /// resolução pelo usuário (BUG-002).
+    async fn record_conflict(&self, ctx: &CategoryCtx, op: &PlannedOp) -> AppResult<()> {
+        let local = op
+            .local
+            .as_ref()
+            .ok_or_else(|| AppError::Other("conflito planejado sem arquivo local".into()))?;
+        let remote = op
+            .remote
+            .as_ref()
+            .ok_or_else(|| AppError::Other("conflito planejado sem arquivo remoto".into()))?;
+
+        let conflict = Conflict {
+            emulator: ctx.emulator.clone(),
+            category: ctx.category,
+            rel_path: op.rel_path.clone(),
+            local_mtime_ms: local.mtime_ms,
+            local_size: local.size_bytes,
+            local_device: ctx.device.clone(),
+            drive_mtime_ms: remote.modified_ms().unwrap_or(0),
+            drive_size: remote
+                .size
+                .as_deref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
+            drive_device: remote.device().map(str::to_string),
+            drive_file_id: remote.id.clone(),
+            local_abs_path: local.abs_path.to_string_lossy().into_owned(),
+            detected_at_ms: chrono::Utc::now().timestamp_millis(),
+        };
+
+        let stored = conflict.clone();
+        self.db
+            .with(move |conn| conflicts::upsert(conn, &stored))
+            .await?;
+
+        tracing::warn!(emulador = %ctx.emulator, arquivo = %op.rel_path, "conflito detectado: ambos os lados mudaram");
+        let _ = self.app.emit(EVT_SYNC_CONFLICT, &conflict);
+        if ctx.notif.notifies_errors() {
+            self.notify_conflict(&ctx.emulator, &op.rel_path);
+        }
+        Ok(())
+    }
+
     async fn record_synced(
         &self,
         ctx: &CategoryCtx,
@@ -620,16 +737,142 @@ impl SyncEngine {
         match self.drive.find_child(&root_id, DRIVE_MANIFEST_FILE).await? {
             Some(existing) => {
                 self.drive
-                    .upload_existing(&existing.id, bytes, now_ms)
+                    .upload_existing(&existing.id, bytes, now_ms, device.as_deref())
                     .await?;
             }
             None => {
                 self.drive
-                    .upload_new(&root_id, DRIVE_MANIFEST_FILE, bytes, now_ms)
+                    .upload_new(
+                        &root_id,
+                        DRIVE_MANIFEST_FILE,
+                        bytes,
+                        now_ms,
+                        device.as_deref(),
+                    )
                     .await?;
             }
         }
         Ok(())
+    }
+
+    /// Resolve um conflito mantendo a versão escolhida e desbloqueia o emulador.
+    pub async fn resolve_conflict(
+        &self,
+        emulator: &str,
+        category: SyncCategory,
+        rel_path: &str,
+        keep: ConflictResolution,
+    ) -> AppResult<()> {
+        let (emu, rel) = (emulator.to_string(), rel_path.to_string());
+        let conflict = self
+            .db
+            .with(move |conn| conflicts::get(conn, &emu, category, &rel))
+            .await?
+            .ok_or_else(|| AppError::Other("conflito não encontrado".into()))?;
+
+        match keep {
+            ConflictResolution::Drive => self.resolve_keep_drive(&conflict).await?,
+            ConflictResolution::Local => self.resolve_keep_local(&conflict).await?,
+        }
+
+        let (emu, rel) = (emulator.to_string(), rel_path.to_string());
+        self.db
+            .with(move |conn| conflicts::remove(conn, &emu, category, &rel))
+            .await?;
+        tracing::info!(emulador = %emulator, arquivo = %rel_path, ?keep, "conflito resolvido");
+        Ok(())
+    }
+
+    /// Mantém o Drive: faz backup do local e baixa a versão remota por cima.
+    async fn resolve_keep_drive(&self, c: &Conflict) -> AppResult<()> {
+        let dest = PathBuf::from(&c.local_abs_path);
+        if dest.exists() {
+            let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+            let backup_path = self
+                .backup_dir
+                .join(&c.emulator)
+                .join(format!("conflito-{stamp}"))
+                .join(c.category.as_str())
+                .join(rel_to_native(&c.rel_path));
+            if let Some(parent) = backup_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::copy(&dest, &backup_path).await?;
+            tracing::info!(arquivo = %c.rel_path, backup = %backup_path.display(), "backup local antes de resolver conflito (manter Drive)");
+        }
+
+        let content = self.drive.download(&c.drive_file_id).await?;
+        let size_bytes = content.len() as i64;
+        if let Some(parent) = dest.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        let tmp = dest.with_file_name(format!(
+            "{}{TMP_SUFFIX}",
+            dest.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        tokio::fs::write(&tmp, &content).await?;
+        tokio::fs::rename(&tmp, &dest).await?;
+
+        let drive_mtime = c.drive_mtime_ms;
+        let ft = filetime::FileTime::from_unix_time(
+            drive_mtime / 1000,
+            ((drive_mtime % 1000) * 1_000_000) as u32,
+        );
+        filetime::set_file_mtime(&dest, ft)?;
+
+        self.upsert_resolved_manifest(
+            c,
+            drive_mtime,
+            Some(drive_mtime),
+            size_bytes,
+            &c.drive_file_id,
+        )
+        .await
+    }
+
+    /// Mantém o local: envia a versão local por cima da do Drive.
+    async fn resolve_keep_local(&self, c: &Conflict) -> AppResult<()> {
+        let src = PathBuf::from(&c.local_abs_path);
+        let content = tokio::fs::read(&src).await?;
+        let size_bytes = content.len() as i64;
+        let local_mtime = file_mtime_ms(&src).await?;
+        let device = self
+            .db
+            .with(settings::device_name)
+            .await
+            .unwrap_or_default();
+
+        let uploaded = self
+            .drive
+            .upload_existing(&c.drive_file_id, content, local_mtime, device.as_deref())
+            .await?;
+        let drive_mtime = uploaded.modified_ms();
+
+        self.upsert_resolved_manifest(c, local_mtime, drive_mtime, size_bytes, &uploaded.id)
+            .await
+    }
+
+    async fn upsert_resolved_manifest(
+        &self,
+        c: &Conflict,
+        local_mtime_ms: i64,
+        drive_mtime_ms: Option<i64>,
+        size_bytes: i64,
+        drive_file_id: &str,
+    ) -> AppResult<()> {
+        let entry = ManifestEntry {
+            emulator: c.emulator.clone(),
+            category: c.category,
+            rel_path: c.rel_path.clone(),
+            drive_file_id: Some(drive_file_id.to_string()),
+            local_mtime_ms: Some(local_mtime_ms),
+            drive_mtime_ms,
+            size_bytes: Some(size_bytes),
+            last_synced_at_ms: chrono::Utc::now().timestamp_millis(),
+        };
+        self.db
+            .with(move |conn| manifest::upsert(conn, &entry))
+            .await
     }
 }
 

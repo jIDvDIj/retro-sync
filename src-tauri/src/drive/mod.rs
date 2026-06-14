@@ -24,8 +24,9 @@ pub(crate) const OCTET_STREAM: &str = "application/octet-stream";
 /// Acima disso o upload usa sessão resumable em vez de multipart.
 pub(crate) const SIMPLE_UPLOAD_MAX_BYTES: usize = 5 * 1024 * 1024;
 
-pub(crate) const FILE_FIELDS: &str = "id,name,mimeType,modifiedTime,size";
-pub(crate) const LIST_FIELDS: &str = "files(id,name,mimeType,modifiedTime,size),nextPageToken";
+pub(crate) const FILE_FIELDS: &str = "id,name,mimeType,modifiedTime,size,appProperties";
+pub(crate) const LIST_FIELDS: &str =
+    "files(id,name,mimeType,modifiedTime,size,appProperties),nextPageToken";
 
 /// Converte epoch ms para o RFC 3339 aceito pela API em `modifiedTime`.
 pub(crate) fn ms_to_rfc3339(ms: i64) -> String {

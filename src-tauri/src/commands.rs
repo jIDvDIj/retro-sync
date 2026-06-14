@@ -13,10 +13,11 @@ use crate::emulator::{self, EmulatorProfile};
 use crate::error::{AppError, AppResult};
 use crate::events::EVT_AUTH_STATUS;
 use crate::state::AppState;
+use crate::storage::conflicts::{self, Conflict};
 use crate::storage::emulators::SyncCategories;
 use crate::storage::settings::{NotificationLevel, Settings, TriggerSettings};
 use crate::storage::{emulators, manifest, queue, settings};
-use crate::sync::{LastSync, SyncDirection, SyncSummary};
+use crate::sync::{ConflictResolution, LastSync, SyncCategory, SyncDirection, SyncSummary};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -121,9 +122,33 @@ pub async fn remove_emulator(state: State<'_, AppState>, name: String) -> AppRes
         .with(move |conn| {
             emulators::remove(conn, &name)?;
             emulators::remove_categories(conn, &name)?;
+            conflicts::remove_for_emulator(conn, &name)?;
             manifest::remove_for_emulator(conn, &name)?;
             queue::remove_for_emulator(conn, &name)
         })
+        .await
+}
+
+/// Conflitos pendentes (ambos os lados mudaram). A UI exibe o botão de resolver
+/// no card do emulador afetado.
+#[tauri::command]
+pub async fn list_conflicts(state: State<'_, AppState>) -> AppResult<Vec<Conflict>> {
+    state.db.with(conflicts::list_all).await
+}
+
+/// Resolve um conflito mantendo a versão escolhida (`local` ou `drive`) e
+/// desbloqueia o sync do emulador.
+#[tauri::command]
+pub async fn resolve_conflict(
+    state: State<'_, AppState>,
+    emulator: String,
+    category: SyncCategory,
+    rel_path: String,
+    keep: ConflictResolution,
+) -> AppResult<()> {
+    state
+        .engine
+        .resolve_conflict(&emulator, category, &rel_path, keep)
         .await
 }
 

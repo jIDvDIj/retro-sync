@@ -15,6 +15,10 @@ pub enum SyncAction {
     /// backup antes de ser sobrescrito. Usado no primeiro sync de um arquivo
     /// que existe nos dois lados (Drive vence — BUG-001).
     DownloadWithBackup,
+    /// Ambos os lados mudaram desde o último sync: nenhum vence
+    /// automaticamente. O sync do emulador pausa até o usuário escolher
+    /// (BUG-002).
+    Conflict,
     NoOp,
 }
 
@@ -30,17 +34,23 @@ pub fn decide(
         (Some(_), None) => SyncAction::Upload,
         (None, Some(_)) => SyncAction::Download,
         (Some(local), Some(drive)) => match last_synced {
-            // Já sincronizado antes: resolução normal por mtime. O conflito real
-            // (ambos mudaram desde o último sync) é tratado no Passo 7.
+            // Já sincronizado antes: o que mudou desde o último sync decide.
+            // Se ambos mudaram, é conflito real — ninguém vence sozinho.
             Some((last_local, last_drive)) => {
-                let unchanged = eq_within_tolerance(local, last_local)
-                    && eq_within_tolerance(drive, last_drive);
-                if unchanged || eq_within_tolerance(local, drive) {
-                    SyncAction::NoOp
-                } else if local > drive {
-                    SyncAction::Upload
-                } else {
-                    SyncAction::Download
+                let local_changed = !eq_within_tolerance(local, last_local);
+                let drive_changed = !eq_within_tolerance(drive, last_drive);
+                match (local_changed, drive_changed) {
+                    (false, false) => SyncAction::NoOp,
+                    (true, false) => SyncAction::Upload,
+                    (false, true) => SyncAction::Download,
+                    (true, true) => {
+                        // Os dois mudaram; mtime idêntico ainda é NoOp.
+                        if eq_within_tolerance(local, drive) {
+                            SyncAction::NoOp
+                        } else {
+                            SyncAction::Conflict
+                        }
+                    }
                 }
             }
             // Primeiro sync deste arquivo (sem manifest) e ele existe nos dois
@@ -150,16 +160,25 @@ mod tests {
     }
 
     #[test]
-    fn conflito_real_vence_o_mais_recente() {
-        // Mudou dos dois lados desde o último sync: timestamp decide.
+    fn conflito_real_ambos_mudaram_vira_conflito() {
+        // Mudou dos dois lados desde o último sync: ninguém vence — Conflict.
         let last = (T, T);
         assert_eq!(
             decide(Some(T + 300_000), Some(T + 60_000), Some(last)),
-            SyncAction::Upload
+            SyncAction::Conflict
         );
         assert_eq!(
             decide(Some(T + 60_000), Some(T + 300_000), Some(last)),
-            SyncAction::Download
+            SyncAction::Conflict
+        );
+    }
+
+    #[test]
+    fn ambos_mudaram_mas_com_mesmo_mtime_e_noop() {
+        let last = (T, T);
+        assert_eq!(
+            decide(Some(T + 300_000), Some(T + 300_000), Some(last)),
+            SyncAction::NoOp
         );
     }
 }

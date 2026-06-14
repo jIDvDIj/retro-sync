@@ -242,6 +242,58 @@ button.secondary:hover:not(:disabled) {
   color: #9a9aa5;
 }
 
+.badge-conflict {
+  background-color: rgba(248, 113, 113, 0.18);
+  color: #f87171;
+}
+
+.emulator-card.has-conflict {
+  border-color: rgba(248, 113, 113, 0.45);
+}
+
+/* Modal de conflito */
+.conflict-item {
+  border: 1px solid #2c2c34;
+  border-radius: 8px;
+  padding: 0.7rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.conflict-path {
+  font-size: 0.85rem;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.conflict-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.conflict-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border: 1px solid #2c2c34;
+  border-radius: 8px;
+  padding: 0.6rem;
+  background-color: #202028;
+}
+
+.conflict-side-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.conflict-side button {
+  margin-top: 0.2rem;
+  font-size: 0.82rem;
+  padding: 0.4rem 0.7rem;
+}
+
 /* Barra de status de sync */
 .sync-status {
   margin-top: auto;
