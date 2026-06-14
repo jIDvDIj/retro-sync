@@ -51,6 +51,11 @@ pub const TRIGGER_EMULATOR_STOP: &str = "emulator-stop";
 /// Nome amigável deste dispositivo (ex.: "PC Gamer"), definido no login.
 pub const SETTING_DEVICE_NAME: &str = "device_name";
 
+/// Gatilhos de sync automático ligáveis/desligáveis (default: todos ligados).
+pub const SETTING_TRIGGER_STARTUP: &str = "trigger_startup";
+pub const SETTING_TRIGGER_EMULATOR_START: &str = "trigger_emulator_start";
+pub const SETTING_TRIGGER_EMULATOR_STOP: &str = "trigger_emulator_stop";
+
 /// Label da janela principal (definida pelo Tauri quando não há `label`).
 pub const MAIN_WINDOW_LABEL: &str = "main";
 

@@ -52,8 +52,8 @@ struct EmulatorStatusEvent {
 /// Sobe o produtor e o consumidor do watcher. Chamado uma vez no `setup`.
 pub fn start(db: Db, engine: Arc<SyncEngine>, app: AppHandle) {
     let (tx, rx) = mpsc::channel::<WatcherEvent>(32);
-    spawn_poll_loop(db, tx);
-    spawn_consumer(rx, engine, app);
+    spawn_poll_loop(db.clone(), tx);
+    spawn_consumer(rx, engine, app, db);
 }
 
 fn spawn_poll_loop(db: Db, tx: mpsc::Sender<WatcherEvent>) {
@@ -120,7 +120,12 @@ fn spawn_poll_loop(db: Db, tx: mpsc::Sender<WatcherEvent>) {
     });
 }
 
-fn spawn_consumer(mut rx: mpsc::Receiver<WatcherEvent>, engine: Arc<SyncEngine>, app: AppHandle) {
+fn spawn_consumer(
+    mut rx: mpsc::Receiver<WatcherEvent>,
+    engine: Arc<SyncEngine>,
+    app: AppHandle,
+    db: Db,
+) {
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             let (name, running, direction, trigger) = match event {
@@ -138,6 +143,8 @@ fn spawn_consumer(mut rx: mpsc::Receiver<WatcherEvent>, engine: Arc<SyncEngine>,
                 ),
             };
 
+            // O status sempre é emitido (a UI mostra "em execução"); só o sync
+            // automático respeita o gatilho desativado pelo usuário.
             let _ = app.emit(
                 EVT_EMULATOR_STATUS,
                 &EmulatorStatusEvent {
@@ -146,6 +153,20 @@ fn spawn_consumer(mut rx: mpsc::Receiver<WatcherEvent>, engine: Arc<SyncEngine>,
                 },
             );
             tracing::info!(emulador = %name, running, trigger, "transição de emulador detectada");
+
+            let triggers = db
+                .with(crate::storage::settings::triggers)
+                .await
+                .unwrap_or_default();
+            let enabled = if running {
+                triggers.emulator_start
+            } else {
+                triggers.emulator_stop
+            };
+            if !enabled {
+                tracing::info!(emulador = %name, trigger, "gatilho desativado; sync automático ignorado");
+                continue;
+            }
 
             if let Err(err) = engine.sync_emulator(&name, direction, trigger).await {
                 tracing::warn!(emulador = %name, error = %err, "sync disparado pelo watcher falhou");

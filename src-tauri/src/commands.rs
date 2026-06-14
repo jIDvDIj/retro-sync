@@ -14,7 +14,7 @@ use crate::error::{AppError, AppResult};
 use crate::events::EVT_AUTH_STATUS;
 use crate::state::AppState;
 use crate::storage::emulators::SyncCategories;
-use crate::storage::settings::Settings;
+use crate::storage::settings::{Settings, TriggerSettings};
 use crate::storage::{emulators, manifest, queue, settings};
 use crate::sync::{LastSync, SyncDirection, SyncSummary};
 
@@ -167,6 +167,16 @@ pub async fn sync_now(state: State<'_, AppState>) -> AppResult<SyncSummary> {
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> AppResult<Settings> {
     state.db.with(settings::load).await
+}
+
+/// Liga/desliga os gatilhos de sync automático. O sync manual (botão/tray) não
+/// é afetado por estes flags.
+#[tauri::command]
+pub async fn set_triggers(state: State<'_, AppState>, triggers: TriggerSettings) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::set_triggers(conn, &triggers))
+        .await
 }
 
 /// Define o nome amigável deste dispositivo. Obrigatório no login; pode ser

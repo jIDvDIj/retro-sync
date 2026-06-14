@@ -4,6 +4,7 @@ import { errorMessage } from "../lib/errors";
 import { setDeviceName } from "../lib/ipc";
 import type { EmulatorProfile, Settings } from "../types/ipc";
 import { CategorySettings } from "./CategorySettings";
+import { TriggerSettingsSection } from "./TriggerSettings";
 
 interface Props {
   settings: Settings;
@@ -78,6 +79,14 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
             {saved && !dirty ? <span className="saved-hint">Salvo ✓</span> : null}
           </div>
           {error ? <p className="error">{error}</p> : null}
+        </section>
+
+        <section className="settings-section">
+          <h3>Sincronização automática</h3>
+          <p className="muted">
+            Mesmo com tudo desligado, o botão “Sincronizar agora” continua disponível.
+          </p>
+          <TriggerSettingsSection triggers={settings.triggers} onChanged={onSaved} />
         </section>
 
         <section className="settings-section">

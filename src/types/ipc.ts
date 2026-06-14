@@ -16,9 +16,17 @@ export interface AuthStatus {
   email: string | null;
 }
 
+/** `storage::settings::TriggerSettings` — gatilhos de sync automático */
+export interface TriggerSettings {
+  startup: boolean;
+  emulatorStart: boolean;
+  emulatorStop: boolean;
+}
+
 /** `storage::settings::Settings` — configurações globais do usuário */
 export interface Settings {
   deviceName: string | null;
+  triggers: TriggerSettings;
 }
 
 /** `emulator::EmulatorProfile` — paths serializam como string */

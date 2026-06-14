@@ -64,10 +64,21 @@ pub fn run() {
             setup_tray(app.handle())?;
 
             // Process watcher: dispara sync ao abrir/fechar um emulador.
+            let startup_db = db.clone();
             watcher::start(db, engine.clone(), app.handle().clone());
 
-            // Gatilho "ao iniciar o RetroSync": sync bidirecional em background.
+            // Gatilho "ao iniciar o RetroSync": sync bidirecional em background,
+            // se o usuário não tiver desativado o gatilho `startup`.
             tauri::async_runtime::spawn(async move {
+                let enabled = startup_db
+                    .with(storage::settings::triggers)
+                    .await
+                    .map(|t| t.startup)
+                    .unwrap_or(true);
+                if !enabled {
+                    tracing::info!("gatilho startup desativado; sync de inicialização ignorado");
+                    return;
+                }
                 match engine
                     .sync_all(
                         sync::SyncDirection::Bidirectional,
@@ -95,6 +106,7 @@ pub fn run() {
             commands::get_last_sync,
             commands::get_settings,
             commands::set_device_name,
+            commands::set_triggers,
             commands::get_emulator_categories,
             commands::set_emulator_categories
         ])

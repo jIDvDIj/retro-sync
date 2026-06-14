@@ -377,3 +377,33 @@ button.secondary:hover:not(:disabled) {
   accent-color: #3b82f6;
   cursor: pointer;
 }
+
+/* Gatilhos automáticos */
+.trigger-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.trigger-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.trigger-row input {
+  margin-top: 0.2rem;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.trigger-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.trigger-label {
+  font-size: 0.9rem;
+}

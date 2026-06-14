@@ -13,6 +13,7 @@ import type {
   Settings,
   SyncCategories,
   SyncSummary,
+  TriggerSettings,
 } from "../types/ipc";
 
 export function healthCheck(): Promise<HealthStatus> {
@@ -70,6 +71,11 @@ export function getSettings(): Promise<Settings> {
 /** Define o nome deste dispositivo (obrigatório no login). */
 export function setDeviceName(name: string): Promise<void> {
   return invoke<void>("set_device_name", { name });
+}
+
+/** Liga/desliga os gatilhos de sync automático (sync manual não é afetado). */
+export function setTriggers(triggers: TriggerSettings): Promise<void> {
+  return invoke<void>("set_triggers", { triggers });
 }
 
 /** Categorias de sync habilitadas para um emulador (default: todas ativas). */
