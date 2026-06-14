@@ -507,11 +507,15 @@ impl SyncEngine {
     }
 
     /// Snapshot do manifest publicado na raiz `RetroSync/` (best-effort).
+    /// Inclui o nome deste dispositivo — é o "metadado de sync no Drive" que
+    /// identifica quem publicou esta versão (usado na resolução de conflito).
     async fn publish_manifest_snapshot(&self) -> AppResult<()> {
         let entries = self.db.with(manifest::list_all).await?;
+        let device = self.db.with(crate::storage::settings::device_name).await?;
         let now_ms = chrono::Utc::now().timestamp_millis();
         let doc = serde_json::json!({
             "generatedAt": crate::drive::ms_to_rfc3339(now_ms),
+            "device": device,
             "entries": entries,
         });
         let bytes = serde_json::to_vec_pretty(&doc)?;

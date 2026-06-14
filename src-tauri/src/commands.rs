@@ -13,7 +13,8 @@ use crate::emulator::{self, EmulatorProfile};
 use crate::error::{AppError, AppResult};
 use crate::events::EVT_AUTH_STATUS;
 use crate::state::AppState;
-use crate::storage::{emulators, manifest, queue};
+use crate::storage::settings::Settings;
+use crate::storage::{emulators, manifest, queue, settings};
 use crate::sync::{LastSync, SyncDirection, SyncSummary};
 
 #[derive(Debug, Serialize)]
@@ -130,6 +131,28 @@ pub async fn sync_now(state: State<'_, AppState>) -> AppResult<SyncSummary> {
     state
         .engine
         .sync_all(SyncDirection::Bidirectional, TRIGGER_MANUAL)
+        .await
+}
+
+/// Configurações globais do usuário (nome do dispositivo, etc.).
+#[tauri::command]
+pub async fn get_settings(state: State<'_, AppState>) -> AppResult<Settings> {
+    state.db.with(settings::load).await
+}
+
+/// Define o nome amigável deste dispositivo. Obrigatório no login; pode ser
+/// alterado nas configurações sem refazer a autenticação.
+#[tauri::command]
+pub async fn set_device_name(state: State<'_, AppState>, name: String) -> AppResult<()> {
+    let trimmed = name.trim().to_string();
+    if trimmed.is_empty() {
+        return Err(AppError::Other(
+            "o nome do dispositivo não pode ser vazio".into(),
+        ));
+    }
+    state
+        .db
+        .with(move |conn| settings::set_device_name(conn, &trimmed))
         .await
 }
 

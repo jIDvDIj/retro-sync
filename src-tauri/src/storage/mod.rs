@@ -3,9 +3,11 @@
 //! - `db`: conexão única + migrações, acesso async via `spawn_blocking`;
 //! - `manifest`: tabela `sync_manifest` — estado de cada arquivo no último sync;
 //! - `queue`: fila de operações pendentes (resiliência offline);
-//! - `emulators`: perfis configurados pelo usuário.
+//! - `emulators`: perfis configurados pelo usuário;
+//! - `settings`: configurações globais (nome do dispositivo, gatilhos, etc.).
 
 pub mod db;
 pub mod emulators;
 pub mod manifest;
 pub mod queue;
+pub mod settings;

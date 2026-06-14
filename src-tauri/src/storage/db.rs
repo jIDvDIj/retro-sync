@@ -44,6 +44,14 @@ CREATE TABLE IF NOT EXISTS emulators (
 );
 ";
 
+/// v2 — configurações globais do usuário (chave→valor). Ver `storage::settings`.
+const SCHEMA_V2: &str = "
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+";
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -93,10 +101,17 @@ impl Db {
 }
 
 fn migrate(conn: &Connection) -> AppResult<()> {
-    let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    // Migrações incrementais: cada bloco eleva o `user_version` em 1. Adicionar
+    // uma migração nova = mais um `if version < N` com seu `SCHEMA_VN`.
+    let mut version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version < 1 {
         conn.execute_batch(SCHEMA_V1)?;
-        conn.pragma_update(None, "user_version", 1)?;
+        version = 1;
     }
+    if version < 2 {
+        conn.execute_batch(SCHEMA_V2)?;
+        version = 2;
+    }
+    conn.pragma_update(None, "user_version", version)?;
     Ok(())
 }

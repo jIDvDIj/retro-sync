@@ -47,6 +47,10 @@ pub const TRIGGER_MANUAL: &str = "manual";
 pub const TRIGGER_EMULATOR_START: &str = "emulator-start";
 pub const TRIGGER_EMULATOR_STOP: &str = "emulator-stop";
 
+/// Chaves da tabela `app_settings` (configurações globais do usuário).
+/// Nome amigável deste dispositivo (ex.: "PC Gamer"), definido no login.
+pub const SETTING_DEVICE_NAME: &str = "device_name";
+
 /// Label da janela principal (definida pelo Tauri quando não há `label`).
 pub const MAIN_WINDOW_LABEL: &str = "main";
 

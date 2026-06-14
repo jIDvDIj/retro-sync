@@ -16,6 +16,11 @@ export interface AuthStatus {
   email: string | null;
 }
 
+/** `storage::settings::Settings` — configurações globais do usuário */
+export interface Settings {
+  deviceName: string | null;
+}
+
 /** `emulator::EmulatorProfile` — paths serializam como string */
 export interface EmulatorProfile {
   name: string;

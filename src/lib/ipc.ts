@@ -10,6 +10,7 @@ import type {
   EmulatorProfile,
   HealthStatus,
   LastSync,
+  Settings,
   SyncSummary,
 } from "../types/ipc";
 
@@ -58,4 +59,14 @@ export function syncNow(): Promise<SyncSummary> {
 /** Último sync concluído nesta execução; `null` se ainda não houve nenhum. */
 export function getLastSync(): Promise<LastSync | null> {
   return invoke<LastSync | null>("get_last_sync");
+}
+
+/** Configurações globais do usuário (nome do dispositivo, etc.). */
+export function getSettings(): Promise<Settings> {
+  return invoke<Settings>("get_settings");
+}
+
+/** Define o nome deste dispositivo (obrigatório no login). */
+export function setDeviceName(name: string): Promise<void> {
+  return invoke<void>("set_device_name", { name });
 }
