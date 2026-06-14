@@ -39,6 +39,13 @@ body {
   font-size: 1.5rem;
 }
 
+.header-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 h2 {
   margin: 0;
   font-size: 1.05rem;
@@ -264,4 +271,66 @@ button.secondary:hover:not(:disabled) {
   color: #f87171;
   font-size: 0.85rem;
   margin: 0;
+}
+
+/* Modal de configurações */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 3rem 1rem;
+  z-index: 50;
+  overflow-y: auto;
+}
+
+.modal {
+  background-color: #1f1f26;
+  border: 1px solid #2c2c34;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 520px;
+  padding: 1.25rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border-top: 1px solid #2c2c34;
+  padding-top: 1rem;
+}
+
+.settings-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.settings-section h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.saved-hint {
+  font-size: 0.82rem;
+  color: #4ade80;
 }

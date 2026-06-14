@@ -5,7 +5,6 @@ import {
   connectGoogleDrive,
   disconnectGoogleDrive,
   getAuthStatus,
-  getSettings,
   setDeviceName,
 } from "../lib/ipc";
 import type { AuthStatus } from "../types/ipc";
@@ -13,10 +12,14 @@ import type { AuthStatus } from "../types/ipc";
 type FlowState = "loading" | "idle" | "connecting";
 
 interface Props {
+  /** Nome do dispositivo persistido (vem do App via `useSettings`). */
+  deviceName: string | null;
   onConnectionChange?: (connected: boolean) => void;
+  /** Chamado após um login bem-sucedido para o App recarregar as settings. */
+  onAfterConnect?: () => void;
 }
 
-export function ConnectDrive({ onConnectionChange }: Props) {
+export function ConnectDrive({ deviceName, onConnectionChange, onAfterConnect }: Props) {
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [flow, setFlow] = useState<FlowState>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -31,14 +34,17 @@ export function ConnectDrive({ onConnectionChange }: Props) {
   );
 
   useEffect(() => {
-    Promise.all([getAuthStatus(), getSettings()])
-      .then(([auth, settings]) => {
-        apply(auth);
-        if (settings.deviceName) setDevice(settings.deviceName);
-      })
+    getAuthStatus()
+      .then(apply)
       .catch((err: unknown) => setError(errorMessage(err)))
       .finally(() => setFlow("idle"));
   }, [apply]);
+
+  // Pré-preenche o campo de login com o nome já salvo, sem sobrescrever o que
+  // o usuário estiver digitando.
+  useEffect(() => {
+    setDevice((cur) => cur || deviceName || "");
+  }, [deviceName]);
 
   const handleConnect = useCallback(async () => {
     const name = device.trim();
@@ -50,12 +56,13 @@ export function ConnectDrive({ onConnectionChange }: Props) {
       // ele identifica esta máquina nos metadados de sync no Drive.
       await setDeviceName(name);
       apply(await connectGoogleDrive());
+      onAfterConnect?.();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
       setFlow("idle");
     }
-  }, [apply, device]);
+  }, [apply, device, onAfterConnect]);
 
   const handleDisconnect = useCallback(async () => {
     setError(null);
@@ -78,7 +85,7 @@ export function ConnectDrive({ onConnectionChange }: Props) {
             <span className="dot dot-on" />
             {status.email ?? "Conta Google conectada"}
           </span>
-          {device ? <span className="device-tag">{device}</span> : null}
+          {deviceName ? <span className="device-tag">{deviceName}</span> : null}
           <button className="secondary" onClick={handleDisconnect}>
             Desconectar
           </button>
