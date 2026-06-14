@@ -165,6 +165,12 @@ impl SyncEngine {
             ));
         }
 
+        let notif = self
+            .db
+            .with(crate::storage::settings::notification_level)
+            .await
+            .unwrap_or_default();
+
         let profiles = self.db.with(emulators::list).await?;
         // Por emulador: monta o target e remove as categorias que o usuário
         // desativou nas configurações (default: todas ativas).
@@ -220,7 +226,9 @@ impl SyncEngine {
                             message: err.to_string(),
                         },
                     );
-                    self.notify_error(&target.label, &err.to_string());
+                    if notif.notifies_errors() {
+                        self.notify_error(&target.label, &err.to_string());
+                    }
                 }
             }
         }
@@ -241,8 +249,31 @@ impl SyncEngine {
             *guard = Some(last);
         }
 
+        // Notifica a conclusão só quando houve transferência — evita "sync
+        // concluído" repetido em syncs automáticos que nada fizeram.
+        if notif.notifies_info() && (summary.uploaded + summary.downloaded > 0) {
+            self.notify_completed(&summary);
+        }
+
         let _ = self.app.emit(EVT_SYNC_COMPLETED, &summary);
         Ok(summary)
+    }
+
+    /// Notificação nativa do SO de sync concluído (nível `all`).
+    fn notify_completed(&self, summary: &SyncSummary) {
+        if let Err(err) = self
+            .app
+            .notification()
+            .builder()
+            .title("RetroSync — sincronização concluída")
+            .body(format!(
+                "↑ {} enviados · ↓ {} baixados",
+                summary.uploaded, summary.downloaded
+            ))
+            .show()
+        {
+            tracing::debug!(error = %err, "não foi possível exibir notificação nativa");
+        }
     }
 
     /// Notificação nativa do SO para erro crítico de sync. Útil quando o

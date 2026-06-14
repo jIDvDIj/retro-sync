@@ -19,6 +19,7 @@ use std::time::Duration;
 use serde::Serialize;
 use sysinfo::System;
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 
 use crate::constants::{
@@ -154,14 +155,28 @@ fn spawn_consumer(
             );
             tracing::info!(emulador = %name, running, trigger, "transição de emulador detectada");
 
-            let triggers = db
-                .with(crate::storage::settings::triggers)
+            let settings = db
+                .with(crate::storage::settings::load)
                 .await
                 .unwrap_or_default();
+
+            // Notificação "emulador detectado" (só na abertura, nível `all`).
+            if running && settings.notification_level.notifies_info() {
+                if let Err(err) = app
+                    .notification()
+                    .builder()
+                    .title("RetroSync")
+                    .body(format!("Emulador detectado: {name}"))
+                    .show()
+                {
+                    tracing::debug!(error = %err, "não foi possível exibir notificação nativa");
+                }
+            }
+
             let enabled = if running {
-                triggers.emulator_start
+                settings.triggers.emulator_start
             } else {
-                triggers.emulator_stop
+                settings.triggers.emulator_stop
             };
             if !enabled {
                 tracing::info!(emulador = %name, trigger, "gatilho desativado; sync automático ignorado");

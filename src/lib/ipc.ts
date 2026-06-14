@@ -10,6 +10,7 @@ import type {
   EmulatorProfile,
   HealthStatus,
   LastSync,
+  NotificationLevel,
   Settings,
   SyncCategories,
   SyncSummary,
@@ -76,6 +77,11 @@ export function setDeviceName(name: string): Promise<void> {
 /** Liga/desliga os gatilhos de sync automático (sync manual não é afetado). */
 export function setTriggers(triggers: TriggerSettings): Promise<void> {
   return invoke<void>("set_triggers", { triggers });
+}
+
+/** Define o nível de notificações nativas (all | errors_only | none). */
+export function setNotificationLevel(level: NotificationLevel): Promise<void> {
+  return invoke<void>("set_notification_level", { level });
 }
 
 /** Categorias de sync habilitadas para um emulador (default: todas ativas). */

@@ -23,10 +23,14 @@ export interface TriggerSettings {
   emulatorStop: boolean;
 }
 
+/** `storage::settings::NotificationLevel` — nível de notificações nativas */
+export type NotificationLevel = "all" | "errors_only" | "none";
+
 /** `storage::settings::Settings` — configurações globais do usuário */
 export interface Settings {
   deviceName: string | null;
   triggers: TriggerSettings;
+  notificationLevel: NotificationLevel;
 }
 
 /** `emulator::EmulatorProfile` — paths serializam como string */

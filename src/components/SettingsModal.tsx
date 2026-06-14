@@ -1,10 +1,16 @@
 import { useState } from "react";
 
 import { errorMessage } from "../lib/errors";
-import { setDeviceName } from "../lib/ipc";
-import type { EmulatorProfile, Settings } from "../types/ipc";
+import { setDeviceName, setNotificationLevel } from "../lib/ipc";
+import type { EmulatorProfile, NotificationLevel, Settings } from "../types/ipc";
 import { CategorySettings } from "./CategorySettings";
 import { TriggerSettingsSection } from "./TriggerSettings";
+
+const NOTIFICATION_OPTIONS: { value: NotificationLevel; label: string }[] = [
+  { value: "all", label: "Tudo (sync, erros, emulador detectado)" },
+  { value: "errors_only", label: "Apenas erros" },
+  { value: "none", label: "Nenhuma" },
+];
 
 interface Props {
   settings: Settings;
@@ -23,6 +29,21 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [notifLevel, setNotifLevel] = useState<NotificationLevel>(settings.notificationLevel);
+  const [notifError, setNotifError] = useState<string | null>(null);
+
+  const changeNotifLevel = async (level: NotificationLevel) => {
+    const prev = notifLevel;
+    setNotifLevel(level); // otimista
+    setNotifError(null);
+    try {
+      await setNotificationLevel(level);
+      onSaved();
+    } catch (err) {
+      setNotifError(errorMessage(err));
+      setNotifLevel(prev); // reverte em falha
+    }
+  };
 
   const dirty = device.trim() !== (settings.deviceName ?? "");
 
@@ -87,6 +108,27 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
             Mesmo com tudo desligado, o botão “Sincronizar agora” continua disponível.
           </p>
           <TriggerSettingsSection triggers={settings.triggers} onChanged={onSaved} />
+        </section>
+
+        <section className="settings-section">
+          <h3>Notificações</h3>
+          <p className="muted">
+            Syncs automáticos frequentes podem gerar notificações invasivas — reduza o ruído aqui.
+          </p>
+          <label className="field">
+            <span>Nível de notificações nativas</span>
+            <select
+              value={notifLevel}
+              onChange={(e) => changeNotifLevel(e.target.value as NotificationLevel)}
+            >
+              {NOTIFICATION_OPTIONS.map(({ value, label }) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {notifError ? <p className="error">{notifError}</p> : null}
         </section>
 
         <section className="settings-section">

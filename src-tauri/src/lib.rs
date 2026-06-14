@@ -107,6 +107,7 @@ pub fn run() {
             commands::get_settings,
             commands::set_device_name,
             commands::set_triggers,
+            commands::set_notification_level,
             commands::get_emulator_categories,
             commands::set_emulator_categories
         ])

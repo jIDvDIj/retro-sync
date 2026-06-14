@@ -56,6 +56,9 @@ pub const SETTING_TRIGGER_STARTUP: &str = "trigger_startup";
 pub const SETTING_TRIGGER_EMULATOR_START: &str = "trigger_emulator_start";
 pub const SETTING_TRIGGER_EMULATOR_STOP: &str = "trigger_emulator_stop";
 
+/// Nível de notificações nativas: all | errors_only | none (default: all).
+pub const SETTING_NOTIFICATION_LEVEL: &str = "notification_level";
+
 /// Label da janela principal (definida pelo Tauri quando não há `label`).
 pub const MAIN_WINDOW_LABEL: &str = "main";
 

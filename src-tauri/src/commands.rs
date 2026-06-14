@@ -14,7 +14,7 @@ use crate::error::{AppError, AppResult};
 use crate::events::EVT_AUTH_STATUS;
 use crate::state::AppState;
 use crate::storage::emulators::SyncCategories;
-use crate::storage::settings::{Settings, TriggerSettings};
+use crate::storage::settings::{NotificationLevel, Settings, TriggerSettings};
 use crate::storage::{emulators, manifest, queue, settings};
 use crate::sync::{LastSync, SyncDirection, SyncSummary};
 
@@ -176,6 +176,18 @@ pub async fn set_triggers(state: State<'_, AppState>, triggers: TriggerSettings)
     state
         .db
         .with(move |conn| settings::set_triggers(conn, &triggers))
+        .await
+}
+
+/// Define o nível de notificações nativas (all | errors_only | none).
+#[tauri::command]
+pub async fn set_notification_level(
+    state: State<'_, AppState>,
+    level: NotificationLevel,
+) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::set_notification_level(conn, level))
         .await
 }
 
