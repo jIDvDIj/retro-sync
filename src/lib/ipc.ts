@@ -11,6 +11,7 @@ import type {
   HealthStatus,
   LastSync,
   Settings,
+  SyncCategories,
   SyncSummary,
 } from "../types/ipc";
 
@@ -69,4 +70,14 @@ export function getSettings(): Promise<Settings> {
 /** Define o nome deste dispositivo (obrigatório no login). */
 export function setDeviceName(name: string): Promise<void> {
   return invoke<void>("set_device_name", { name });
+}
+
+/** Categorias de sync habilitadas para um emulador (default: todas ativas). */
+export function getEmulatorCategories(name: string): Promise<SyncCategories> {
+  return invoke<SyncCategories>("get_emulator_categories", { name });
+}
+
+/** Define quais categorias sincronizar para um emulador. */
+export function setEmulatorCategories(name: string, categories: SyncCategories): Promise<void> {
+  return invoke<void>("set_emulator_categories", { name, categories });
 }

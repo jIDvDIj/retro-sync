@@ -13,6 +13,7 @@ use crate::emulator::{self, EmulatorProfile};
 use crate::error::{AppError, AppResult};
 use crate::events::EVT_AUTH_STATUS;
 use crate::state::AppState;
+use crate::storage::emulators::SyncCategories;
 use crate::storage::settings::Settings;
 use crate::storage::{emulators, manifest, queue, settings};
 use crate::sync::{LastSync, SyncDirection, SyncSummary};
@@ -119,9 +120,37 @@ pub async fn remove_emulator(state: State<'_, AppState>, name: String) -> AppRes
         .db
         .with(move |conn| {
             emulators::remove(conn, &name)?;
+            emulators::remove_categories(conn, &name)?;
             manifest::remove_for_emulator(conn, &name)?;
             queue::remove_for_emulator(conn, &name)
         })
+        .await
+}
+
+/// Categorias de sync habilitadas para um emulador (default: todas ativas).
+#[tauri::command]
+pub async fn get_emulator_categories(
+    state: State<'_, AppState>,
+    name: String,
+) -> AppResult<SyncCategories> {
+    state
+        .db
+        .with(move |conn| emulators::get_categories(conn, &name))
+        .await
+}
+
+/// Define quais categorias (saves/savestates/config) sincronizar para um
+/// emulador. Desativar `config`, p.ex., evita compartilhar resolução/controles
+/// entre dispositivos diferentes.
+#[tauri::command]
+pub async fn set_emulator_categories(
+    state: State<'_, AppState>,
+    name: String,
+    categories: SyncCategories,
+) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| emulators::set_categories(conn, &name, &categories))
         .await
 }
 

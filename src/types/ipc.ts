@@ -30,6 +30,13 @@ export interface EmulatorProfile {
   statePaths: string[];
 }
 
+/** `storage::emulators::SyncCategories` — categorias habilitadas por emulador */
+export interface SyncCategories {
+  saves: boolean;
+  savestates: boolean;
+  config: boolean;
+}
+
 /** `sync::SyncDirection` */
 export type SyncDirection = "DriveToLocal" | "LocalToDrive" | "Bidirectional";
 

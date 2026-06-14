@@ -1,9 +1,73 @@
-//! Emuladores configurados pelo usuário (perfil completo serializado).
+//! Emuladores configurados pelo usuário (perfil completo serializado) e suas
+//! configurações de sync (quais categorias sincronizar).
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 
 use crate::emulator::EmulatorProfile;
 use crate::error::AppResult;
+
+/// Categorias de sync habilitadas para um emulador. Espelhado em
+/// `src/types/ipc.ts` (`SyncCategories`). Default: todas ativas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncCategories {
+    pub saves: bool,
+    pub savestates: bool,
+    pub config: bool,
+}
+
+impl Default for SyncCategories {
+    fn default() -> Self {
+        Self {
+            saves: true,
+            savestates: true,
+            config: true,
+        }
+    }
+}
+
+/// Categorias habilitadas de um emulador; default (todas ativas) se nunca foi
+/// configurado.
+pub fn get_categories(conn: &Connection, emulator: &str) -> AppResult<SyncCategories> {
+    let cats = conn
+        .query_row(
+            "SELECT saves_enabled, savestates_enabled, config_enabled \
+             FROM emulator_settings WHERE emulator = ?1",
+            params![emulator],
+            |row| {
+                Ok(SyncCategories {
+                    saves: row.get::<_, i64>(0)? != 0,
+                    savestates: row.get::<_, i64>(1)? != 0,
+                    config: row.get::<_, i64>(2)? != 0,
+                })
+            },
+        )
+        .optional()?;
+    Ok(cats.unwrap_or_default())
+}
+
+pub fn set_categories(conn: &Connection, emulator: &str, cats: &SyncCategories) -> AppResult<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO emulator_settings \
+         (emulator, saves_enabled, savestates_enabled, config_enabled) VALUES (?1, ?2, ?3, ?4)",
+        params![
+            emulator,
+            cats.saves as i64,
+            cats.savestates as i64,
+            cats.config as i64
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn remove_categories(conn: &Connection, emulator: &str) -> AppResult<()> {
+    conn.execute(
+        "DELETE FROM emulator_settings WHERE emulator = ?1",
+        params![emulator],
+    )?;
+    Ok(())
+}
 
 pub fn upsert(conn: &Connection, profile: &EmulatorProfile) -> AppResult<()> {
     conn.execute(
@@ -90,5 +154,64 @@ mod tests {
             assert!(list(conn)?.is_empty());
             Ok(())
         });
+    }
+
+    #[test]
+    fn categorias_default_sao_todas_ativas() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert_eq!(get_categories(conn, "PPSSPP")?, SyncCategories::default());
+            assert_eq!(
+                get_categories(conn, "PPSSPP")?,
+                SyncCategories {
+                    saves: true,
+                    savestates: true,
+                    config: true,
+                }
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn set_e_get_categorias_fazem_roundtrip() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            let cats = SyncCategories {
+                saves: true,
+                savestates: false,
+                config: false,
+            };
+            set_categories(conn, "PPSSPP", &cats)?;
+            assert_eq!(get_categories(conn, "PPSSPP")?, cats);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn remove_categorias_volta_ao_default() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            set_categories(
+                conn,
+                "PPSSPP",
+                &SyncCategories {
+                    saves: false,
+                    savestates: false,
+                    config: false,
+                },
+            )?;
+            remove_categories(conn, "PPSSPP")?;
+            assert_eq!(get_categories(conn, "PPSSPP")?, SyncCategories::default());
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn categorias_serializam_em_camel_case() {
+        let json = serde_json::to_value(SyncCategories::default()).unwrap();
+        assert_eq!(json["saves"], true);
+        assert_eq!(json["savestates"], true);
+        assert_eq!(json["config"], true);
     }
 }

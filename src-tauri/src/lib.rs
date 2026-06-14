@@ -94,7 +94,9 @@ pub fn run() {
             commands::sync_now,
             commands::get_last_sync,
             commands::get_settings,
-            commands::set_device_name
+            commands::set_device_name,
+            commands::get_emulator_categories,
+            commands::set_emulator_categories
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o RetroSync");

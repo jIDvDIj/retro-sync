@@ -2,10 +2,12 @@ import { useState } from "react";
 
 import { errorMessage } from "../lib/errors";
 import { setDeviceName } from "../lib/ipc";
-import type { Settings } from "../types/ipc";
+import type { EmulatorProfile, Settings } from "../types/ipc";
+import { CategorySettings } from "./CategorySettings";
 
 interface Props {
   settings: Settings;
+  emulators: EmulatorProfile[];
   onClose: () => void;
   /** Recarrega as settings no App após qualquer alteração. */
   onSaved: () => void;
@@ -15,7 +17,7 @@ interface Props {
  * Modal de configurações. Cresce ao longo da v1.1 (dispositivo, categorias por
  * emulador, gatilhos automáticos, nível de notificações).
  */
-export function SettingsModal({ settings, onClose, onSaved }: Props) {
+export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) {
   const [device, setDevice] = useState(settings.deviceName ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +78,15 @@ export function SettingsModal({ settings, onClose, onSaved }: Props) {
             {saved && !dirty ? <span className="saved-hint">Salvo ✓</span> : null}
           </div>
           {error ? <p className="error">{error}</p> : null}
+        </section>
+
+        <section className="settings-section">
+          <h3>Sincronização por emulador</h3>
+          <p className="muted">
+            Escolha quais categorias sincronizar. Desative “Config” para não compartilhar
+            resolução e controles entre dispositivos diferentes.
+          </p>
+          <CategorySettings emulators={emulators} />
         </section>
       </div>
     </div>

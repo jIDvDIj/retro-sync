@@ -334,3 +334,46 @@ button.secondary:hover:not(:disabled) {
   font-size: 0.82rem;
   color: #4ade80;
 }
+
+/* Categorias por emulador */
+.category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.category-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #2c2c34;
+  border-radius: 8px;
+  background-color: #202028;
+  flex-wrap: wrap;
+}
+
+.category-emulator {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.category-toggles {
+  display: flex;
+  gap: 0.9rem;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: #c5c5cf;
+  cursor: pointer;
+}
+
+.toggle input {
+  accent-color: #3b82f6;
+  cursor: pointer;
+}

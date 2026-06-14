@@ -52,6 +52,16 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 ";
 
+/// v3 — categorias de sync habilitadas por emulador (default: todas ativas).
+const SCHEMA_V3: &str = "
+CREATE TABLE IF NOT EXISTS emulator_settings (
+    emulator           TEXT PRIMARY KEY,
+    saves_enabled      INTEGER NOT NULL DEFAULT 1,
+    savestates_enabled INTEGER NOT NULL DEFAULT 1,
+    config_enabled     INTEGER NOT NULL DEFAULT 1
+);
+";
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -111,6 +121,10 @@ fn migrate(conn: &Connection) -> AppResult<()> {
     if version < 2 {
         conn.execute_batch(SCHEMA_V2)?;
         version = 2;
+    }
+    if version < 3 {
+        conn.execute_batch(SCHEMA_V3)?;
+        version = 3;
     }
     conn.pragma_update(None, "user_version", version)?;
     Ok(())

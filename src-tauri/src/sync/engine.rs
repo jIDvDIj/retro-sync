@@ -166,11 +166,26 @@ impl SyncEngine {
         }
 
         let profiles = self.db.with(emulators::list).await?;
-        let targets: Vec<SyncTarget> = profiles
+        // Por emulador: monta o target e remove as categorias que o usuário
+        // desativou nas configurações (default: todas ativas).
+        let mut targets: Vec<SyncTarget> = Vec::new();
+        for profile in profiles
             .iter()
             .filter(|p| only.is_none_or(|name| p.name == name))
-            .map(SyncTarget::from_profile)
-            .collect();
+        {
+            let name = profile.name.clone();
+            let cats = self
+                .db
+                .with(move |conn| emulators::get_categories(conn, &name))
+                .await?;
+            let mut target = SyncTarget::from_profile(profile);
+            target.categories.retain(|(category, _)| match category {
+                SyncCategory::Saves => cats.saves,
+                SyncCategory::Savestates => cats.savestates,
+                SyncCategory::Config => cats.config,
+            });
+            targets.push(target);
+        }
         if targets.is_empty() {
             tracing::info!(trigger, "nenhum emulador configurado; nada a sincronizar");
             return Ok(SyncSummary::default());

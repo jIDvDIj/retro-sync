@@ -69,6 +69,7 @@ function App() {
       {showSettings && settings ? (
         <SettingsModal
           settings={settings}
+          emulators={emulators}
           onClose={() => setShowSettings(false)}
           onSaved={reloadSettings}
         />
