@@ -18,6 +18,10 @@ pub const DRIVE_MANIFEST_FILE: &str = "sync_manifest.json";
 /// Arquivo SQLite local (criado no diretório de dados do app).
 pub const LOCAL_DB_FILE: &str = "retrosync.db";
 
+/// Pasta de backups locais (criada no diretório de dados do app). Recebe o
+/// arquivo local antes de ser sobrescrito no primeiro sync (BUG-001).
+pub const LOCAL_BACKUP_DIR: &str = "backups";
+
 /// Identificação das credenciais no keychain do SO.
 pub const KEYRING_SERVICE: &str = "com.retrosync.app";
 pub const KEYRING_REFRESH_TOKEN_KEY: &str = "google_drive_refresh_token";

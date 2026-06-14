@@ -38,6 +38,9 @@ pub struct SyncSummary {
     pub skipped: u32,
     pub failed: u32,
     pub queued: u32,
+    /// Arquivos locais copiados para backup antes de serem sobrescritos no
+    /// primeiro sync (BUG-001). `> 0` sinaliza à UI que há backups a oferecer.
+    pub backed_up: u32,
     pub duration_ms: u64,
 }
 
@@ -48,6 +51,7 @@ impl SyncSummary {
         self.skipped += other.skipped;
         self.failed += other.failed;
         self.queued += other.queued;
+        self.backed_up += other.backed_up;
     }
 }
 
@@ -85,6 +89,8 @@ pub type LastSyncStore = Arc<std::sync::Mutex<Option<LastSync>>>;
 enum OpOutcome {
     Uploaded,
     Downloaded,
+    /// Download que também gerou um backup local (primeiro sync, BUG-001).
+    DownloadedWithBackup,
     Queued,
     Failed,
 }
@@ -99,6 +105,9 @@ struct CategoryCtx {
     /// Destino de downloads de arquivos que ainda não existem localmente
     /// (primeira pasta-base da categoria).
     download_base: PathBuf,
+    /// Pasta onde gravar backups locais desta categoria neste sync
+    /// (`<backup_dir>/<emulador>/<timestamp>/<categoria>`).
+    backup_base: PathBuf,
     total: u32,
     completed: AtomicU32,
 }
@@ -109,6 +118,8 @@ pub struct SyncEngine {
     auth: Arc<AuthManager>,
     app: AppHandle,
     last_sync: LastSyncStore,
+    /// Raiz dos backups locais (`<app_data>/backups`).
+    backup_dir: PathBuf,
     /// Serializa execuções: um sync por vez, os demais aguardam.
     running: Mutex<()>,
 }
@@ -120,6 +131,7 @@ impl SyncEngine {
         auth: Arc<AuthManager>,
         app: AppHandle,
         last_sync: LastSyncStore,
+        backup_dir: PathBuf,
     ) -> Self {
         Self {
             db,
@@ -127,6 +139,7 @@ impl SyncEngine {
             auth,
             app,
             last_sync,
+            backup_dir,
             running: Mutex::new(()),
         }
     }
@@ -212,9 +225,13 @@ impl SyncEngine {
             },
         );
 
+        // Rótulo desta execução, usado para agrupar os backups locais do
+        // primeiro sync numa pasta por sync.
+        let run_stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+
         let mut summary = SyncSummary::default();
         for target in &targets {
-            match self.sync_target(target, direction).await {
+            match self.sync_target(target, direction, &run_stamp).await {
                 Ok(partial) => summary.merge(&partial),
                 Err(err) => {
                     summary.failed += 1;
@@ -295,6 +312,7 @@ impl SyncEngine {
         &self,
         target: &SyncTarget,
         direction: SyncDirection,
+        run_stamp: &str,
     ) -> AppResult<SyncSummary> {
         let mut summary = SyncSummary::default();
 
@@ -351,6 +369,11 @@ impl SyncEngine {
                 folder_id,
                 folder_key,
                 download_base: target.root.join(&bases[0]),
+                backup_base: self
+                    .backup_dir
+                    .join(&target.label)
+                    .join(run_stamp)
+                    .join(category.as_str()),
                 total: plan.len() as u32,
                 completed: AtomicU32::new(0),
             };
@@ -364,6 +387,10 @@ impl SyncEngine {
                 match outcome {
                     OpOutcome::Uploaded => summary.uploaded += 1,
                     OpOutcome::Downloaded => summary.downloaded += 1,
+                    OpOutcome::DownloadedWithBackup => {
+                        summary.downloaded += 1;
+                        summary.backed_up += 1;
+                    }
                     OpOutcome::Queued => summary.queued += 1,
                     OpOutcome::Failed => summary.failed += 1,
                 }
@@ -378,6 +405,7 @@ impl SyncEngine {
         let result = match op.action {
             SyncAction::Upload => self.do_upload(ctx, &op).await,
             SyncAction::Download => self.do_download(ctx, &op).await,
+            SyncAction::DownloadWithBackup => self.do_download_with_backup(ctx, &op).await,
             SyncAction::NoOp => Ok(()),
         };
 
@@ -402,6 +430,7 @@ impl SyncEngine {
                     .await;
                 match op.action {
                     SyncAction::Upload => OpOutcome::Uploaded,
+                    SyncAction::DownloadWithBackup => OpOutcome::DownloadedWithBackup,
                     _ => OpOutcome::Downloaded,
                 }
             }
@@ -482,6 +511,27 @@ impl SyncEngine {
             size_bytes,
         )
         .await
+    }
+
+    /// Primeiro sync de um arquivo que existe nos dois lados: copia o local
+    /// para a pasta de backup e só então baixa o do Drive (que vence). O backup
+    /// roda ANTES do download — se falhar, o download não acontece, evitando a
+    /// perda irreversível que o BUG-001 descreve.
+    async fn do_download_with_backup(&self, ctx: &CategoryCtx, op: &PlannedOp) -> AppResult<()> {
+        if let Some(local) = op.local.as_ref() {
+            let backup_path = ctx.backup_base.join(rel_to_native(&op.rel_path));
+            if let Some(parent) = backup_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::copy(&local.abs_path, &backup_path).await?;
+            tracing::info!(
+                emulador = %ctx.emulator,
+                arquivo = %op.rel_path,
+                backup = %backup_path.display(),
+                "backup local antes do primeiro sync (Drive vence)"
+            );
+        }
+        self.do_download(ctx, op).await
     }
 
     async fn do_download(&self, ctx: &CategoryCtx, op: &PlannedOp) -> AppResult<()> {

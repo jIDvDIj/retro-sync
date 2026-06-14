@@ -273,6 +273,21 @@ button.secondary:hover:not(:disabled) {
   margin: 0;
 }
 
+/* Banner de backups do primeiro sync */
+.backup-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  color: #fcd34d;
+  background-color: rgba(252, 211, 77, 0.1);
+  border: 1px solid rgba(252, 211, 77, 0.3);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+}
+
 /* Modal de configurações */
 .modal-backdrop {
   position: fixed;

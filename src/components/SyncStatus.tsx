@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { errorMessage } from "../lib/errors";
-import { syncNow } from "../lib/ipc";
+import { openBackupFolder, syncNow } from "../lib/ipc";
 import type { SyncState } from "../hooks/useSyncEvents";
 import type { SyncSummary } from "../types/ipc";
 
@@ -46,6 +46,17 @@ export function SyncStatus({ state, connected }: Props) {
     }
   };
 
+  const handleOpenBackups = async () => {
+    setActionError(null);
+    try {
+      await openBackupFolder();
+    } catch (err) {
+      setActionError(errorMessage(err));
+    }
+  };
+
+  const backedUp = state.lastSync?.summary.backedUp ?? 0;
+
   return (
     <section className="sync-status">
       <div className="sync-row">
@@ -72,6 +83,18 @@ export function SyncStatus({ state, connected }: Props) {
           )}
         </div>
       </div>
+      {backedUp > 0 ? (
+        <div className="backup-banner">
+          <span>
+            {backedUp} arquivo{backedUp > 1 ? "s" : ""} local
+            {backedUp > 1 ? "is" : ""} {backedUp > 1 ? "foram salvos" : "foi salvo"} em backup antes
+            do primeiro sync (o Drive venceu).
+          </span>
+          <button className="secondary" onClick={handleOpenBackups}>
+            Abrir pasta de backup
+          </button>
+        </div>
+      ) : null}
       {actionError ? <p className="error">{actionError}</p> : null}
       {state.lastError ? (
         <p className="error">

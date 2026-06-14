@@ -137,7 +137,9 @@ pub fn build_plan(
         let allowed = match action {
             SyncAction::NoOp => false,
             SyncAction::Upload => direction != SyncDirection::DriveToLocal,
-            SyncAction::Download => direction != SyncDirection::LocalToDrive,
+            SyncAction::Download | SyncAction::DownloadWithBackup => {
+                direction != SyncDirection::LocalToDrive
+            }
         };
 
         if allowed {
@@ -246,6 +248,22 @@ mod tests {
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].action, SyncAction::Upload);
         assert_eq!(ops[0].remote.as_ref().unwrap().id, "id-save.bin");
+    }
+
+    #[test]
+    fn primeiro_sync_com_arquivo_nos_dois_lados_baixa_com_backup() {
+        // Sem manifest e arquivo presente local e no Drive → DownloadWithBackup.
+        let (ops, skipped) = build_plan(
+            vec![local_file("save.bin", T + 60_000)],
+            vec![remote_file("save.bin", T)],
+            vec![],
+            SyncDirection::Bidirectional,
+        );
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].action, SyncAction::DownloadWithBackup);
+        assert!(ops[0].local.is_some());
+        assert!(ops[0].remote.is_some());
+        assert_eq!(skipped, 0);
     }
 
     #[test]

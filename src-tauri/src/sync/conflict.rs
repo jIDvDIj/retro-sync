@@ -11,6 +11,10 @@ pub const TIMESTAMP_TOLERANCE_MS: i64 = 2_000;
 pub enum SyncAction {
     Upload,
     Download,
+    /// Download em que o arquivo local existente é copiado para uma pasta de
+    /// backup antes de ser sobrescrito. Usado no primeiro sync de um arquivo
+    /// que existe nos dois lados (Drive vence — BUG-001).
+    DownloadWithBackup,
     NoOp,
 }
 
@@ -25,22 +29,31 @@ pub fn decide(
         (None, None) => SyncAction::NoOp,
         (Some(_), None) => SyncAction::Upload,
         (None, Some(_)) => SyncAction::Download,
-        (Some(local), Some(drive)) => {
-            if let Some((last_local, last_drive)) = last_synced {
+        (Some(local), Some(drive)) => match last_synced {
+            // Já sincronizado antes: resolução normal por mtime. O conflito real
+            // (ambos mudaram desde o último sync) é tratado no Passo 7.
+            Some((last_local, last_drive)) => {
                 let unchanged = eq_within_tolerance(local, last_local)
                     && eq_within_tolerance(drive, last_drive);
-                if unchanged {
-                    return SyncAction::NoOp;
+                if unchanged || eq_within_tolerance(local, drive) {
+                    SyncAction::NoOp
+                } else if local > drive {
+                    SyncAction::Upload
+                } else {
+                    SyncAction::Download
                 }
             }
-            if eq_within_tolerance(local, drive) {
-                SyncAction::NoOp
-            } else if local > drive {
-                SyncAction::Upload
-            } else {
-                SyncAction::Download
+            // Primeiro sync deste arquivo (sem manifest) e ele existe nos dois
+            // lados: o Drive sempre vence, com backup local antes de sobrescrever
+            // (BUG-001). mtime igual = nada a fazer.
+            None => {
+                if eq_within_tolerance(local, drive) {
+                    SyncAction::NoOp
+                } else {
+                    SyncAction::DownloadWithBackup
+                }
             }
-        }
+        },
     }
 }
 
@@ -87,15 +100,20 @@ mod tests {
     }
 
     #[test]
-    fn local_mais_recente_sobe() {
-        assert_eq!(decide(Some(T + 60_000), Some(T), None), SyncAction::Upload);
+    fn primeiro_sync_drive_vence_mesmo_com_local_mais_recente() {
+        // Sem manifest e ambos existem: Drive vence (com backup), mesmo que o
+        // mtime local seja mais novo — BUG-001.
+        assert_eq!(
+            decide(Some(T + 60_000), Some(T), None),
+            SyncAction::DownloadWithBackup
+        );
     }
 
     #[test]
-    fn drive_mais_recente_desce() {
+    fn primeiro_sync_drive_vence_com_drive_mais_recente() {
         assert_eq!(
             decide(Some(T), Some(T + 60_000), None),
-            SyncAction::Download
+            SyncAction::DownloadWithBackup
         );
     }
 

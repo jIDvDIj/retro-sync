@@ -84,6 +84,11 @@ export function setNotificationLevel(level: NotificationLevel): Promise<void> {
   return invoke<void>("set_notification_level", { level });
 }
 
+/** Abre a pasta de backups locais no gerenciador de arquivos do SO. */
+export function openBackupFolder(): Promise<void> {
+  return invoke<void>("open_backup_folder");
+}
+
 /** Categorias de sync habilitadas para um emulador (default: todas ativas). */
 export function getEmulatorCategories(name: string): Promise<SyncCategories> {
   return invoke<SyncCategories>("get_emulator_categories", { name });

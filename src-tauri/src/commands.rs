@@ -5,10 +5,10 @@
 use std::path::PathBuf;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::auth::AuthStatus;
-use crate::constants::TRIGGER_MANUAL;
+use crate::constants::{LOCAL_BACKUP_DIR, TRIGGER_MANUAL};
 use crate::emulator::{self, EmulatorProfile};
 use crate::error::{AppError, AppResult};
 use crate::events::EVT_AUTH_STATUS;
@@ -167,6 +167,22 @@ pub async fn sync_now(state: State<'_, AppState>) -> AppResult<SyncSummary> {
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> AppResult<Settings> {
     state.db.with(settings::load).await
+}
+
+/// Abre a pasta de backups locais no gerenciador de arquivos do SO. A pasta é
+/// criada se ainda não existir (BUG-001 — backups do primeiro sync).
+#[tauri::command]
+pub async fn open_backup_folder(app: AppHandle) -> AppResult<()> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Other(format!("diretório de dados indisponível: {e}")))?
+        .join(LOCAL_BACKUP_DIR);
+    tokio::fs::create_dir_all(&dir).await?;
+    tokio::task::spawn_blocking(move || open::that(&dir))
+        .await
+        .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))??;
+    Ok(())
 }
 
 /// Liga/desliga os gatilhos de sync automático. O sync manual (botão/tray) não

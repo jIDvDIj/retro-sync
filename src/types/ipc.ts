@@ -68,6 +68,8 @@ export interface SyncSummary {
   skipped: number;
   failed: number;
   queued: number;
+  /** Arquivos copiados para backup antes de sobrescritos no primeiro sync. */
+  backedUp: number;
   durationMs: number;
 }
 

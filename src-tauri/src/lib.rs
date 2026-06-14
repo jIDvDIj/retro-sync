@@ -52,6 +52,7 @@ pub fn run() {
                 auth.clone(),
                 app.handle().clone(),
                 last_sync.clone(),
+                data_dir.join(constants::LOCAL_BACKUP_DIR),
             ));
 
             app.manage(AppState {
@@ -108,6 +109,7 @@ pub fn run() {
             commands::set_device_name,
             commands::set_triggers,
             commands::set_notification_level,
+            commands::open_backup_folder,
             commands::get_emulator_categories,
             commands::set_emulator_categories
         ])
