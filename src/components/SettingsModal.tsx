@@ -77,8 +77,7 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
         <section className="settings-section">
           <h3>Dispositivo</h3>
           <p className="muted">
-            Identifica esta máquina nos metadados de sync. Alterá-lo aqui não exige refazer o
-            login.
+            Identifica esta máquina nos metadados de sync. Alterá-lo aqui não exige refazer o login.
           </p>
           <label className="field">
             <span>Nome deste dispositivo</span>
@@ -134,8 +133,8 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
         <section className="settings-section">
           <h3>Sincronização por emulador</h3>
           <p className="muted">
-            Escolha quais categorias sincronizar. Desative “Config” para não compartilhar
-            resolução e controles entre dispositivos diferentes.
+            Escolha quais categorias sincronizar. Desative “Config” para não compartilhar resolução
+            e controles entre dispositivos diferentes.
           </p>
           <CategorySettings emulators={emulators} />
         </section>
