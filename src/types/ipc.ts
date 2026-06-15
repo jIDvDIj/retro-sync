@@ -42,6 +42,17 @@ export interface EmulatorProfile {
   statePaths: string[];
 }
 
+/** `emulator::DiscoverySource` — origem do reconhecimento na descoberta */
+export type DiscoverySource = "dataDir" | "registry" | "both";
+
+/** `emulator::DiscoveredEmulator` — sugestão da descoberta automática */
+export interface DiscoveredEmulator {
+  name: string;
+  /** `null` = instalado mas sem pasta de dados ainda (só registro). */
+  profile: EmulatorProfile | null;
+  source: DiscoverySource;
+}
+
 /** `storage::emulators::SyncCategories` — categorias habilitadas por emulador */
 export interface SyncCategories {
   saves: boolean;

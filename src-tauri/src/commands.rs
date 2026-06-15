@@ -154,6 +154,16 @@ pub async fn add_emulator_manual(
     Ok(profile)
 }
 
+/// Varre locais conhecidos e o registro do Windows por emuladores do catálogo
+/// instalados no sistema. Não persiste nada — a UI usa o resultado para sugerir
+/// adições em um clique.
+#[tauri::command]
+pub async fn discover_emulators() -> AppResult<Vec<emulator::DiscoveredEmulator>> {
+    tokio::task::spawn_blocking(emulator::discover_installed)
+        .await
+        .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))
+}
+
 #[tauri::command]
 pub async fn list_emulators(state: State<'_, AppState>) -> AppResult<Vec<EmulatorProfile>> {
     state.db.with(emulators::list).await

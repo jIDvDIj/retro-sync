@@ -102,6 +102,7 @@ pub fn run() {
             commands::detect_emulator,
             commands::add_emulator,
             commands::add_emulator_manual,
+            commands::discover_emulators,
             commands::list_emulators,
             commands::remove_emulator,
             commands::sync_now,

@@ -9,6 +9,7 @@ import type {
   AuthStatus,
   Conflict,
   ConflictResolution,
+  DiscoveredEmulator,
   EmulatorProfile,
   HealthStatus,
   LastSync,
@@ -70,6 +71,11 @@ export function addEmulatorManual(
 
 export function listEmulators(): Promise<EmulatorProfile[]> {
   return invoke<EmulatorProfile[]>("list_emulators");
+}
+
+/** Emuladores do catálogo detectados instalados no sistema. Não persiste nada. */
+export function discoverEmulators(): Promise<DiscoveredEmulator[]> {
+  return invoke<DiscoveredEmulator[]>("discover_emulators");
 }
 
 /** Remove da sincronização; nada é apagado no Drive nem no disco. */

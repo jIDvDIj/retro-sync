@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 
 use serde::Deserialize;
 
-use super::EmulatorProfile;
+use super::{DiscoveredEmulator, DiscoverySource, EmulatorProfile};
 
 /// Especificação declarativa de um emulador — espelha cada `[[emulator]]` do
 /// `profiles.toml`.
@@ -38,6 +38,36 @@ struct ProfileSpec {
     states: Vec<String>,
     /// Pastas de configuração, relativas à base.
     config: Vec<String>,
+    /// Locais padrão de dados por SO (Sinal A da descoberta).
+    #[serde(default)]
+    data_dirs: DataDirs,
+    /// Pistas no registro do Windows (Sinal B da descoberta).
+    #[serde(default)]
+    #[cfg_attr(not(windows), allow(dead_code))]
+    registry: RegistryHints,
+}
+
+/// Locais padrão de dados, por SO — só o do SO atual é lido em cada build, daí
+/// o `allow(dead_code)` (os outros campos ficam ociosos por plataforma).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[allow(dead_code)]
+struct DataDirs {
+    #[serde(default)]
+    windows: Vec<String>,
+    #[serde(default)]
+    macos: Vec<String>,
+    #[serde(default)]
+    linux: Vec<String>,
+}
+
+/// Pistas de registro (lidas apenas no Windows).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[cfg_attr(not(windows), allow(dead_code))]
+struct RegistryHints {
+    #[serde(default)]
+    uninstall_names: Vec<String>,
+    #[serde(default)]
+    app_paths: Vec<String>,
 }
 
 const PROFILES_TOML: &str = include_str!("profiles.toml");
@@ -70,6 +100,200 @@ pub fn process_names(name: &str) -> Vec<String> {
         .find(|s| s.name == name)
         .map(|s| s.process_names.clone())
         .unwrap_or_default()
+}
+
+/// Varre o catálogo por emuladores instalados no sistema. Não persiste nada.
+pub fn discover_installed() -> Vec<DiscoveredEmulator> {
+    specs().iter().filter_map(discover_one).collect()
+}
+
+/// Combina Sinal A (pasta de dados + marcadores) e Sinal B (registro/Windows)
+/// para um perfil.
+fn discover_one(spec: &ProfileSpec) -> Option<DiscoveredEmulator> {
+    // Sinal A: locais de dados conhecidos do SO atual.
+    let by_data = data_dirs_for_os(spec)
+        .iter()
+        .filter_map(|tpl| expand_placeholders(tpl))
+        .find_map(|root| try_match(&root, spec));
+
+    // Sinal B: registro (no-op fora do Windows).
+    let reg = registry_match(spec);
+
+    // Se o registro aponta a pasta de instalação e os data_dirs não acharam
+    // saves, tenta detectar ali também.
+    let by_data = by_data.or_else(|| {
+        reg.install_location
+            .as_deref()
+            .and_then(|loc| try_match(loc, spec))
+    });
+
+    let make = |profile, source| {
+        Some(DiscoveredEmulator {
+            name: spec.name.clone(),
+            profile,
+            source,
+        })
+    };
+    match (by_data, reg.installed) {
+        (Some(p), true) => make(Some(p), DiscoverySource::Both),
+        (Some(p), false) => make(Some(p), DiscoverySource::DataDir),
+        (None, true) => make(None, DiscoverySource::Registry),
+        (None, false) => None,
+    }
+}
+
+/// Os `data_dirs` do SO em que o binário roda.
+fn data_dirs_for_os(spec: &ProfileSpec) -> &[String] {
+    #[cfg(target_os = "windows")]
+    {
+        spec.data_dirs.windows.as_slice()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        spec.data_dirs.macos.as_slice()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        spec.data_dirs.linux.as_slice()
+    }
+}
+
+/// Resolve um template de `data_dirs` num caminho absoluto. `None` se o
+/// placeholder for desconhecido ou o diretório base do SO não existir.
+fn expand_placeholders(template: &str) -> Option<PathBuf> {
+    let Some((key, rest)) = split_placeholder(template) else {
+        // Sem placeholder: caminho literal.
+        return Some(PathBuf::from(template));
+    };
+    let base = resolve_base(key)?;
+    Some(if rest.is_empty() { base } else { base.join(rest) })
+}
+
+/// Separa `"{key}/rest"` em `(key, rest)`. `None` se não começa com `{...}`.
+fn split_placeholder(template: &str) -> Option<(&str, &str)> {
+    let stripped = template.strip_prefix('{')?;
+    let end = stripped.find('}')?;
+    let key = &stripped[..end];
+    let rest = stripped[end + 1..].trim_start_matches('/');
+    Some((key, rest))
+}
+
+/// Diretório base de cada placeholder, via crate `dirs`.
+fn resolve_base(key: &str) -> Option<PathBuf> {
+    match key {
+        "documents" => dirs::document_dir(),
+        "localappdata" => dirs::data_local_dir(),
+        "appdata" | "config" => dirs::config_dir(),
+        "home" => dirs::home_dir(),
+        _ => None,
+    }
+}
+
+/// Resultado da consulta ao registro (Sinal B).
+struct RegistryMatch {
+    installed: bool,
+    install_location: Option<PathBuf>,
+}
+
+/// Consulta o registro do Windows: App Paths (por executável) e Uninstall
+/// (DisplayName). Devolve "não instalado" fora do Windows.
+#[cfg(windows)]
+fn registry_match(spec: &ProfileSpec) -> RegistryMatch {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+
+    // App Paths: o valor padrão da chave é o caminho do executável.
+    for exe in &spec.registry.app_paths {
+        let sub = format!(r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe}");
+        for hive in [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER] {
+            if let Ok(key) = RegKey::predef(hive).open_subkey(&sub) {
+                let install_location = key
+                    .get_value::<String, _>("")
+                    .ok()
+                    .and_then(|p| PathBuf::from(p).parent().map(Path::to_path_buf));
+                return RegistryMatch {
+                    installed: true,
+                    install_location,
+                };
+            }
+        }
+    }
+
+    // Uninstall: procura DisplayName contendo algum uninstall_name.
+    let mut install_location = None;
+    if registry_uninstall_match(spec, &mut install_location) {
+        return RegistryMatch {
+            installed: true,
+            install_location,
+        };
+    }
+
+    RegistryMatch {
+        installed: false,
+        install_location: None,
+    }
+}
+
+/// Percorre as chaves de Uninstall (HKLM, WOW6432Node e HKCU) procurando um
+/// `DisplayName` que contenha algum dos nomes; preenche `install_location` com
+/// o `InstallLocation` da primeira correspondência.
+#[cfg(windows)]
+fn registry_uninstall_match(spec: &ProfileSpec, install_location: &mut Option<PathBuf>) -> bool {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+
+    if spec.registry.uninstall_names.is_empty() {
+        return false;
+    }
+    let roots = [
+        (
+            RegKey::predef(HKEY_LOCAL_MACHINE),
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            RegKey::predef(HKEY_LOCAL_MACHINE),
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+        (
+            RegKey::predef(HKEY_CURRENT_USER),
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+    ];
+    for (hive, base) in &roots {
+        let Ok(root) = hive.open_subkey(base) else {
+            continue;
+        };
+        for sub in root.enum_keys().flatten() {
+            let Ok(key) = root.open_subkey(&sub) else {
+                continue;
+            };
+            let Ok(display) = key.get_value::<String, _>("DisplayName") else {
+                continue;
+            };
+            if spec
+                .registry
+                .uninstall_names
+                .iter()
+                .any(|n| display.contains(n.as_str()))
+            {
+                if let Ok(loc) = key.get_value::<String, _>("InstallLocation") {
+                    if !loc.is_empty() {
+                        *install_location = Some(PathBuf::from(loc));
+                    }
+                }
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(not(windows))]
+fn registry_match(_spec: &ProfileSpec) -> RegistryMatch {
+    RegistryMatch {
+        installed: false,
+        install_location: None,
+    }
 }
 
 /// Tenta casar um perfil com `root`. `None` quando a base ou os marcadores não
@@ -120,5 +344,45 @@ mod tests {
     fn process_names_conhecido_e_desconhecido() {
         assert!(!process_names("PPSSPP").is_empty());
         assert!(process_names("Inexistente").is_empty());
+    }
+
+    #[test]
+    fn split_placeholder_separa_chave_e_resto() {
+        assert_eq!(
+            split_placeholder("{documents}/PPSSPP"),
+            Some(("documents", "PPSSPP"))
+        );
+        assert_eq!(
+            split_placeholder("{home}/Library/Application Support/PPSSPP"),
+            Some(("home", "Library/Application Support/PPSSPP"))
+        );
+        assert_eq!(split_placeholder("{home}"), Some(("home", "")));
+        // Sem placeholder = literal.
+        assert_eq!(split_placeholder("/caminho/literal"), None);
+    }
+
+    #[test]
+    fn expand_placeholders_trata_literal_e_desconhecido() {
+        // Placeholder desconhecido não resolve.
+        assert_eq!(expand_placeholders("{desconhecido}/x"), None);
+        assert_eq!(resolve_base("desconhecido"), None);
+        // Caminho literal volta como está.
+        assert_eq!(
+            expand_placeholders("/abs/literal"),
+            Some(PathBuf::from("/abs/literal"))
+        );
+    }
+
+    #[test]
+    fn data_dirs_do_so_atual_nao_sao_vazios_no_catalogo() {
+        // Cada perfil deve ter ao menos um data_dir para o SO de teste, senão a
+        // descoberta automática nunca o encontraria nesta plataforma.
+        for spec in specs() {
+            assert!(
+                !data_dirs_for_os(spec).is_empty(),
+                "{} sem data_dirs para este SO",
+                spec.name
+            );
+        }
     }
 }

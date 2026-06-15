@@ -29,6 +29,30 @@ pub struct EmulatorProfile {
     pub state_paths: Vec<PathBuf>,
 }
 
+/// Sugestão da descoberta automática — espelhado em `src/types/ipc.ts`
+/// (`DiscoveredEmulator`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveredEmulator {
+    /// Nome canônico do catálogo.
+    pub name: String,
+    /// `Some` quando os saves foram encontrados (pode adicionar direto).
+    /// `None` = só o registro confirmou instalação (sem pasta de dados ainda).
+    pub profile: Option<EmulatorProfile>,
+    /// De onde veio o reconhecimento.
+    pub source: DiscoverySource,
+}
+
+/// Origem do reconhecimento na descoberta — serializa em camelCase
+/// (`dataDir`/`registry`/`both`). Espelhado em `src/types/ipc.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DiscoverySource {
+    DataDir,
+    Registry,
+    Both,
+}
+
 /// Identifica o emulador presente em `root_path` e monta o perfil com os
 /// caminhos relevantes. `None` quando nenhum emulador suportado é reconhecido.
 ///
@@ -41,6 +65,16 @@ pub fn detect_emulator(root_path: &Path) -> Option<EmulatorProfile> {
 /// Vazio se o nome canônico não corresponder a um perfil do catálogo.
 pub fn process_names(emulator_name: &str) -> Vec<String> {
     profiles::process_names(emulator_name)
+}
+
+/// Varre o catálogo por emuladores instalados no sistema (pastas de dados
+/// conhecidas + registro no Windows). Não persiste nada — a UI usa o resultado
+/// para sugerir adições.
+///
+/// Faz I/O de disco e, no Windows, leitura de registro — em contexto async,
+/// chamar via `spawn_blocking`.
+pub fn discover_installed() -> Vec<DiscoveredEmulator> {
+    profiles::discover_installed()
 }
 
 /// Monta um `EmulatorProfile` a partir de pastas informadas manualmente pelo
