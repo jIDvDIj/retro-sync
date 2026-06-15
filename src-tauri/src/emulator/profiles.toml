@@ -1,0 +1,27 @@
+# Catálogo declarativo de emuladores conhecidos. Cada [[emulator]] descreve como
+# reconhecer o emulador por marcadores no filesystem e onde ficam
+# saves/savestates/config, relativos a uma "base" dentro da pasta raiz.
+#
+# Semântica da detecção (implementada em emulator/profiles.rs):
+#   base_candidates  primeiro caminho existente vira a base; vazio = a própria raiz
+#   required         TODAS precisam existir sob a base (E lógico)
+#   markers          ao menos UMA precisa existir sob a base (OU lógico)
+#   saves/states/config  pastas a sincronizar, relativas à base
+
+[[emulator]]
+name = "PPSSPP"
+process_names = ["PPSSPPWindows64.exe", "PPSSPPWindows.exe", "PPSSPPSDL"]
+base_candidates = ["PSP", "memstick/PSP"]
+markers = ["SAVEDATA", "PPSSPP_STATE", "SYSTEM"]
+saves = ["SAVEDATA"]
+states = ["PPSSPP_STATE"]
+config = ["SYSTEM"]
+
+[[emulator]]
+name = "PCSX2"
+process_names = ["pcsx2-qt.exe", "pcsx2-qtx64.exe", "pcsx2-qtx64-avx2.exe", "pcsx2.exe", "pcsx2-qt"]
+required = ["inis"]
+markers = ["memcards", "sstates", "bios"]
+saves = ["memcards"]
+states = ["sstates"]
+config = ["inis"]

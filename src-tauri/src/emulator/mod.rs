@@ -1,12 +1,12 @@
 //! Perfis de emuladores e detecção automática.
 //!
-//! Cada emulador suportado fornece um `EmulatorProfile` descrevendo onde
+//! O catálogo de emuladores conhecidos é dirigido por dados: vive em
+//! `profiles.toml` e é interpretado por `profiles.rs`. Cada perfil descreve onde
 //! ficam saves, savestates e configurações relativos à pasta raiz.
 //! `detect_emulator(root_path)` identifica o emulador a partir de marcadores
 //! no filesystem (pastas características de cada um).
 
-mod pcsx2;
-mod ppsspp;
+mod profiles;
 
 use std::path::{Path, PathBuf};
 
@@ -34,17 +34,13 @@ pub struct EmulatorProfile {
 ///
 /// Faz I/O síncrono de disco — em contexto async, chamar via `spawn_blocking`.
 pub fn detect_emulator(root_path: &Path) -> Option<EmulatorProfile> {
-    ppsspp::detect(root_path).or_else(|| pcsx2::detect(root_path))
+    profiles::detect(root_path)
 }
 
 /// Nomes de processo do SO associados a um emulador, para o process watcher.
-/// Vazio se o nome canônico não corresponder a um perfil suportado.
-pub fn process_names(emulator_name: &str) -> &'static [&'static str] {
-    match emulator_name {
-        ppsspp::NAME => ppsspp::PROCESS_NAMES,
-        pcsx2::NAME => pcsx2::PROCESS_NAMES,
-        _ => &[],
-    }
+/// Vazio se o nome canônico não corresponder a um perfil do catálogo.
+pub fn process_names(emulator_name: &str) -> Vec<String> {
+    profiles::process_names(emulator_name)
 }
 
 #[cfg(test)]
@@ -66,7 +62,7 @@ mod tests {
 
         let profile = detect_emulator(tmp.path()).expect("deveria detectar PPSSPP");
 
-        assert_eq!(profile.name, ppsspp::NAME);
+        assert_eq!(profile.name, "PPSSPP");
         assert_eq!(profile.root_path, tmp.path());
         assert_eq!(profile.saves_paths, vec![Path::new("PSP").join("SAVEDATA")]);
         assert_eq!(profile.config_paths, vec![Path::new("PSP").join("SYSTEM")]);
@@ -83,7 +79,7 @@ mod tests {
 
         let profile = detect_emulator(tmp.path()).expect("deveria detectar PPSSPP portátil");
 
-        assert_eq!(profile.name, ppsspp::NAME);
+        assert_eq!(profile.name, "PPSSPP");
         assert_eq!(
             profile.saves_paths,
             vec![Path::new("memstick").join("PSP").join("SAVEDATA")]
@@ -105,7 +101,7 @@ mod tests {
 
         let profile = detect_emulator(tmp.path()).expect("deveria detectar PCSX2");
 
-        assert_eq!(profile.name, pcsx2::NAME);
+        assert_eq!(profile.name, "PCSX2");
         assert_eq!(profile.root_path, tmp.path());
         assert_eq!(profile.saves_paths, vec![PathBuf::from("memcards")]);
         assert_eq!(profile.config_paths, vec![PathBuf::from("inis")]);
@@ -118,7 +114,7 @@ mod tests {
         mkdirs(tmp.path(), &["inis", "bios"]);
 
         let profile = detect_emulator(tmp.path()).expect("deveria detectar PCSX2");
-        assert_eq!(profile.name, pcsx2::NAME);
+        assert_eq!(profile.name, "PCSX2");
     }
 
     #[test]

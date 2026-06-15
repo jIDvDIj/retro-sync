@@ -13,7 +13,7 @@ use super::WatcherEvent;
 /// Um emulador monitorado: nome canônico + nomes de processo do SO.
 pub(super) struct MonitoredEmulator {
     pub name: String,
-    pub process_names: &'static [&'static str],
+    pub process_names: Vec<String>,
 }
 
 #[derive(Default, Clone, Copy)]
