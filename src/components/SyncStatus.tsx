@@ -7,7 +7,6 @@ import type { SyncSummary } from "../types/ipc";
 
 interface Props {
   state: SyncState;
-  connected: boolean;
 }
 
 function formatRelative(atMs: number): string {
@@ -29,7 +28,7 @@ function summaryLine(summary: SyncSummary): string {
 }
 
 /** Barra de status: último sync, progresso ao vivo e sync manual. */
-export function SyncStatus({ state, connected }: Props) {
+export function SyncStatus({ state }: Props) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const syncing = busy || state.phase === "syncing";
@@ -60,7 +59,7 @@ export function SyncStatus({ state, connected }: Props) {
   return (
     <section className="sync-status">
       <div className="sync-row">
-        <button onClick={handleSync} disabled={syncing || !connected}>
+        <button onClick={handleSync} disabled={syncing}>
           {syncing ? "Sincronizando…" : "Sincronizar agora"}
         </button>
         <div className="sync-info">
@@ -75,11 +74,7 @@ export function SyncStatus({ state, connected }: Props) {
               <span className="muted">{summaryLine(state.lastSync.summary)}</span>
             </span>
           ) : (
-            <span className="muted">
-              {connected
-                ? "Nenhuma sincronização ainda"
-                : "Conecte o Google Drive para sincronizar"}
-            </span>
+            <span className="muted">Nenhuma sincronização ainda</span>
           )}
         </div>
       </div>

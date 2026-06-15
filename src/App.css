@@ -106,13 +106,44 @@ button.secondary:hover:not(:disabled) {
   gap: 0.75rem;
 }
 
-/* Login: aviso de permissão + nome do dispositivo */
-.connect-drive.login {
+/* Tela de login — única tela acessível enquanto desconectado */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  box-sizing: border-box;
+}
+
+.login-card {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  max-width: 360px;
-  text-align: left;
+  gap: 0.8rem;
+  width: 100%;
+  max-width: 380px;
+  padding: 2rem;
+  border: 1px solid #2c2c34;
+  border-radius: 14px;
+  background-color: #1f1f26;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.login-card h1 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.login-tagline {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #c5c5cf;
+  line-height: 1.35;
+}
+
+.login-button {
+  margin-top: 0.4rem;
+  width: 100%;
 }
 
 .permission-note {

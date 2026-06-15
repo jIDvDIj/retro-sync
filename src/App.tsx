@@ -1,10 +1,12 @@
 import { useState } from "react";
 
+import { AccountStatus } from "./components/AccountStatus";
 import { AddEmulator } from "./components/AddEmulator";
-import { ConnectDrive } from "./components/ConnectDrive";
 import { EmulatorCard } from "./components/EmulatorCard";
+import { LoginScreen } from "./components/LoginScreen";
 import { SettingsModal } from "./components/SettingsModal";
 import { SyncStatus } from "./components/SyncStatus";
+import { useAuth } from "./hooks/useAuth";
 import { useConflicts } from "./hooks/useConflicts";
 import { useEmulators } from "./hooks/useEmulators";
 import { useSettings } from "./hooks/useSettings";
@@ -12,11 +14,48 @@ import { useSyncEvents } from "./hooks/useSyncEvents";
 import "./App.css";
 
 function App() {
+  const auth = useAuth();
+  const { settings, reload: reloadSettings } = useSettings();
+
+  // Enquanto o status de auth não chega, não decidimos qual tela mostrar.
+  if (auth.loading) {
+    return (
+      <main className="login-screen">
+        <p className="muted">verificando conexão com o Google Drive…</p>
+      </main>
+    );
+  }
+
+  // Sem login, a única tela acessível é a de login.
+  if (!auth.connected) {
+    return (
+      <LoginScreen
+        initialDeviceName={settings?.deviceName ?? null}
+        onConnected={(status) => {
+          auth.setStatus(status);
+          reloadSettings();
+        }}
+      />
+    );
+  }
+
+  return <MainScreen auth={auth} settings={settings} reloadSettings={reloadSettings} />;
+}
+
+interface MainScreenProps {
+  auth: ReturnType<typeof useAuth>;
+  settings: ReturnType<typeof useSettings>["settings"];
+  reloadSettings: () => void;
+}
+
+/**
+ * Tela principal — só montada quando o usuário está conectado. Os hooks de
+ * emuladores/sync/conflitos vivem aqui para não rodar na tela de login.
+ */
+function MainScreen({ auth, settings, reloadSettings }: MainScreenProps) {
   const sync = useSyncEvents();
   const { emulators, loading, error, refresh, remove } = useEmulators();
-  const { settings, reload: reloadSettings } = useSettings();
   const { conflicts, reload: reloadConflicts } = useConflicts();
-  const [connected, setConnected] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
   return (
@@ -24,23 +63,22 @@ function App() {
       <header className="app-header">
         <h1>RetroSync</h1>
         <div className="header-actions">
-          <ConnectDrive
+          <AccountStatus
+            email={auth.status?.email ?? null}
             deviceName={settings?.deviceName ?? null}
-            onConnectionChange={setConnected}
-            onAfterConnect={reloadSettings}
+            onDisconnect={auth.disconnect}
+            error={auth.error}
           />
-          {connected ? (
-            <button className="secondary" onClick={() => setShowSettings(true)}>
-              ⚙ Configurações
-            </button>
-          ) : null}
+          <button className="secondary" onClick={() => setShowSettings(true)}>
+            ⚙ Configurações
+          </button>
         </div>
       </header>
 
       <section className="emulators">
         <div className="section-head">
           <h2>Emuladores</h2>
-          <AddEmulator onAdded={refresh} disabled={!connected} />
+          <AddEmulator onAdded={refresh} />
         </div>
 
         {loading ? (
@@ -68,7 +106,7 @@ function App() {
         )}
       </section>
 
-      <SyncStatus state={sync} connected={connected} />
+      <SyncStatus state={sync} />
 
       {showSettings && settings ? (
         <SettingsModal
