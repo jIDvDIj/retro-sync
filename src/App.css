@@ -505,3 +505,87 @@ button.secondary:hover:not(:disabled) {
 .trigger-label {
   font-size: 0.9rem;
 }
+
+/* Modal de adicionar emulador (descoberta + manual) */
+.discovery-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.discovery-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #2c2c34;
+  border-radius: 8px;
+  background-color: #202028;
+}
+
+.discovery-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.discovery-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.discovery-meta {
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.discovery-hint {
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.manual-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border-top: 1px solid #2c2c34;
+  padding-top: 0.8rem;
+}
+
+.manual-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.manual-field input {
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #2c2c34;
+  background-color: #202028;
+  color: inherit;
+}
+
+.manual-path-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.manual-path-label {
+  font-size: 0.85rem;
+  color: #c5c5cf;
+}
+
+.manual-path-row button {
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

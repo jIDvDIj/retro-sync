@@ -78,7 +78,7 @@ function MainScreen({ auth, settings, reloadSettings }: MainScreenProps) {
       <section className="emulators">
         <div className="section-head">
           <h2>Emuladores</h2>
-          <AddEmulator onAdded={refresh} />
+          <AddEmulator onAdded={refresh} existingNames={emulators.map((e) => e.name)} />
         </div>
 
         {loading ? (
