@@ -15,6 +15,9 @@ dist-ssr
 # Credenciais OAuth (use .env.example como modelo)
 .env
 
+# Configuração do Cloudflare Worker
+worker/wrangler.toml
+
 # Artefatos de build
 /x86_64
 

@@ -2,8 +2,8 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - "v*"
 
 jobs:
   release:
@@ -25,6 +25,23 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validar secrets de credenciais
+        shell: bash
+        env:
+          RETROSYNC_GOOGLE_CLIENT_ID: ${{ secrets.RETROSYNC_GOOGLE_CLIENT_ID }}
+          RETROSYNC_TOKEN_PROXY_URL: ${{ secrets.RETROSYNC_TOKEN_PROXY_URL }}
+          RETROSYNC_PROXY_SECRET: ${{ secrets.RETROSYNC_PROXY_SECRET }}
+        run: |
+          missing=()
+          if [ -z "$RETROSYNC_GOOGLE_CLIENT_ID" ]; then missing+=(RETROSYNC_GOOGLE_CLIENT_ID); fi
+          if [ -z "$RETROSYNC_TOKEN_PROXY_URL" ]; then missing+=(RETROSYNC_TOKEN_PROXY_URL); fi
+          if [ -z "$RETROSYNC_PROXY_SECRET" ]; then missing+=(RETROSYNC_PROXY_SECRET); fi
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Secrets de credenciais ausentes: ${missing[*]} — release abortada para não publicar um binário sem credenciais."
+            exit 1
+          fi
+          echo "Secrets de credenciais presentes."
 
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'ubuntu-22.04'
@@ -53,10 +70,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RETROSYNC_GOOGLE_CLIENT_ID: ${{ secrets.RETROSYNC_GOOGLE_CLIENT_ID }}
-          RETROSYNC_GOOGLE_CLIENT_SECRET: ${{ secrets.RETROSYNC_GOOGLE_CLIENT_SECRET }}
+          RETROSYNC_TOKEN_PROXY_URL: ${{ secrets.RETROSYNC_TOKEN_PROXY_URL }}
+          RETROSYNC_PROXY_SECRET: ${{ secrets.RETROSYNC_PROXY_SECRET }}
         with:
-          tagName: v__VERSION__
-          releaseName: RetroSync v__VERSION__
+          tagName: ${{ github.ref_name }}
+          releaseName: RetroSync ${{ github.ref_name }}
           releaseBody: Veja os assets abaixo para baixar e instalar esta versão.
           releaseDraft: true
           prerelease: false

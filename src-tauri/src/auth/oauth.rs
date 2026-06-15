@@ -39,9 +39,14 @@ const ERROR_PAGE: &str = "<!doctype html><html lang=\"pt-BR\"><meta charset=\"ut
 #[derive(Clone)]
 pub struct OAuthConfig {
     pub client_id: String,
-    /// Exigido pelo Google para clientes do tipo "Desktop app" no token
-    /// endpoint; não é tratado como confidencial em apps instalados, mas
-    /// nunca entra no código — vem de env (build-time ou runtime).
+    /// URL do proxy Cloudflare Worker que guarda o client_secret (produção).
+    /// Quando presente, `exchange_code` e `refresh_access_token` chamam o
+    /// Worker em vez do token endpoint do Google diretamente.
+    pub token_proxy_url: Option<String>,
+    /// Shared secret enviado no header `X-Proxy-Secret` para impedir que
+    /// terceiros esgotem a quota do Worker.
+    pub proxy_secret: Option<String>,
+    /// Fallback para desenvolvimento local sem Worker configurado.
     pub client_secret: Option<String>,
 }
 
@@ -50,11 +55,19 @@ impl OAuthConfig {
         let client_id = option_env!("RETROSYNC_GOOGLE_CLIENT_ID")
             .map(str::to_owned)
             .or_else(|| std::env::var("RETROSYNC_GOOGLE_CLIENT_ID").ok())?;
+        let token_proxy_url = option_env!("RETROSYNC_TOKEN_PROXY_URL")
+            .map(str::to_owned)
+            .or_else(|| std::env::var("RETROSYNC_TOKEN_PROXY_URL").ok());
+        let proxy_secret = option_env!("RETROSYNC_PROXY_SECRET")
+            .map(str::to_owned)
+            .or_else(|| std::env::var("RETROSYNC_PROXY_SECRET").ok());
         let client_secret = option_env!("RETROSYNC_GOOGLE_CLIENT_SECRET")
             .map(str::to_owned)
             .or_else(|| std::env::var("RETROSYNC_GOOGLE_CLIENT_SECRET").ok());
         Some(Self {
             client_id,
+            token_proxy_url,
+            proxy_secret,
             client_secret,
         })
     }
@@ -227,6 +240,15 @@ async fn exchange_code(
     verifier: &str,
     redirect_uri: &str,
 ) -> AppResult<TokenResponse> {
+    if let Some(proxy) = &config.token_proxy_url {
+        let url = format!("{proxy}/token");
+        let body = serde_json::json!({
+            "code": code,
+            "code_verifier": verifier,
+            "redirect_uri": redirect_uri,
+        });
+        return post_token_proxy(http, &url, &body, config.proxy_secret.as_deref()).await;
+    }
     let mut form = vec![
         ("grant_type", "authorization_code"),
         ("code", code),
@@ -245,6 +267,11 @@ pub async fn refresh_access_token(
     config: &OAuthConfig,
     refresh_token: &str,
 ) -> AppResult<TokenResponse> {
+    if let Some(proxy) = &config.token_proxy_url {
+        let url = format!("{proxy}/refresh");
+        let body = serde_json::json!({ "refresh_token": refresh_token });
+        return post_token_proxy(http, &url, &body, config.proxy_secret.as_deref()).await;
+    }
     let mut form = vec![
         ("grant_type", "refresh_token"),
         ("refresh_token", refresh_token),
@@ -263,6 +290,27 @@ async fn post_token(http: &reqwest::Client, form: &[(&str, &str)]) -> AppResult<
         let body = response.text().await.unwrap_or_default();
         return Err(AppError::Auth(format!(
             "token endpoint retornou {status}: {body}"
+        )));
+    }
+    Ok(response.json::<TokenResponse>().await?)
+}
+
+async fn post_token_proxy(
+    http: &reqwest::Client,
+    url: &str,
+    body: &serde_json::Value,
+    proxy_secret: Option<&str>,
+) -> AppResult<TokenResponse> {
+    let mut request = http.post(url).json(body);
+    if let Some(secret) = proxy_secret {
+        request = request.header("X-Proxy-Secret", secret);
+    }
+    let response = request.send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(AppError::Auth(format!(
+            "proxy de token retornou {status}: {text}"
         )));
     }
     Ok(response.json::<TokenResponse>().await?)

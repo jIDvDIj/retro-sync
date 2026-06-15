@@ -6,7 +6,22 @@ const DOTENV_PATH: &str = "../.env";
 /// Prefixo das variáveis que podem ser embutidas no binário.
 const ENV_PREFIX: &str = "RETROSYNC_";
 
+/// Variáveis lidas por `option_env!` no código (`auth/oauth.rs`). Precisam ser
+/// declaradas como dependências de build **sempre** — inclusive no CI, onde não
+/// existe `.env` e o early-return de `load_dotenv` não emitiria nada. Sem isso,
+/// o cache do cargo (`rust-cache`) pode servir um binário com credenciais antigas
+/// quando uma delas é rotacionada, pois nada invalida a recompilação do crate.
+const EMBEDDED_KEYS: &[&str] = &[
+    "RETROSYNC_GOOGLE_CLIENT_ID",
+    "RETROSYNC_GOOGLE_CLIENT_SECRET",
+    "RETROSYNC_TOKEN_PROXY_URL",
+    "RETROSYNC_PROXY_SECRET",
+];
+
 fn main() {
+    for key in EMBEDDED_KEYS {
+        println!("cargo:rerun-if-env-changed={key}");
+    }
     load_dotenv();
     tauri_build::build()
 }
