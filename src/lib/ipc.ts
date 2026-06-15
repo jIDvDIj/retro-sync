@@ -47,6 +47,27 @@ export function addEmulator(path: string): Promise<EmulatorProfile> {
   return invoke<EmulatorProfile>("add_emulator", { path });
 }
 
+/**
+ * Registra um emulador com pastas informadas manualmente (fallback quando a
+ * detecção falha). Caminhos relativos à raiz. Rejeita com `emulator_exists` se
+ * já houver um emulador com o mesmo nome.
+ */
+export function addEmulatorManual(
+  name: string,
+  path: string,
+  savesPaths: string[],
+  statePaths: string[],
+  configPaths: string[],
+): Promise<EmulatorProfile> {
+  return invoke<EmulatorProfile>("add_emulator_manual", {
+    name,
+    path,
+    savesPaths,
+    statePaths,
+    configPaths,
+  });
+}
+
 export function listEmulators(): Promise<EmulatorProfile[]> {
   return invoke<EmulatorProfile[]>("list_emulators");
 }

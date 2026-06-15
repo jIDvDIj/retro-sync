@@ -83,6 +83,16 @@ pub fn upsert(conn: &Connection, profile: &EmulatorProfile) -> AppResult<()> {
     Ok(())
 }
 
+/// `true` se já existe um emulador registrado com este nome (auto ou manual).
+pub fn exists(conn: &Connection, name: &str) -> AppResult<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM emulators WHERE name = ?1",
+        params![name],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
 pub fn list(conn: &Connection) -> AppResult<Vec<EmulatorProfile>> {
     let mut stmt = conn.prepare("SELECT profile_json FROM emulators ORDER BY name")?;
     let raw = stmt
@@ -152,6 +162,18 @@ mod tests {
             upsert(conn, &sample_profile())?;
             remove(conn, "PPSSPP")?;
             assert!(list(conn)?.is_empty());
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn exists_reflete_presenca_do_perfil() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert!(!exists(conn, "PPSSPP")?);
+            upsert(conn, &sample_profile())?;
+            assert!(exists(conn, "PPSSPP")?);
+            assert!(!exists(conn, "PCSX2")?);
             Ok(())
         });
     }

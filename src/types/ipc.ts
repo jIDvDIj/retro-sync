@@ -129,6 +129,7 @@ export interface AppErrorPayload {
     | "serialization"
     | "auth"
     | "emulator_not_detected"
+    | "emulator_exists"
     | "file_busy"
     | "other";
   message: string;

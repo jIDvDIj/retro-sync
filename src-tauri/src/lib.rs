@@ -101,6 +101,7 @@ pub fn run() {
             commands::disconnect_google_drive,
             commands::detect_emulator,
             commands::add_emulator,
+            commands::add_emulator_manual,
             commands::list_emulators,
             commands::remove_emulator,
             commands::sync_now,

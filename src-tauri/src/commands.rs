@@ -108,6 +108,52 @@ pub async fn add_emulator(state: State<'_, AppState>, path: String) -> AppResult
     Ok(profile)
 }
 
+/// Registra um emulador cujas pastas o usuário informou manualmente — fallback
+/// quando a detecção automática falha (instalação portátil ou fora do catálogo).
+/// Os caminhos chegam relativos à raiz. Não sobrescreve um emulador já existente.
+#[tauri::command]
+pub async fn add_emulator_manual(
+    state: State<'_, AppState>,
+    name: String,
+    path: String,
+    saves_paths: Vec<String>,
+    state_paths: Vec<String>,
+    config_paths: Vec<String>,
+) -> AppResult<EmulatorProfile> {
+    let root = PathBuf::from(&path);
+    if !root.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("pasta não encontrada: {}", root.display()),
+        )
+        .into());
+    }
+
+    let profile = tokio::task::spawn_blocking(move || {
+        emulator::build_manual_profile(&root, name, saves_paths, state_paths, config_paths)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))?
+    .map_err(AppError::Other)?;
+
+    let name_check = profile.name.clone();
+    if state
+        .db
+        .with(move |conn| emulators::exists(conn, &name_check))
+        .await?
+    {
+        return Err(AppError::EmulatorExists(profile.name));
+    }
+
+    let to_store = profile.clone();
+    state
+        .db
+        .with(move |conn| emulators::upsert(conn, &to_store))
+        .await?;
+    tracing::info!(emulador = %profile.name, raiz = %profile.root_path.display(), "emulador manual adicionado");
+    Ok(profile)
+}
+
 #[tauri::command]
 pub async fn list_emulators(state: State<'_, AppState>) -> AppResult<Vec<EmulatorProfile>> {
     state.db.with(emulators::list).await

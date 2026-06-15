@@ -8,7 +8,7 @@
 
 mod profiles;
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +41,68 @@ pub fn detect_emulator(root_path: &Path) -> Option<EmulatorProfile> {
 /// Vazio se o nome canônico não corresponder a um perfil do catálogo.
 pub fn process_names(emulator_name: &str) -> Vec<String> {
     profiles::process_names(emulator_name)
+}
+
+/// Monta um `EmulatorProfile` a partir de pastas informadas manualmente pelo
+/// usuário (fallback quando a detecção automática falha). Os caminhos chegam
+/// relativos à raiz; cada um é validado e normalizado.
+///
+/// Falha (com mensagem para o usuário) se: o nome for vazio; algum caminho for
+/// absoluto, contiver `..`/prefixo de raiz, ou não existir como pasta sob a
+/// raiz; ou se nenhuma categoria tiver pasta (perfil vazio).
+///
+/// Faz I/O síncrono de disco — em contexto async, chamar via `spawn_blocking`.
+pub fn build_manual_profile(
+    root: &Path,
+    name: String,
+    saves: Vec<String>,
+    states: Vec<String>,
+    config: Vec<String>,
+) -> Result<EmulatorProfile, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("nome do emulador é obrigatório".into());
+    }
+
+    let saves_paths = validate_rel_dirs(root, saves)?;
+    let state_paths = validate_rel_dirs(root, states)?;
+    let config_paths = validate_rel_dirs(root, config)?;
+
+    if saves_paths.is_empty() && state_paths.is_empty() && config_paths.is_empty() {
+        return Err("informe ao menos uma pasta (saves, savestates ou config)".into());
+    }
+
+    Ok(EmulatorProfile {
+        name,
+        root_path: root.to_path_buf(),
+        saves_paths,
+        config_paths,
+        state_paths,
+    })
+}
+
+/// Valida e normaliza caminhos relativos à raiz. Entradas vazias são ignoradas
+/// (campo não preenchido na UI); rejeita absolutos, `..` e prefixos/raiz, e
+/// exige que cada pasta exista sob `root`.
+fn validate_rel_dirs(root: &Path, dirs: Vec<String>) -> Result<Vec<PathBuf>, String> {
+    let mut out = Vec::with_capacity(dirs.len());
+    for d in dirs {
+        if d.trim().is_empty() {
+            continue;
+        }
+        let rel = PathBuf::from(&d);
+        let escapes = rel
+            .components()
+            .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)));
+        if rel.is_absolute() || escapes {
+            return Err(format!("o caminho deve ser relativo à raiz: {d}"));
+        }
+        if !root.join(&rel).is_dir() {
+            return Err(format!("pasta não encontrada sob a raiz: {d}"));
+        }
+        out.push(rel);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -145,5 +207,83 @@ mod tests {
         assert!(json["savesPaths"].is_array());
         assert!(json["configPaths"].is_array());
         assert!(json["statePaths"].is_array());
+    }
+
+    #[test]
+    fn manual_aceita_perfil_valido_e_normaliza_relativos() {
+        let tmp = tempfile::tempdir().unwrap();
+        mkdirs(tmp.path(), &["saves", "states", "cfg"]);
+
+        let profile = build_manual_profile(
+            tmp.path(),
+            "  MeuEmu  ".into(),
+            vec!["saves".into()],
+            vec!["states".into()],
+            vec!["cfg".into(), "".into()], // entrada vazia é ignorada
+        )
+        .expect("perfil válido");
+
+        assert_eq!(profile.name, "MeuEmu"); // trim aplicado
+        assert_eq!(profile.root_path, tmp.path());
+        assert_eq!(profile.saves_paths, vec![PathBuf::from("saves")]);
+        assert_eq!(profile.state_paths, vec![PathBuf::from("states")]);
+        assert_eq!(profile.config_paths, vec![PathBuf::from("cfg")]);
+    }
+
+    #[test]
+    fn manual_rejeita_nome_vazio() {
+        let tmp = tempfile::tempdir().unwrap();
+        mkdirs(tmp.path(), &["saves"]);
+        let err = build_manual_profile(tmp.path(), "   ".into(), vec!["saves".into()], vec![], vec![])
+            .unwrap_err();
+        assert!(err.contains("nome"));
+    }
+
+    #[test]
+    fn manual_rejeita_perfil_sem_nenhuma_pasta() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = build_manual_profile(tmp.path(), "Emu".into(), vec![], vec![], vec!["".into()])
+            .unwrap_err();
+        assert!(err.contains("ao menos uma pasta"));
+    }
+
+    #[test]
+    fn manual_rejeita_caminho_inexistente() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err =
+            build_manual_profile(tmp.path(), "Emu".into(), vec!["naoexiste".into()], vec![], vec![])
+                .unwrap_err();
+        assert!(err.contains("não encontrada"));
+    }
+
+    #[test]
+    fn manual_rejeita_path_traversal() {
+        let tmp = tempfile::tempdir().unwrap();
+        mkdirs(tmp.path(), &["saves"]);
+        let err = build_manual_profile(
+            tmp.path(),
+            "Emu".into(),
+            vec!["../saves".into()],
+            vec![],
+            vec![],
+        )
+        .unwrap_err();
+        assert!(err.contains("relativo à raiz"));
+    }
+
+    #[test]
+    fn manual_rejeita_caminho_absoluto() {
+        let tmp = tempfile::tempdir().unwrap();
+        let abs = tmp.path().join("saves");
+        fs::create_dir_all(&abs).unwrap();
+        let err = build_manual_profile(
+            tmp.path(),
+            "Emu".into(),
+            vec![abs.to_string_lossy().into_owned()],
+            vec![],
+            vec![],
+        )
+        .unwrap_err();
+        assert!(err.contains("relativo à raiz"));
     }
 }
