@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { errorMessage } from "../lib/errors";
-import { setDeviceName, setNotificationLevel } from "../lib/ipc";
+import { setAutostart, setDeviceName, setNotificationLevel } from "../lib/ipc";
 import type { EmulatorProfile, NotificationLevel, Settings } from "../types/ipc";
 import { CategorySettings } from "./CategorySettings";
 import { TriggerSettingsSection } from "./TriggerSettings";
@@ -31,6 +31,21 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
   const [saved, setSaved] = useState(false);
   const [notifLevel, setNotifLevel] = useState<NotificationLevel>(settings.notificationLevel);
   const [notifError, setNotifError] = useState<string | null>(null);
+  const [autostart, setAutostartState] = useState(settings.autostart);
+  const [autostartError, setAutostartError] = useState<string | null>(null);
+
+  const toggleAutostart = async () => {
+    const next = !autostart;
+    setAutostartState(next); // otimista
+    setAutostartError(null);
+    try {
+      await setAutostart(next);
+      onSaved();
+    } catch (err) {
+      setAutostartError(errorMessage(err));
+      setAutostartState(!next); // reverte em falha
+    }
+  };
 
   const changeNotifLevel = async (level: NotificationLevel) => {
     const prev = notifLevel;
@@ -107,6 +122,24 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
             Mesmo com tudo desligado, o botão “Sincronizar agora” continua disponível.
           </p>
           <TriggerSettingsSection triggers={settings.triggers} onChanged={onSaved} />
+        </section>
+
+        <section className="settings-section">
+          <h3>Inicialização</h3>
+          <p className="muted">
+            Sobe o RetroSync junto com o sistema, direto na bandeja, para sincronizar em segundo
+            plano sem você precisar abrir o app.
+          </p>
+          <div className="trigger-list">
+            <label className="trigger-row">
+              <input type="checkbox" checked={autostart} onChange={toggleAutostart} />
+              <span className="trigger-text">
+                <span className="trigger-label">Abrir com o sistema</span>
+                <span className="muted">roda em segundo plano ao ligar o computador</span>
+              </span>
+            </label>
+            {autostartError ? <p className="error">{autostartError}</p> : null}
+          </div>
         </section>
 
         <section className="settings-section">

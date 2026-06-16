@@ -68,8 +68,18 @@ pub const SETTING_TRIGGER_EMULATOR_STOP: &str = "trigger_emulator_stop";
 /// Nível de notificações nativas: all | errors_only | none (default: all).
 pub const SETTING_NOTIFICATION_LEVEL: &str = "notification_level";
 
+/// Marca que o default de fábrica do autostart (ligado) já foi aplicado na
+/// primeira execução. Impede religar o autostart a cada inicialização — depois
+/// disso a escolha do usuário prevalece, inclusive se ele desativar.
+pub const SETTING_AUTOSTART_INITIALIZED: &str = "autostart_initialized";
+
 /// Label da janela principal (definida pelo Tauri quando não há `label`).
 pub const MAIN_WINDOW_LABEL: &str = "main";
+
+/// Argumento que o lançador do SO injeta quando o app sobe junto com o sistema
+/// (registrado pelo plugin de autostart). Com ele o app inicia direto na
+/// bandeja, sem abrir a janela principal.
+pub const STARTUP_MINIMIZED_FLAG: &str = "--minimized";
 
 /// IDs dos itens do menu da bandeja do sistema.
 pub const TRAY_MENU_OPEN: &str = "tray-open";

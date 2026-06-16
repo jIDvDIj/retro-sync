@@ -113,6 +113,11 @@ export function setNotificationLevel(level: NotificationLevel): Promise<void> {
   return invoke<void>("set_notification_level", { level });
 }
 
+/** Liga/desliga o início automático do RetroSync junto com o sistema. */
+export function setAutostart(enabled: boolean): Promise<void> {
+  return invoke<void>("set_autostart", { enabled });
+}
+
 /** Abre a pasta de backups locais no gerenciador de arquivos do SO. */
 export function openBackupFolder(): Promise<void> {
   return invoke<void>("open_backup_folder");

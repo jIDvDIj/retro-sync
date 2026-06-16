@@ -9,8 +9,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::constants::{
-    SETTING_DEVICE_NAME, SETTING_NOTIFICATION_LEVEL, SETTING_TRIGGER_EMULATOR_START,
-    SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
+    SETTING_AUTOSTART_INITIALIZED, SETTING_DEVICE_NAME, SETTING_NOTIFICATION_LEVEL,
+    SETTING_TRIGGER_EMULATOR_START, SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
 };
 use crate::error::AppResult;
 
@@ -25,6 +25,13 @@ pub struct Settings {
     pub triggers: TriggerSettings,
     /// Quais eventos geram notificação nativa do SO.
     pub notification_level: NotificationLevel,
+    /// Início automático junto com o sistema operacional. NÃO é persistido no
+    /// banco: o estado vive no SO (registro do Windows / LaunchAgent) e é
+    /// preenchido pelo comando `get_settings` via o plugin de autostart.
+    /// `load` sempre devolve `false`; o valor real é injetado na camada de
+    /// comando.
+    #[serde(default)]
+    pub autostart: bool,
 }
 
 /// Nível de notificações nativas. Espelhado em `src/types/ipc.ts`.
@@ -125,6 +132,9 @@ pub fn load(conn: &Connection) -> AppResult<Settings> {
         device_name: get(conn, SETTING_DEVICE_NAME)?,
         triggers: triggers(conn)?,
         notification_level: notification_level(conn)?,
+        // Estado do SO, não do banco: o comando `get_settings` injeta o valor
+        // real lido pelo plugin de autostart.
+        autostart: false,
     })
 }
 
@@ -158,6 +168,18 @@ pub fn set_triggers(conn: &Connection, triggers: &TriggerSettings) -> AppResult<
     )?;
     set_bool(conn, SETTING_TRIGGER_EMULATOR_STOP, triggers.emulator_stop)?;
     Ok(())
+}
+
+/// O default de fábrica do autostart (ligado) já foi aplicado? `false` na
+/// primeiríssima execução. Ver [`mark_autostart_initialized`] e o setup em
+/// `lib.rs`.
+pub fn autostart_initialized(conn: &Connection) -> AppResult<bool> {
+    get_bool(conn, SETTING_AUTOSTART_INITIALIZED, false)
+}
+
+/// Marca o default de fábrica do autostart como já aplicado.
+pub fn mark_autostart_initialized(conn: &Connection) -> AppResult<()> {
+    set_bool(conn, SETTING_AUTOSTART_INITIALIZED, true)
 }
 
 /// Nome do dispositivo isolado (usado pelo engine ao publicar metadados).
@@ -205,6 +227,18 @@ mod tests {
             set_triggers(conn, &t)?;
             assert_eq!(triggers(conn)?, t);
             assert_eq!(load(conn)?.triggers, t);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn autostart_initialized_roundtrip() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            // Default: ainda não aplicado na primeira execução.
+            assert!(!autostart_initialized(conn)?);
+            mark_autostart_initialized(conn)?;
+            assert!(autostart_initialized(conn)?);
             Ok(())
         });
     }
@@ -259,6 +293,7 @@ mod tests {
             device_name: Some("PC Gamer".into()),
             triggers: TriggerSettings::default(),
             notification_level: NotificationLevel::ErrorsOnly,
+            autostart: false,
         })
         .unwrap();
         assert_eq!(json["deviceName"], "PC Gamer");
@@ -266,5 +301,6 @@ mod tests {
         assert_eq!(json["triggers"]["emulatorStart"], true);
         assert_eq!(json["triggers"]["emulatorStop"], true);
         assert_eq!(json["notificationLevel"], "errors_only");
+        assert_eq!(json["autostart"], false);
     }
 }

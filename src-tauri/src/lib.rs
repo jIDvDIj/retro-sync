@@ -15,6 +15,7 @@ use std::sync::Arc;
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, WindowEvent};
+use tauri_plugin_autostart::ManagerExt;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use state::AppState;
@@ -24,6 +25,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        // Início automático com o sistema. Ao subir junto com o login, o SO
+        // lança o app com `--minimized` para ele ficar só na bandeja.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![constants::STARTUP_MINIMIZED_FLAG]),
+        ))
         .on_window_event(|window, event| {
             // Fechar a janela apenas a esconde — o app continua vivo na
             // bandeja. O sync de despedida roda no "Sair" do menu da tray.
@@ -64,9 +71,49 @@ pub fn run() {
 
             setup_tray(app.handle())?;
 
+            // A janela nasce oculta (`visible: false` no tauri.conf.json). Em
+            // abertura normal nós a mostramos; quando o SO sobe o app junto com
+            // o sistema (flag `--minimized`), ele fica só na bandeja.
+            let launched_minimized = std::env::args().any(|a| a == constants::STARTUP_MINIMIZED_FLAG);
+            if !launched_minimized {
+                if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
+                    let _ = window.show();
+                }
+            }
+
             // Process watcher: dispara sync ao abrir/fechar um emulador.
             let startup_db = db.clone();
+            let autostart_db = db.clone();
             watcher::start(db, engine.clone(), app.handle().clone());
+
+            // Default de fábrica: na primeiríssima execução registramos o
+            // autostart para o app subir junto com o sistema. Aplicado uma única
+            // vez (flag no banco); depois disso a escolha do usuário prevalece,
+            // mesmo que ele desative pelo app ou pelo Gerenciador de Tarefas.
+            let autostart_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let already = autostart_db
+                    .with(storage::settings::autostart_initialized)
+                    .await
+                    .unwrap_or(true); // em erro de leitura, não mexe no estado do SO
+                if already {
+                    return;
+                }
+                // `State` (de `autolaunch()`) não é `Send`: usa numa statement
+                // isolada para não atravessar um `.await`.
+                let enabled = autostart_app.autolaunch().enable();
+                match enabled {
+                    Ok(()) => {
+                        let _ = autostart_db
+                            .with(storage::settings::mark_autostart_initialized)
+                            .await;
+                        tracing::info!("autostart ativado por padrão (primeira execução)");
+                    }
+                    Err(err) => {
+                        tracing::warn!(error = %err, "autostart padrão não pôde ser ativado");
+                    }
+                }
+            });
 
             // Gatilho "ao iniciar o RetroSync": sync bidirecional em background,
             // se o usuário não tiver desativado o gatilho `startup`.
@@ -111,6 +158,7 @@ pub fn run() {
             commands::set_device_name,
             commands::set_triggers,
             commands::set_notification_level,
+            commands::set_autostart,
             commands::open_backup_folder,
             commands::get_emulator_categories,
             commands::set_emulator_categories,
