@@ -20,5 +20,11 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
     },
   },
+  {
+    files: ["worker/**/*.js"],
+    languageOptions: {
+      globals: globals.worker,
+    },
+  },
   prettier,
 );
