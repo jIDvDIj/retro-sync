@@ -1,0 +1,43 @@
+# Catálogo declarativo de emuladores conhecidos. Cada [[emulator]] descreve como
+# reconhecer o emulador por marcadores no filesystem e onde ficam
+# saves/savestates/config, relativos a uma "base" dentro da pasta raiz.
+#
+# Semântica da detecção (implementada em emulator/profiles.rs):
+#   base_candidates  primeiro caminho existente vira a base; vazio = a própria raiz
+#   required         TODAS precisam existir sob a base (E lógico)
+#   markers          ao menos UMA precisa existir sob a base (OU lógico)
+#   saves/states/config  pastas a sincronizar, relativas à base
+#
+# Descoberta automática (Sinal A: pasta de dados; Sinal B: registro do Windows):
+#   data_dirs.{windows,macos,linux}  locais padrão; placeholders {documents}
+#                                    {localappdata} {appdata} {config} {home}
+#   registry.uninstall_names  match em DisplayName das chaves de Uninstall
+#   registry.app_paths        chaves sob App Paths (por executável)
+
+[[emulator]]
+name = "PPSSPP"
+process_names = ["PPSSPPWindows64.exe", "PPSSPPWindows.exe", "PPSSPPSDL"]
+base_candidates = ["PSP", "memstick/PSP"]
+markers = ["SAVEDATA", "PPSSPP_STATE", "SYSTEM"]
+saves = ["SAVEDATA"]
+states = ["PPSSPP_STATE"]
+config = ["SYSTEM"]
+data_dirs.windows = ["{documents}/PPSSPP", "{localappdata}/PPSSPP"]
+data_dirs.macos = ["{home}/Library/Application Support/PPSSPP"]
+data_dirs.linux = ["{config}/ppsspp"]
+registry.uninstall_names = ["PPSSPP"]
+registry.app_paths = ["PPSSPPWindows64.exe"]
+
+[[emulator]]
+name = "PCSX2"
+process_names = ["pcsx2-qt.exe", "pcsx2-qtx64.exe", "pcsx2-qtx64-avx2.exe", "pcsx2.exe", "pcsx2-qt"]
+required = ["inis"]
+markers = ["memcards", "sstates", "bios"]
+saves = ["memcards"]
+states = ["sstates"]
+config = ["inis"]
+data_dirs.windows = ["{documents}/PCSX2", "{localappdata}/PCSX2"]
+data_dirs.macos = ["{home}/Library/Application Support/PCSX2"]
+data_dirs.linux = ["{config}/PCSX2"]
+registry.uninstall_names = ["PCSX2"]
+registry.app_paths = ["pcsx2-qt.exe"]

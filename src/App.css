@@ -1,0 +1,591 @@
+:root {
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  color: #e8e8e8;
+  background-color: #1a1a1f;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 1.5rem 2rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  box-sizing: border-box;
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #2c2c34;
+  padding-bottom: 1rem;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.header-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.muted {
+  color: #9a9aa5;
+  font-size: 0.9rem;
+}
+
+.empty {
+  border: 1px dashed #3a3a44;
+  border-radius: 10px;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+/* Botões */
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  background-color: #3b82f6;
+  color: #fff;
+  transition: background-color 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background-color: #2563eb;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background-color: transparent;
+  border: 1px solid #4b4b55;
+  color: #c5c5cf;
+  font-weight: 500;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.8rem;
+}
+
+button.secondary:hover:not(:disabled) {
+  background-color: #26262d;
+}
+
+/* Conexão com o Drive */
+.connect-drive .connected {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Tela de login — única tela acessível enquanto desconectado */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  box-sizing: border-box;
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  width: 100%;
+  max-width: 380px;
+  padding: 2rem;
+  border: 1px solid #2c2c34;
+  border-radius: 14px;
+  background-color: #1f1f26;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.login-card h1 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.login-tagline {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #c5c5cf;
+  line-height: 1.35;
+}
+
+.login-button {
+  margin-top: 0.4rem;
+  width: 100%;
+}
+
+.permission-note {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #9a9aa5;
+  line-height: 1.3;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: #c5c5cf;
+}
+
+.field input,
+.field select {
+  background-color: #202028;
+  border: 1px solid #3a3a44;
+  border-radius: 8px;
+  color: #e8e8e8;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.9rem;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+/* Etiqueta do dispositivo atual (ao lado da conta conectada) */
+.device-tag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background-color: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+.account {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: #c5c5cf;
+}
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.dot-on {
+  background-color: #22c55e;
+}
+
+/* Seção de emuladores */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.9rem;
+}
+
+.add-emulator {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+
+.emulator-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.emulator-card {
+  border: 1px solid #2c2c34;
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  background-color: #202028;
+}
+
+.emulator-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.emulator-name {
+  font-weight: 600;
+}
+
+.emulator-path {
+  margin: 0.4rem 0 0.7rem;
+  font-size: 0.8rem;
+  color: #8c8c97;
+  word-break: break-all;
+}
+
+.emulator-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+}
+
+.badge-running {
+  background-color: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}
+
+.badge-idle {
+  background-color: rgba(148, 148, 165, 0.15);
+  color: #9a9aa5;
+}
+
+.badge-conflict {
+  background-color: rgba(248, 113, 113, 0.18);
+  color: #f87171;
+}
+
+.emulator-card.has-conflict {
+  border-color: rgba(248, 113, 113, 0.45);
+}
+
+/* Modal de conflito */
+.conflict-item {
+  border: 1px solid #2c2c34;
+  border-radius: 8px;
+  padding: 0.7rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.conflict-path {
+  font-size: 0.85rem;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.conflict-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.conflict-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border: 1px solid #2c2c34;
+  border-radius: 8px;
+  padding: 0.6rem;
+  background-color: #202028;
+}
+
+.conflict-side-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.conflict-side button {
+  margin-top: 0.2rem;
+  font-size: 0.82rem;
+  padding: 0.4rem 0.7rem;
+}
+
+/* Barra de status de sync */
+.sync-status {
+  margin-top: auto;
+  border-top: 1px solid #2c2c34;
+  padding-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sync-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.sync-info {
+  font-size: 0.85rem;
+  color: #c5c5cf;
+}
+
+.sync-progress {
+  font-variant-numeric: tabular-nums;
+}
+
+.error {
+  color: #f87171;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* Banner de backups do primeiro sync */
+.backup-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  color: #fcd34d;
+  background-color: rgba(252, 211, 77, 0.1);
+  border: 1px solid rgba(252, 211, 77, 0.3);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+}
+
+/* Modal de configurações */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 3rem 1rem;
+  z-index: 50;
+  overflow-y: auto;
+}
+
+.modal {
+  background-color: #1f1f26;
+  border: 1px solid #2c2c34;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 520px;
+  padding: 1.25rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border-top: 1px solid #2c2c34;
+  padding-top: 1rem;
+}
+
+.settings-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.settings-section h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.saved-hint {
+  font-size: 0.82rem;
+  color: #4ade80;
+}
+
+/* Categorias por emulador */
+.category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.category-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #2c2c34;
+  border-radius: 8px;
+  background-color: #202028;
+  flex-wrap: wrap;
+}
+
+.category-emulator {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.category-toggles {
+  display: flex;
+  gap: 0.9rem;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: #c5c5cf;
+  cursor: pointer;
+}
+
+.toggle input {
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+/* Gatilhos automáticos */
+.trigger-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.trigger-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.trigger-row input {
+  margin-top: 0.2rem;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.trigger-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.trigger-label {
+  font-size: 0.9rem;
+}
+
+/* Modal de adicionar emulador (descoberta + manual) */
+.discovery-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.discovery-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #2c2c34;
+  border-radius: 8px;
+  background-color: #202028;
+}
+
+.discovery-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.discovery-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.discovery-meta {
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.discovery-hint {
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.manual-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border-top: 1px solid #2c2c34;
+  padding-top: 0.8rem;
+}
+
+.manual-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.manual-field input {
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #2c2c34;
+  background-color: #202028;
+  color: inherit;
+}
+
+.manual-path-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.manual-path-label {
+  font-size: 0.85rem;
+  color: #c5c5cf;
+}
+
+.manual-path-row button {
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

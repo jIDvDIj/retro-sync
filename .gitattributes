@@ -1,0 +1,16 @@
+# Normaliza fins de linha para LF no repositório.
+#
+# Motivo: o projeto vive em /mnt/c, compartilhado entre Windows (build nativo) e
+# WSL (cargo check/test/clippy). Sem isto, cada ferramenta grava com o EOL do seu
+# lado — o cargo reescrevia o Cargo.lock inteiro de CRLF p/ LF a cada execução no
+# WSL, gerando diffs fantasma de milhares de linhas. O frontend, o prettier e o
+# próprio cargo já usam LF; isto alinha o backend Rust e os arquivos de config.
+#
+# `eol=lf` força LF na working tree em qualquer SO, independente do core.autocrlf
+# global do usuário — torna o resultado determinístico no Windows também.
+* text=auto eol=lf
+
+# Binários — nunca normalizar (evita corrupção dos assets).
+*.png binary
+*.ico binary
+*.icns binary

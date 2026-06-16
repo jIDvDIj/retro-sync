@@ -1,0 +1,155 @@
+//! Conexão SQLite e migrações de schema.
+//!
+//! `rusqlite` é síncrono: a conexão única vive atrás de `Arc<Mutex>` e todo
+//! acesso passa por `Db::with`, que executa em `spawn_blocking` para não
+//! bloquear o runtime async.
+
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+use rusqlite::Connection;
+
+use crate::error::{AppError, AppResult};
+
+const SCHEMA_V1: &str = "
+CREATE TABLE IF NOT EXISTS sync_manifest (
+    emulator          TEXT NOT NULL,
+    category          TEXT NOT NULL,
+    rel_path          TEXT NOT NULL,
+    drive_file_id     TEXT,
+    local_mtime_ms    INTEGER,
+    drive_mtime_ms    INTEGER,
+    size_bytes        INTEGER,
+    last_synced_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (emulator, category, rel_path)
+);
+
+CREATE TABLE IF NOT EXISTS pending_ops (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    emulator       TEXT NOT NULL,
+    category       TEXT NOT NULL,
+    rel_path       TEXT NOT NULL,
+    direction      TEXT NOT NULL,
+    enqueued_at_ms INTEGER NOT NULL,
+    attempts       INTEGER NOT NULL DEFAULT 0,
+    last_error     TEXT,
+    UNIQUE (emulator, category, rel_path, direction)
+);
+
+CREATE TABLE IF NOT EXISTS emulators (
+    name         TEXT PRIMARY KEY,
+    root_path    TEXT NOT NULL,
+    profile_json TEXT NOT NULL,
+    added_at_ms  INTEGER NOT NULL
+);
+";
+
+/// v2 — configurações globais do usuário (chave→valor). Ver `storage::settings`.
+const SCHEMA_V2: &str = "
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+";
+
+/// v3 — categorias de sync habilitadas por emulador (default: todas ativas).
+const SCHEMA_V3: &str = "
+CREATE TABLE IF NOT EXISTS emulator_settings (
+    emulator           TEXT PRIMARY KEY,
+    saves_enabled      INTEGER NOT NULL DEFAULT 1,
+    savestates_enabled INTEGER NOT NULL DEFAULT 1,
+    config_enabled     INTEGER NOT NULL DEFAULT 1
+);
+";
+
+/// v4 — conflitos pendentes (ambos os lados mudaram desde o último sync).
+/// Enquanto houver linha para um emulador, o sync dele fica bloqueado.
+const SCHEMA_V4: &str = "
+CREATE TABLE IF NOT EXISTS sync_conflicts (
+    emulator       TEXT NOT NULL,
+    category       TEXT NOT NULL,
+    rel_path       TEXT NOT NULL,
+    local_mtime_ms INTEGER NOT NULL,
+    local_size     INTEGER NOT NULL,
+    local_device   TEXT,
+    drive_mtime_ms INTEGER NOT NULL,
+    drive_size     INTEGER NOT NULL,
+    drive_device   TEXT,
+    drive_file_id  TEXT NOT NULL,
+    local_abs_path TEXT NOT NULL,
+    detected_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (emulator, category, rel_path)
+);
+";
+
+#[derive(Clone)]
+pub struct Db {
+    conn: Arc<Mutex<Connection>>,
+}
+
+impl Db {
+    pub fn open(path: &Path) -> AppResult<Self> {
+        Self::from_connection(Connection::open(path)?)
+    }
+
+    #[cfg(test)]
+    pub fn open_in_memory() -> AppResult<Self> {
+        Self::from_connection(Connection::open_in_memory()?)
+    }
+
+    /// Acesso síncrono direto para testes (sem runtime async).
+    #[cfg(test)]
+    pub fn with_sync<T>(&self, f: impl FnOnce(&Connection) -> AppResult<T>) -> T {
+        let guard = self.conn.lock().unwrap();
+        f(&guard).expect("operação de teste no SQLite falhou")
+    }
+
+    fn from_connection(conn: Connection) -> AppResult<Self> {
+        let _: String = conn.query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))?;
+        migrate(&conn)?;
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
+    }
+
+    /// Executa `f` com a conexão num thread bloqueante do Tokio.
+    pub async fn with<T, F>(&self, f: F) -> AppResult<T>
+    where
+        F: FnOnce(&Connection) -> AppResult<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let conn = Arc::clone(&self.conn);
+        tokio::task::spawn_blocking(move || {
+            let guard = conn
+                .lock()
+                .map_err(|_| AppError::Other("lock do SQLite envenenado".into()))?;
+            f(&guard)
+        })
+        .await
+        .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))?
+    }
+}
+
+fn migrate(conn: &Connection) -> AppResult<()> {
+    // Migrações incrementais: cada bloco eleva o `user_version` em 1. Adicionar
+    // uma migração nova = mais um `if version < N` com seu `SCHEMA_VN`.
+    let mut version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version < 1 {
+        conn.execute_batch(SCHEMA_V1)?;
+        version = 1;
+    }
+    if version < 2 {
+        conn.execute_batch(SCHEMA_V2)?;
+        version = 2;
+    }
+    if version < 3 {
+        conn.execute_batch(SCHEMA_V3)?;
+        version = 3;
+    }
+    if version < 4 {
+        conn.execute_batch(SCHEMA_V4)?;
+        version = 4;
+    }
+    conn.pragma_update(None, "user_version", version)?;
+    Ok(())
+}
