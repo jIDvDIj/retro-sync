@@ -1,93 +1,73 @@
 # RetroSync
 
-Aplicação desktop que sincroniza automaticamente saves, savestates e configurações de
-emuladores de retrogames (PPSSPP, PCSX2) com o Google Drive. Selecione a pasta raiz do
-emulador — autenticação, estrutura de pastas no Drive, detecção de arquivos e
-sincronização em background acontecem sozinhas.
+**Seus jogos, do ponto exato onde você parou — em qualquer máquina.**
 
-## Stack
+O RetroSync é um aplicativo para computador que guarda automaticamente seus **saves,
+savestates e configurações** de emuladores de retrogames no **Google Drive**. Você joga
+no PC de casa, depois abre o mesmo jogo no notebook e continua de onde tinha parado — sem
+copiar arquivos na mão, sem pendrive, sem se preocupar em perder progresso.
 
-| Camada       | Tecnologia                                        |
-| ------------ | ------------------------------------------------- |
-| Runtime      | Tauri v2                                          |
-| Frontend     | React + TypeScript + Vite                         |
-| Backend/Core | Rust (tokio, reqwest, rusqlite, keyring, sysinfo) |
+## A ideia
 
-Toda a lógica de negócio vive no backend Rust (`src-tauri/`); o frontend React (`src/`)
-apenas dispara comandos (`invoke`) e reage a eventos (`emit`) do Tauri.
+Quem joga emulador conhece a dor: o save do jogo fica preso numa pasta de uma máquina só.
+Trocou de computador, formatou, ou só quer jogar no notebook no fim de semana? Lá se vai a
+sincronia — ou começa a bagunça de copiar pastas para um pendrive e torcer para não
+sobrescrever a versão certa.
 
-## Pré-requisitos (Windows)
+O RetroSync resolve isso rodando discretamente em segundo plano e mantendo tudo guardado e
+atualizado na sua conta do Google Drive, automaticamente.
 
-1. **Rust** — instale via [rustup](https://rustup.rs/) (toolchain MSVC padrão);
-2. **Microsoft C++ Build Tools** — workload "Desktop development with C++"
-   ([Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/));
-3. **WebView2** — já incluso no Windows 10/11 atualizados;
-4. **Node.js** ≥ 20 LTS.
+## Como é usar
 
-Referência completa: [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/).
+1. **Conecte sua conta Google.** Um clique, e pronto — o app só acessa o que ele mesmo cria
+   no seu Drive, nada mais.
+2. **Aponte a pasta do seu emulador.** O RetroSync reconhece sozinho qual emulador é.
+3. **Esqueça que ele existe.** A partir daí tudo acontece sozinho. O app fica na bandeja do
+   sistema, ao lado do relógio, e sincroniza nos momentos certos.
 
-> **Nota sobre WSL**: edite o código onde preferir, mas rode `npm run tauri dev`/`build`
-> no Windows nativo (PowerShell). Build dentro do WSL gera binário Linux, exige as libs
-> webkit2gtk e sofre com I/O lento em `/mnt/c`.
+## O que ele faz por você
 
-## Setup
+- **Sincroniza sozinho, na hora certa.** Quando você abre o emulador, ele baixa os saves
+  mais recentes antes do jogo começar. Quando você fecha, envia o progresso novo para o
+  Drive. Também sincroniza ao abrir o app e ao sair de vez.
 
-```bash
-npm install          # dependências do frontend
-npm run tauri dev    # app em modo desenvolvimento (compila o Rust na 1ª vez)
-npm run tauri build  # gera o instalador/binário de produção
-```
+- **Nunca apaga nada.** O RetroSync só adiciona e atualiza — seus arquivos no Drive estão
+  seguros. Se duas máquinas mexeram no mesmo save, ele te dá o poder de decisão de qual save manter.
 
-### Credenciais OAuth (Google Cloud)
+- **Funciona offline.** Sem internet ou com o jogo aberto na hora errada? Ele anota a
+  pendência e sincroniza assim que der, sem dar erro nem atrapalhar.
 
-1. Crie um projeto em [console.cloud.google.com](https://console.cloud.google.com/);
-2. Ative a **Google Drive API** (APIs & Services → Library);
-3. Configure a OAuth consent screen (tipo External; adicione sua conta como test user
-   enquanto o app não for publicado);
-4. Crie uma credencial **OAuth Client ID** do tipo **Desktop app**;
-5. Copie `.env.example` para `.env` na raiz do repositório e preencha o Client ID/Secret.
-   O `src-tauri/build.rs` injeta essas variáveis em build-time; alternativamente, exporte-as
-   no shell antes de rodar `tauri dev`/`build` (o shell tem precedência sobre o `.env`).
+- **Você escolhe o que sincronizar.** Dá para ligar ou desligar saves, savestates e
+  configurações para cada emulador, individualmente — e também escolher quais momentos
+  disparam a sincronização automática.
 
-| Variável                         | Uso                                                                                             |
-| -------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `RETROSYNC_GOOGLE_CLIENT_ID`     | Client ID OAuth2 (Desktop) — lido em build-time, com fallback para runtime em dev.              |
-| `RETROSYNC_GOOGLE_CLIENT_SECRET` | Client secret do cliente Desktop. O Google o exige no token endpoint para este tipo de cliente; |
-|                                  | não é tratado como confidencial em apps instalados, mas mantenha fora do código/commits.        |
+- **Avisa sem incomodar.** Notificações nativas mostram quando algo foi sincronizado ou deu
+  problema — e você ajusta para receber todas, só os erros, ou nenhuma.
 
-O app usa o escopo `drive.file`: só enxerga arquivos e pastas criados por ele mesmo.
+- **Combina com várias máquinas.** Cada computador ganha um nome, então você sempre sabe de
+  onde veio cada save.
 
-## Qualidade de código
+## Emuladores suportados
 
-```bash
-npm run lint                       # ESLint (frontend)
-npm run format                     # Prettier (frontend)
-cargo fmt --manifest-path src-tauri/Cargo.toml      # rustfmt
-cargo clippy --manifest-path src-tauri/Cargo.toml   # lints Rust
-cargo test --manifest-path src-tauri/Cargo.toml     # testes unitários Rust
-```
+- **PPSSPP** (PlayStation Portable)
+- **PCSX2** (PlayStation 2)
 
-## Estrutura do projeto
+A estrutura foi pensada para crescer — novos emuladores podem ser adicionados sem mudar o
+funcionamento do app.
 
-```
-src/                  # Frontend React + TypeScript
-├── components/       # Componentes de UI
-├── hooks/            # Hooks (eventos Tauri, estado de sync)
-├── lib/ipc.ts        # Wrappers tipados de invoke()
-└── types/ipc.ts      # Espelho TS das structs Rust da boundary
-src-tauri/src/        # Backend Rust
-├── commands.rs       # Comandos Tauri (boundary)
-├── events.rs         # Nomes de eventos emitidos ao frontend
-├── constants.rs      # Pastas do Drive, chaves keyring (sem magic strings)
-├── auth/             # OAuth2 PKCE + keyring
-├── drive/            # Cliente Google Drive API (reqwest + retry)
-├── emulator/         # Perfis e detecção (PPSSPP, PCSX2)
-├── storage/          # SQLite: manifest de sync, fila offline
-├── sync/             # SyncEngine (diff, conflitos, upload/download)
-└── watcher/          # Monitor de processos dos emuladores (sysinfo)
-```
+## Seus dados e sua privacidade
 
-## Logs
+- O RetroSync usa o acesso mínimo ao Google Drive: ele **só enxerga os arquivos que ele
+  próprio cria**. O resto do seu Drive permanece invisível para o app.
+- Tudo que ele guarda no Drive fica organizado numa pasta dedicada: `RetroSync`, com uma
+  subpasta para cada emulador.
 
-Logs de operação ficam no diretório de logs do app
-(`%LOCALAPPDATA%\com.retrosync.app\logs` no Windows), com rotação diária.
+## Por dentro
+
+O RetroSync é um app desktop construído com **Tauri**, com a lógica em **Rust** e a
+interface em **React**. É leve, roda em segundo plano e foi feito para ser confiável: não
+destrói arquivos, lida bem com falhas de rede e mantém tudo organizado.
+
+A documentação técnica completa — arquitetura, decisões de projeto e instruções de
+instalação e build — está na pasta [`docs/`](./docs/).
+</content>

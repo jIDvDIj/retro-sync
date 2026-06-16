@@ -33,4 +33,3 @@ worker/wrangler.toml
 *.sw?
 .claude/
 CLAUDE.md
-docs/
