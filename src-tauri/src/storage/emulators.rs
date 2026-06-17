@@ -83,6 +83,44 @@ pub fn upsert(conn: &Connection, profile: &EmulatorProfile) -> AppResult<()> {
     Ok(())
 }
 
+/// `upsert` ciente de troca de caminho. Quando um emulador já registrado é
+/// regravado apontando para outro `root_path` (ex.: trocar a instalação portátil
+/// no pendrive pela instalada no sistema), os mtimes ancorados no `sync_manifest`
+/// passam a se referir aos arquivos de OUTRA instalação. Comparar o estado local
+/// novo contra essas âncoras inverteria a direção do sync — o diff veria "o local
+/// mudou" e subiria saves antigos por cima dos recém-sincronizados no Drive.
+///
+/// Por isso, ao detectar a troca de caminho, zera o estado de sync do emulador
+/// (manifest, conflitos e fila offline) na mesma transação do upsert. Sem âncoras,
+/// o próximo sync trata tudo como primeiro sync: o Drive vence com backup local
+/// antes de sobrescrever (ver `conflict::decide` → `DownloadWithBackup`), então
+/// nada é perdido. Retorna `true` se houve reset.
+pub fn upsert_resetting_on_path_change(
+    conn: &Connection,
+    profile: &EmulatorProfile,
+) -> AppResult<bool> {
+    let previous_root: Option<String> = conn
+        .query_row(
+            "SELECT root_path FROM emulators WHERE name = ?1",
+            params![profile.name],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    let new_root = profile.root_path.to_string_lossy().into_owned();
+    let path_changed = previous_root.as_ref().is_some_and(|old| *old != new_root);
+
+    upsert(conn, profile)?;
+
+    if path_changed {
+        crate::storage::manifest::remove_for_emulator(conn, &profile.name)?;
+        crate::storage::conflicts::remove_for_emulator(conn, &profile.name)?;
+        crate::storage::queue::remove_for_emulator(conn, &profile.name)?;
+    }
+
+    Ok(path_changed)
+}
+
 /// `true` se já existe um emulador registrado com este nome (auto ou manual).
 pub fn exists(conn: &Connection, name: &str) -> AppResult<bool> {
     let count: i64 = conn.query_row(
@@ -151,6 +189,71 @@ mod tests {
             let profiles = list(conn)?;
             assert_eq!(profiles.len(), 1);
             assert_eq!(profiles[0].root_path, PathBuf::from("/outro/lugar"));
+            Ok(())
+        });
+    }
+
+    fn seed_manifest(conn: &Connection) -> AppResult<()> {
+        use crate::storage::manifest::{self, ManifestEntry};
+        use crate::sync::SyncCategory;
+        manifest::upsert(
+            conn,
+            &ManifestEntry {
+                emulator: "PPSSPP".into(),
+                category: SyncCategory::Saves,
+                rel_path: "GAME123/SAVE.bin".into(),
+                drive_file_id: Some("drive-id".into()),
+                local_mtime_ms: Some(1_700_000_000_000),
+                drive_mtime_ms: Some(1_700_000_000_000),
+                size_bytes: Some(4096),
+                last_synced_at_ms: 1_700_000_000_000,
+            },
+        )
+    }
+
+    #[test]
+    fn upsert_com_caminho_novo_reseta_estado_de_sync() {
+        // Trocar o root_path de um emulador já registrado (portátil → instalado)
+        // zera o manifest — as âncoras de mtime apontavam para a outra instalação.
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            upsert(conn, &sample_profile())?;
+            seed_manifest(conn)?;
+
+            let mut moved = sample_profile();
+            moved.root_path = PathBuf::from("/pendrive/ppsspp");
+            let reset = upsert_resetting_on_path_change(conn, &moved)?;
+
+            assert!(reset);
+            assert!(crate::storage::manifest::list_all(conn)?.is_empty());
+            assert_eq!(list(conn)?[0].root_path, PathBuf::from("/pendrive/ppsspp"));
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn upsert_com_mesmo_caminho_preserva_o_manifest() {
+        // Re-detectar a mesma pasta não pode nukear o estado de sync.
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            upsert(conn, &sample_profile())?;
+            seed_manifest(conn)?;
+
+            let reset = upsert_resetting_on_path_change(conn, &sample_profile())?;
+
+            assert!(!reset);
+            assert_eq!(crate::storage::manifest::list_all(conn)?.len(), 1);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn upsert_de_emulador_novo_nao_reseta() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            let reset = upsert_resetting_on_path_change(conn, &sample_profile())?;
+            assert!(!reset);
+            assert_eq!(list(conn)?.len(), 1);
             Ok(())
         });
     }

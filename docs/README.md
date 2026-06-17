@@ -32,6 +32,7 @@ retrogames com o Google Drive.
 | [Referência — Boundary IPC](./referencia-ipc.md) | Catálogo de comandos, eventos e tipos compartilhados Rust ↔ TS |
 | [Decisões técnicas](./decisoes-tecnicas.md) | Registro consolidado das decisões e seus trade-offs |
 | [Riscos técnicos](./riscos.md) | Riscos identificados e mitigações |
+| [Distribuição pública e confiança](./distribuicao-publica.md) | SmartScreen, OAuth Google, GitHub Attestations (descartado), Microsoft Store |
 | [Bugs](./bugs/) | Bugs documentados com causa raiz e soluções consideradas |
 | [Features](./features/) | Propostas de funcionalidades futuras — identificação de jogos, configurações, perfis-como-dados, batch upload, proxy Worker |
 
@@ -70,6 +71,12 @@ passando; ESLint, Prettier, rustfmt e clippy limpos.
 | Item | Descrição | Doc | Status |
 | --- | --- | --- | --- |
 | Proxy Worker | Cloudflare Worker esconde o `client_secret`; só `CLIENT_ID`/`TOKEN_PROXY_URL`/`PROXY_SECRET` no CI | [15](./15-proxy-worker-oauth.md) | ✅ Concluído |
+
+### Correções pós-v1.1
+
+| Bug | Descrição | Doc | Status |
+| --- | --- | --- | --- |
+| BUG-003 | Troca do `root_path` de um emulador já configurado zerava só o perfil, não o manifest → sobrescrita do Drive por instalação mais antiga | [bug-003](./bugs/bug-003-troca-de-caminho-do-emulador.md) | ✅ Resolvido |
 
 ## Visão geral em uma frase
 

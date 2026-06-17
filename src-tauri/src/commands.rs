@@ -101,11 +101,19 @@ pub async fn add_emulator(state: State<'_, AppState>, path: String) -> AppResult
         .ok_or(AppError::EmulatorNotDetected(path))?;
 
     let to_store = profile.clone();
-    state
+    let path_reset = state
         .db
-        .with(move |conn| emulators::upsert(conn, &to_store))
+        .with(move |conn| emulators::upsert_resetting_on_path_change(conn, &to_store))
         .await?;
-    tracing::info!(emulador = %profile.name, raiz = %profile.root_path.display(), "emulador adicionado");
+    if path_reset {
+        tracing::info!(
+            emulador = %profile.name,
+            raiz = %profile.root_path.display(),
+            "caminho do emulador alterado; estado de sync reiniciado (manifest, conflitos e fila zerados)"
+        );
+    } else {
+        tracing::info!(emulador = %profile.name, raiz = %profile.root_path.display(), "emulador adicionado");
+    }
     Ok(profile)
 }
 
