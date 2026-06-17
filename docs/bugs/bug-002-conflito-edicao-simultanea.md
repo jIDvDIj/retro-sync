@@ -8,7 +8,9 @@
 > pelo identificador de dispositivo do Passo 1. Quando ambos os lados mudaram desde o último sync,
 > `decide` retorna `SyncAction::Conflict`: o engine registra o conflito em `sync_conflicts`, emite
 > `sync:conflict`, notifica e **bloqueia** o sync do emulador até o usuário escolher no modal
-> (mantendo local ou Drive). A versão preterida vai para backup — combina o não-destrutivo da
+> (mantendo local ou Drive). Ao manter o Drive, o arquivo local preterido vai para backup antes de
+> ser sobrescrito; ao manter o local, a versão do Drive é apenas sobrescrita (sem backup do
+> RetroSync — o histórico de revisões do Drive é a rede de segurança). Combina o não-destrutivo da
 > Opção 3 com a decisão correta da Opção 2. A Opção 1 (sufixo de conflito) foi preterida em favor
 > da decisão explícita na UI.
 

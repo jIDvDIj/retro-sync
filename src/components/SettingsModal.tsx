@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { errorMessage } from "../lib/errors";
-import { setAutostart, setDeviceName, setNotificationLevel } from "../lib/ipc";
+import { openBackupFolder, setAutostart, setDeviceName, setNotificationLevel } from "../lib/ipc";
 import type { EmulatorProfile, NotificationLevel, Settings } from "../types/ipc";
 import { CategorySettings } from "./CategorySettings";
 import { TriggerSettingsSection } from "./TriggerSettings";
@@ -33,6 +33,16 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
   const [notifError, setNotifError] = useState<string | null>(null);
   const [autostart, setAutostartState] = useState(settings.autostart);
   const [autostartError, setAutostartError] = useState<string | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+
+  const openBackups = async () => {
+    setBackupError(null);
+    try {
+      await openBackupFolder();
+    } catch (err) {
+      setBackupError(errorMessage(err));
+    }
+  };
 
   const toggleAutostart = async () => {
     const next = !autostart;
@@ -170,6 +180,21 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
             e controles entre dispositivos diferentes.
           </p>
           <CategorySettings emulators={emulators} />
+        </section>
+
+        <section className="settings-section">
+          <h3>Backups</h3>
+          <p className="muted">
+            Cópias que o RetroSync guarda antes de sobrescrever um arquivo local — no primeiro sync
+            de um arquivo que já existe no Drive, ou ao resolver um conflito mantendo a versão do
+            Drive. Nada é apagado.
+          </p>
+          <div className="settings-row">
+            <button className="secondary" onClick={openBackups}>
+              Abrir pasta de backups
+            </button>
+          </div>
+          {backupError ? <p className="error">{backupError}</p> : null}
         </section>
       </div>
     </div>

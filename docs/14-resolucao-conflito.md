@@ -86,6 +86,8 @@ resolve.
   sincronizam no sync em que o conflito é detectado; o bloqueio vale dos próximos syncs em diante.
 - **`appProperties` em vez de só o snapshot**: dá a origem precisa de **cada versão** no Drive, não
   apenas de quem publicou o snapshot por último — o que o modal de conflito exige.
-- **Resolver = backup + sobrescrever, nunca deletar**: mantém o princípio não-destrutivo; a versão
-  preterida localmente vai para backup, e o Drive nunca é apagado (só sobrescrito, com histórico de
-  revisões do próprio Drive como rede de segurança extra).
+- **Resolver = sobrescrever, nunca deletar**: mantém o princípio não-destrutivo. Ao **manter o
+  Drive**, o arquivo local preterido vai para backup antes de ser sobrescrito (recuperável na pasta
+  de backups). Ao **manter o local**, a versão do Drive é apenas sobrescrita — sem backup do
+  RetroSync, contando com o histórico de revisões do próprio Drive como rede de segurança. O Drive
+  nunca é apagado.
