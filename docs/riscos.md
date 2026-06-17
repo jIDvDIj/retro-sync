@@ -6,6 +6,7 @@ A coluna **Status** indica se a mitigação já está no código ou planejada.
 | # | Risco | Mitigação | Status |
 | --- | --- | --- | --- |
 | 1 | Clock skew na resolução de conflito | UTC + tolerância ±2s + par de mtimes do manifest | ✅ Passo 5 |
+| 10 | Saves independentes de dispositivos diferentes sobrescritos no primeiro sync | `device_id` estável (keyring) estampado no Drive; conflito explícito quando a origem é outro dispositivo | ✅ BUG-004 |
 | 2 | Rate limits do Drive (403/429) | Retry exponencial + jitter; concorrência ≤3; diff evita transferência desnecessária | ✅ Passo 5 |
 | 3 | Arquivo em uso durante o sync | Checagem de mtime estável antes do upload; `FileBusy` → fila | ✅ Passo 5 |
 | 4 | Detecção de processos frágil | Lista de nomes por perfil (constantes); matching case-insensitive; debounce | ✅ Passo 6 |
@@ -51,6 +52,8 @@ possível: `ts-rs`.
 ### 6. Keyring no Linux
 `keyring` depende do Secret Service (GNOME Keyring/KWallet), ausente em setups minimalistas.
 A camada de token storage isola o keyring, permitindo fallback futuro sem alterar o resto.
+O `device_id` (BUG-004) também mora no keyring e degrada para `None` quando indisponível, sem
+abortar o sync.
 
 ### 7. Uploads grandes
 Savestates de PCSX2 podem passar de 50MB. Upload simples (multipart) até 5MB; acima disso,
@@ -69,3 +72,14 @@ Desenvolver/rodar no Windows nativo (PowerShell). **Atenção adicional**: o `no
 em `/mnt/c` é compartilhado entre Windows e WSL, e cada `npm install` de um lado remove os
 binários nativos do outro (ex.: rollup). Se necessário no WSL:
 `npm install --no-save @rollup/rollup-linux-x64-gnu`.
+
+### 10. Saves independentes de dispositivos diferentes no primeiro sync
+A resolução por mtime + manifest (risco #1) cobre conflitos a partir do **segundo** sync de um
+arquivo. No **primeiro** sync (sem manifest) com o arquivo presente local e no Drive, a regra
+conservadora era *Drive-vence-com-backup* ([BUG-001](./bugs/bug-001-perda-save-primeiro-sync.md)) —
+mas isso decide automaticamente um caso ambíguo quando os dois saves vêm de **máquinas diferentes**.
+Mitigado no [BUG-004](./bugs/bug-004-conflito-entre-dispositivos-primeiro-sync.md): cada dispositivo
+tem um `device_id` estável (UUID no keyring, chave `retrosync_device_id`) estampado em
+`appProperties.deviceId` nos uploads; quando a versão do Drive foi publicada por outro dispositivo,
+o primeiro sync vira `Conflict` (o usuário escolhe) em vez de sobrescrever. Origem desconhecida ou
+mesmo dispositivo mantêm o comportamento anterior — degradação graciosa.

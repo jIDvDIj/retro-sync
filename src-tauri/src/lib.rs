@@ -1,6 +1,7 @@
 mod auth;
 mod commands;
 mod constants;
+mod device;
 mod drive;
 mod emulator;
 mod error;
@@ -49,6 +50,17 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let db = storage::db::Db::open(&data_dir.join(constants::LOCAL_DB_FILE))?;
 
+            // Garante a identidade estável deste dispositivo (UUID no keyring,
+            // gerado na primeira execução; consumido na detecção de conflito).
+            // Keyring indisponível não é fatal — só logamos o aviso.
+            match device::get_or_create() {
+                Ok(id) => tracing::info!(device_id = %id, "device_id resolvido"),
+                Err(err) => tracing::warn!(
+                    error = %err,
+                    "device_id indisponível (keyring); seguindo sem identidade estável"
+                ),
+            }
+
             let last_sync: sync::LastSyncStore = Arc::new(std::sync::Mutex::new(None));
             let http = reqwest::Client::new();
             let auth = Arc::new(auth::AuthManager::new(http.clone()));
@@ -74,7 +86,8 @@ pub fn run() {
             // A janela nasce oculta (`visible: false` no tauri.conf.json). Em
             // abertura normal nós a mostramos; quando o SO sobe o app junto com
             // o sistema (flag `--minimized`), ele fica só na bandeja.
-            let launched_minimized = std::env::args().any(|a| a == constants::STARTUP_MINIMIZED_FLAG);
+            let launched_minimized =
+                std::env::args().any(|a| a == constants::STARTUP_MINIMIZED_FLAG);
             if !launched_minimized {
                 if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
                     let _ = window.show();

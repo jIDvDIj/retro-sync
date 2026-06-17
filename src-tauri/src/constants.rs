@@ -16,9 +16,14 @@ pub const DRIVE_CONFIG_FOLDER: &str = "config";
 pub const DRIVE_MANIFEST_FILE: &str = "sync_manifest.json";
 
 /// Chave de `appProperties` (privada ao app) que marca, em cada arquivo do
-/// Drive, o dispositivo que publicou aquela versão — usada na resolução de
-/// conflito para mostrar a origem da versão remota.
+/// Drive, o NOME amigável do dispositivo que publicou aquela versão — usada na
+/// UI de conflito para mostrar a origem da versão remota.
 pub const DRIVE_APP_PROP_DEVICE: &str = "device";
+
+/// Chave de `appProperties` com o ID estável (UUID do keyring) do dispositivo
+/// que publicou a versão. Diferente do nome, não muda quando o usuário renomeia
+/// o dispositivo — é o que a detecção de conflito entre dispositivos compara.
+pub const DRIVE_APP_PROP_DEVICE_ID: &str = "deviceId";
 
 /// Arquivo SQLite local (criado no diretório de dados do app).
 pub const LOCAL_DB_FILE: &str = "retrosync.db";
@@ -30,6 +35,12 @@ pub const LOCAL_BACKUP_DIR: &str = "backups";
 /// Identificação das credenciais no keychain do SO.
 pub const KEYRING_SERVICE: &str = "com.retrosync.app";
 pub const KEYRING_REFRESH_TOKEN_KEY: &str = "google_drive_refresh_token";
+
+/// Chave do keyring para o identificador estável deste dispositivo (UUID v4).
+/// Vive fora do SQLite de propósito: sobrevive à desinstalação do app e à
+/// limpeza do banco, ao contrário do nome amigável (`SETTING_DEVICE_NAME`).
+/// Prefixada com `retrosync_` para não colidir com entradas de outros apps.
+pub const KEYRING_DEVICE_ID_KEY: &str = "retrosync_device_id";
 
 /// Intervalo de polling do process watcher.
 pub const WATCHER_POLL_INTERVAL_SECS: u64 = 2;

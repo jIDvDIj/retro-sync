@@ -22,7 +22,7 @@ use super::diff::{self, PlannedOp};
 use super::{SyncCategory, SyncDirection, SyncProgress, SyncTarget};
 use crate::auth::AuthManager;
 use crate::constants::{DRIVE_MANIFEST_FILE, DRIVE_MAX_CONCURRENT_TRANSFERS, TMP_SUFFIX};
-use crate::drive::DriveClient;
+use crate::drive::{DeviceTag, DriveClient};
 use crate::error::{AppError, AppResult};
 use crate::events::{
     EVT_SYNC_COMPLETED, EVT_SYNC_CONFLICT, EVT_SYNC_ERROR, EVT_SYNC_PROGRESS, EVT_SYNC_STARTED,
@@ -127,8 +127,12 @@ struct CategoryCtx {
     /// Pasta onde gravar backups locais desta categoria neste sync
     /// (`<backup_dir>/<emulador>/<timestamp>/<categoria>`).
     backup_base: PathBuf,
-    /// Nome deste dispositivo (marca a origem nos uploads e nos conflitos).
+    /// Nome amigável deste dispositivo (marca a origem nos uploads e exibido
+    /// nos conflitos).
     device: Option<String>,
+    /// ID estável deste dispositivo (estampado nos uploads; alimenta a detecção
+    /// de conflito entre dispositivos no primeiro sync).
+    device_id: Option<String>,
     /// Nível de notificação vigente (gating da notificação de conflito).
     notif: NotificationLevel,
     total: u32,
@@ -211,6 +215,10 @@ impl SyncEngine {
             .with(settings::device_name)
             .await
             .unwrap_or_default();
+        // ID estável deste dispositivo (keyring), lido uma vez por sync. `None`
+        // se o keyring estiver indisponível — desliga só a detecção de conflito
+        // entre dispositivos nesta execução.
+        let device_id = crate::device::current().await;
 
         let profiles = self.db.with(emulators::list).await?;
         // Por emulador: monta o target e remove as categorias que o usuário
@@ -273,7 +281,14 @@ impl SyncEngine {
             }
 
             match self
-                .sync_target(target, direction, &run_stamp, device.as_deref(), notif)
+                .sync_target(
+                    target,
+                    direction,
+                    &run_stamp,
+                    device.as_deref(),
+                    device_id.as_deref(),
+                    notif,
+                )
                 .await
             {
                 Ok(partial) => summary.merge(&partial),
@@ -374,6 +389,7 @@ impl SyncEngine {
         direction: SyncDirection,
         run_stamp: &str,
         device: Option<&str>,
+        device_id: Option<&str>,
         notif: NotificationLevel,
     ) -> AppResult<SyncSummary> {
         let mut summary = SyncSummary::default();
@@ -408,7 +424,8 @@ impl SyncEngine {
                 .with(move |conn| manifest::list_for_category(conn, &emulator, cat))
                 .await?;
 
-            let (plan, skipped) = diff::build_plan(local, remote, manifest_entries, direction);
+            let (plan, skipped) =
+                diff::build_plan(local, remote, manifest_entries, direction, device_id);
             summary.skipped += skipped;
             if plan.is_empty() {
                 continue;
@@ -437,6 +454,7 @@ impl SyncEngine {
                     .join(run_stamp)
                     .join(category.as_str()),
                 device: device.map(str::to_string),
+                device_id: device_id.map(str::to_string),
                 notif,
                 total: plan.len() as u32,
                 completed: AtomicU32::new(0),
@@ -559,16 +577,19 @@ impl SyncEngine {
         };
 
         let size_bytes = content.len() as i64;
-        let device = ctx.device.as_deref();
+        let tag = DeviceTag {
+            name: ctx.device.as_deref(),
+            id: ctx.device_id.as_deref(),
+        };
         let uploaded = match op.remote.as_ref() {
             Some(existing) => {
                 self.drive
-                    .upload_existing(&existing.id, content, mtime_after, device)
+                    .upload_existing(&existing.id, content, mtime_after, tag)
                     .await?
             }
             None => {
                 self.drive
-                    .upload_new(&parent_id, file_name, content, mtime_after, device)
+                    .upload_new(&parent_id, file_name, content, mtime_after, tag)
                     .await?
             }
         };
@@ -720,35 +741,37 @@ impl SyncEngine {
     }
 
     /// Snapshot do manifest publicado na raiz `RetroSync/` (best-effort).
-    /// Inclui o nome deste dispositivo — é o "metadado de sync no Drive" que
-    /// identifica quem publicou esta versão (usado na resolução de conflito).
+    /// É só registro/auditoria: grava quem (`device`) e quando (`generatedAt`)
+    /// publicou a última versão, além de um dump das entradas. O app nunca lê
+    /// este arquivo de volta — a fonte de verdade operacional é a tabela
+    /// `sync_manifest` no SQLite local.
     async fn publish_manifest_snapshot(&self) -> AppResult<()> {
         let entries = self.db.with(manifest::list_all).await?;
         let device = self.db.with(crate::storage::settings::device_name).await?;
+        let device_id = crate::device::current().await;
         let now_ms = chrono::Utc::now().timestamp_millis();
         let doc = serde_json::json!({
             "generatedAt": crate::drive::ms_to_rfc3339(now_ms),
             "device": device,
+            "deviceId": device_id,
             "entries": entries,
         });
         let bytes = serde_json::to_vec_pretty(&doc)?;
+        let tag = DeviceTag {
+            name: device.as_deref(),
+            id: device_id.as_deref(),
+        };
 
         let root_id = self.drive.ensure_root().await?;
         match self.drive.find_child(&root_id, DRIVE_MANIFEST_FILE).await? {
             Some(existing) => {
                 self.drive
-                    .upload_existing(&existing.id, bytes, now_ms, device.as_deref())
+                    .upload_existing(&existing.id, bytes, now_ms, tag)
                     .await?;
             }
             None => {
                 self.drive
-                    .upload_new(
-                        &root_id,
-                        DRIVE_MANIFEST_FILE,
-                        bytes,
-                        now_ms,
-                        device.as_deref(),
-                    )
+                    .upload_new(&root_id, DRIVE_MANIFEST_FILE, bytes, now_ms, tag)
                     .await?;
             }
         }
@@ -841,10 +864,15 @@ impl SyncEngine {
             .with(settings::device_name)
             .await
             .unwrap_or_default();
+        let device_id = crate::device::current().await;
+        let tag = DeviceTag {
+            name: device.as_deref(),
+            id: device_id.as_deref(),
+        };
 
         let uploaded = self
             .drive
-            .upload_existing(&c.drive_file_id, content, local_mtime, device.as_deref())
+            .upload_existing(&c.drive_file_id, content, local_mtime, tag)
             .await?;
         let drive_mtime = uploaded.modified_ms();
 

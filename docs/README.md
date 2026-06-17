@@ -77,6 +77,7 @@ passando; ESLint, Prettier, rustfmt e clippy limpos.
 | Bug | Descrição | Doc | Status |
 | --- | --- | --- | --- |
 | BUG-003 | Troca do `root_path` de um emulador já configurado zerava só o perfil, não o manifest → sobrescrita do Drive por instalação mais antiga | [bug-003](./bugs/bug-003-troca-de-caminho-do-emulador.md) | ✅ Resolvido |
+| BUG-004 | Saves independentes de dispositivos diferentes eram sobrescritos no primeiro sync sem conflito → `device_id` estável no keyring, conflito explícito quando a origem é outro dispositivo | [bug-004](./bugs/bug-004-conflito-entre-dispositivos-primeiro-sync.md) | ✅ Resolvido |
 
 ## Visão geral em uma frase
 

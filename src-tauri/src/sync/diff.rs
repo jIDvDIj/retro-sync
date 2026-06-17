@@ -106,6 +106,7 @@ pub fn build_plan(
     remote: Vec<RemoteFile>,
     manifest: Vec<ManifestEntry>,
     direction: SyncDirection,
+    this_device_id: Option<&str>,
 ) -> (Vec<PlannedOp>, u32) {
     let local_map: HashMap<String, LocalFile> =
         local.into_iter().map(|f| (f.rel_path.clone(), f)).collect();
@@ -132,6 +133,8 @@ pub fn build_plan(
             local_file.map(|f| f.mtime_ms),
             remote_file.and_then(|f| f.modified_ms()),
             last_synced,
+            remote_file.and_then(|f| f.device_id()),
+            this_device_id,
         );
 
         let allowed = match action {
@@ -190,6 +193,17 @@ mod tests {
         }
     }
 
+    /// Como [`remote_file`], mas marcando o ID do dispositivo que publicou a
+    /// versão (`appProperties.deviceId`).
+    fn remote_file_from(rel: &str, mtime: i64, device_id: &str) -> RemoteFile {
+        let mut rf = remote_file(rel, mtime);
+        rf.file.app_properties.insert(
+            crate::constants::DRIVE_APP_PROP_DEVICE_ID.to_string(),
+            device_id.to_string(),
+        );
+        rf
+    }
+
     fn manifest_entry(rel: &str, local: i64, drive: i64) -> ManifestEntry {
         ManifestEntry {
             emulator: "PPSSPP".into(),
@@ -210,6 +224,7 @@ mod tests {
             vec![],
             vec![],
             SyncDirection::Bidirectional,
+            None,
         );
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].action, SyncAction::Upload);
@@ -223,6 +238,7 @@ mod tests {
             vec![remote_file("remoto.bin", T)],
             vec![],
             SyncDirection::Bidirectional,
+            None,
         );
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].action, SyncAction::Download);
@@ -236,6 +252,7 @@ mod tests {
             vec![remote_file("igual.bin", T)],
             vec![manifest_entry("igual.bin", T, T)],
             SyncDirection::Bidirectional,
+            None,
         );
         assert!(ops.is_empty());
         assert_eq!(skipped, 1);
@@ -248,6 +265,7 @@ mod tests {
             vec![remote_file("save.bin", T)],
             vec![manifest_entry("save.bin", T, T)],
             SyncDirection::Bidirectional,
+            None,
         );
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].action, SyncAction::Upload);
@@ -262,12 +280,46 @@ mod tests {
             vec![remote_file("save.bin", T)],
             vec![],
             SyncDirection::Bidirectional,
+            None,
         );
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].action, SyncAction::DownloadWithBackup);
         assert!(ops[0].local.is_some());
         assert!(ops[0].remote.is_some());
         assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn primeiro_sync_de_outro_dispositivo_vira_conflito() {
+        // Sem manifest, ambos existem e divergem, e o Drive foi publicado por
+        // outro dispositivo (dev-A) enquanto este é dev-C → Conflict.
+        let (ops, skipped) = build_plan(
+            vec![local_file("save.bin", T + 60_000)],
+            vec![remote_file_from("save.bin", T, "dev-A")],
+            vec![],
+            SyncDirection::Bidirectional,
+            Some("dev-C"),
+        );
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].action, SyncAction::Conflict);
+        assert!(ops[0].local.is_some());
+        assert!(ops[0].remote.is_some());
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn primeiro_sync_do_mesmo_dispositivo_baixa_com_backup() {
+        // Mesmo dispositivo publicou o Drive (dev-C) e é este (dev-C): não há
+        // conflito entre dispositivos — segue o Drive-vence com backup.
+        let (ops, _) = build_plan(
+            vec![local_file("save.bin", T + 60_000)],
+            vec![remote_file_from("save.bin", T, "dev-C")],
+            vec![],
+            SyncDirection::Bidirectional,
+            Some("dev-C"),
+        );
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].action, SyncAction::DownloadWithBackup);
     }
 
     #[test]
@@ -279,6 +331,7 @@ mod tests {
             vec![remote_file("save.bin", T + 60_000)],
             vec![manifest_entry("save.bin", T, T)],
             SyncDirection::Bidirectional,
+            None,
         );
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].action, SyncAction::Conflict);
@@ -293,6 +346,7 @@ mod tests {
             vec![remote_file("remoto.bin", T)],
             vec![],
             SyncDirection::DriveToLocal,
+            None,
         );
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].action, SyncAction::Download);
@@ -306,6 +360,7 @@ mod tests {
             vec![remote_file("remoto.bin", T)],
             vec![],
             SyncDirection::LocalToDrive,
+            None,
         );
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].action, SyncAction::Upload);

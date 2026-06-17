@@ -14,7 +14,7 @@ mod files;
 mod folders;
 
 pub use client::DriveClient;
-pub use files::{DriveFile, RemoteFile};
+pub use files::{DeviceTag, DriveFile, RemoteFile};
 
 pub(crate) const DRIVE_API_BASE: &str = "https://www.googleapis.com/drive/v3";
 pub(crate) const DRIVE_UPLOAD_BASE: &str = "https://www.googleapis.com/upload/drive/v3";
