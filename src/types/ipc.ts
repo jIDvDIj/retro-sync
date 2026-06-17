@@ -31,6 +31,8 @@ export interface Settings {
   deviceName: string | null;
   triggers: TriggerSettings;
   notificationLevel: NotificationLevel;
+  /** Início automático com o sistema. Lido do SO, não do banco. */
+  autostart: boolean;
 }
 
 /** `emulator::EmulatorProfile` — paths serializam como string */

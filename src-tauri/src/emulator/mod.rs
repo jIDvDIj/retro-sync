@@ -125,9 +125,12 @@ fn validate_rel_dirs(root: &Path, dirs: Vec<String>) -> Result<Vec<PathBuf>, Str
             continue;
         }
         let rel = PathBuf::from(&d);
-        let escapes = rel
-            .components()
-            .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)));
+        let escapes = rel.components().any(|c| {
+            matches!(
+                c,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        });
         if rel.is_absolute() || escapes {
             return Err(format!("o caminho deve ser relativo à raiz: {d}"));
         }
@@ -268,8 +271,14 @@ mod tests {
     fn manual_rejeita_nome_vazio() {
         let tmp = tempfile::tempdir().unwrap();
         mkdirs(tmp.path(), &["saves"]);
-        let err = build_manual_profile(tmp.path(), "   ".into(), vec!["saves".into()], vec![], vec![])
-            .unwrap_err();
+        let err = build_manual_profile(
+            tmp.path(),
+            "   ".into(),
+            vec!["saves".into()],
+            vec![],
+            vec![],
+        )
+        .unwrap_err();
         assert!(err.contains("nome"));
     }
 
@@ -284,9 +293,14 @@ mod tests {
     #[test]
     fn manual_rejeita_caminho_inexistente() {
         let tmp = tempfile::tempdir().unwrap();
-        let err =
-            build_manual_profile(tmp.path(), "Emu".into(), vec!["naoexiste".into()], vec![], vec![])
-                .unwrap_err();
+        let err = build_manual_profile(
+            tmp.path(),
+            "Emu".into(),
+            vec!["naoexiste".into()],
+            vec![],
+            vec![],
+        )
+        .unwrap_err();
         assert!(err.contains("não encontrada"));
     }
 

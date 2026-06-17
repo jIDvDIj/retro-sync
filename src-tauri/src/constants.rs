@@ -16,9 +16,14 @@ pub const DRIVE_CONFIG_FOLDER: &str = "config";
 pub const DRIVE_MANIFEST_FILE: &str = "sync_manifest.json";
 
 /// Chave de `appProperties` (privada ao app) que marca, em cada arquivo do
-/// Drive, o dispositivo que publicou aquela versão — usada na resolução de
-/// conflito para mostrar a origem da versão remota.
+/// Drive, o NOME amigável do dispositivo que publicou aquela versão — usada na
+/// UI de conflito para mostrar a origem da versão remota.
 pub const DRIVE_APP_PROP_DEVICE: &str = "device";
+
+/// Chave de `appProperties` com o ID estável (UUID do keyring) do dispositivo
+/// que publicou a versão. Diferente do nome, não muda quando o usuário renomeia
+/// o dispositivo — é o que a detecção de conflito entre dispositivos compara.
+pub const DRIVE_APP_PROP_DEVICE_ID: &str = "deviceId";
 
 /// Arquivo SQLite local (criado no diretório de dados do app).
 pub const LOCAL_DB_FILE: &str = "retrosync.db";
@@ -30,6 +35,12 @@ pub const LOCAL_BACKUP_DIR: &str = "backups";
 /// Identificação das credenciais no keychain do SO.
 pub const KEYRING_SERVICE: &str = "com.retrosync.app";
 pub const KEYRING_REFRESH_TOKEN_KEY: &str = "google_drive_refresh_token";
+
+/// Chave do keyring para o identificador estável deste dispositivo (UUID v4).
+/// Vive fora do SQLite de propósito: sobrevive à desinstalação do app e à
+/// limpeza do banco, ao contrário do nome amigável (`SETTING_DEVICE_NAME`).
+/// Prefixada com `retrosync_` para não colidir com entradas de outros apps.
+pub const KEYRING_DEVICE_ID_KEY: &str = "retrosync_device_id";
 
 /// Intervalo de polling do process watcher.
 pub const WATCHER_POLL_INTERVAL_SECS: u64 = 2;
@@ -68,8 +79,18 @@ pub const SETTING_TRIGGER_EMULATOR_STOP: &str = "trigger_emulator_stop";
 /// Nível de notificações nativas: all | errors_only | none (default: all).
 pub const SETTING_NOTIFICATION_LEVEL: &str = "notification_level";
 
+/// Marca que o default de fábrica do autostart (ligado) já foi aplicado na
+/// primeira execução. Impede religar o autostart a cada inicialização — depois
+/// disso a escolha do usuário prevalece, inclusive se ele desativar.
+pub const SETTING_AUTOSTART_INITIALIZED: &str = "autostart_initialized";
+
 /// Label da janela principal (definida pelo Tauri quando não há `label`).
 pub const MAIN_WINDOW_LABEL: &str = "main";
+
+/// Argumento que o lançador do SO injeta quando o app sobe junto com o sistema
+/// (registrado pelo plugin de autostart). Com ele o app inicia direto na
+/// bandeja, sem abrir a janela principal.
+pub const STARTUP_MINIMIZED_FLAG: &str = "--minimized";
 
 /// IDs dos itens do menu da bandeja do sistema.
 pub const TRAY_MENU_OPEN: &str = "tray-open";

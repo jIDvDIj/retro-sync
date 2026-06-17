@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { errorMessage } from "../lib/errors";
-import { setDeviceName, setNotificationLevel } from "../lib/ipc";
+import { openBackupFolder, setAutostart, setDeviceName, setNotificationLevel } from "../lib/ipc";
 import type { EmulatorProfile, NotificationLevel, Settings } from "../types/ipc";
 import { CategorySettings } from "./CategorySettings";
 import { TriggerSettingsSection } from "./TriggerSettings";
@@ -31,6 +31,31 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
   const [saved, setSaved] = useState(false);
   const [notifLevel, setNotifLevel] = useState<NotificationLevel>(settings.notificationLevel);
   const [notifError, setNotifError] = useState<string | null>(null);
+  const [autostart, setAutostartState] = useState(settings.autostart);
+  const [autostartError, setAutostartError] = useState<string | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+
+  const openBackups = async () => {
+    setBackupError(null);
+    try {
+      await openBackupFolder();
+    } catch (err) {
+      setBackupError(errorMessage(err));
+    }
+  };
+
+  const toggleAutostart = async () => {
+    const next = !autostart;
+    setAutostartState(next); // otimista
+    setAutostartError(null);
+    try {
+      await setAutostart(next);
+      onSaved();
+    } catch (err) {
+      setAutostartError(errorMessage(err));
+      setAutostartState(!next); // reverte em falha
+    }
+  };
 
   const changeNotifLevel = async (level: NotificationLevel) => {
     const prev = notifLevel;
@@ -110,6 +135,24 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
         </section>
 
         <section className="settings-section">
+          <h3>Inicialização</h3>
+          <p className="muted">
+            Sobe o RetroSync junto com o sistema, direto na bandeja, para sincronizar em segundo
+            plano sem você precisar abrir o app.
+          </p>
+          <div className="trigger-list">
+            <label className="trigger-row">
+              <input type="checkbox" checked={autostart} onChange={toggleAutostart} />
+              <span className="trigger-text">
+                <span className="trigger-label">Abrir com o sistema</span>
+                <span className="muted">roda em segundo plano ao ligar o computador</span>
+              </span>
+            </label>
+            {autostartError ? <p className="error">{autostartError}</p> : null}
+          </div>
+        </section>
+
+        <section className="settings-section">
           <h3>Notificações</h3>
           <p className="muted">
             Syncs automáticos frequentes podem gerar notificações invasivas — reduza o ruído aqui.
@@ -137,6 +180,21 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
             e controles entre dispositivos diferentes.
           </p>
           <CategorySettings emulators={emulators} />
+        </section>
+
+        <section className="settings-section">
+          <h3>Backups</h3>
+          <p className="muted">
+            Cópias que o RetroSync guarda antes de sobrescrever um arquivo local — no primeiro sync
+            de um arquivo que já existe no Drive, ou ao resolver um conflito mantendo a versão do
+            Drive. Nada é apagado.
+          </p>
+          <div className="settings-row">
+            <button className="secondary" onClick={openBackups}>
+              Abrir pasta de backups
+            </button>
+          </div>
+          {backupError ? <p className="error">{backupError}</p> : null}
         </section>
       </div>
     </div>

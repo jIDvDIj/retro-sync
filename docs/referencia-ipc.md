@@ -25,6 +25,7 @@ os wrappers tipados de `invoke`, em `src/lib/ipc.ts`.
 | `set_device_name` | `name: string` | `void` | v1.1·1 |
 | `set_triggers` | `triggers: TriggerSettings` | `void` | v1.1·4 |
 | `set_notification_level` | `level: NotificationLevel` | `void` | v1.1·5 |
+| `set_autostart` | `enabled: boolean` | `void` | v1.1·8 |
 | `open_backup_folder` | — | `void` | v1.1·6 |
 | `get_emulator_categories` | `name: string` | `SyncCategories` | v1.1·3 |
 | `set_emulator_categories` | `name: string, categories: SyncCategories` | `void` | v1.1·3 |
@@ -61,10 +62,12 @@ Os wrappers correspondentes vivem em `src/lib/ipc.ts` (`healthCheck`, `connectGo
 
 ### `Settings`
 ```ts
-{ deviceName: string | null; triggers: TriggerSettings; notificationLevel: NotificationLevel }
+{ deviceName: string | null; triggers: TriggerSettings; notificationLevel: NotificationLevel; autostart: boolean }
 ```
 Configurações globais do usuário (`storage::settings::Settings`). Persistidas na tabela
-`app_settings` (chave→valor); cresce ao longo dos passos da v1.1.
+`app_settings` (chave→valor); cresce ao longo dos passos da v1.1. Exceção: `autostart` não
+fica no banco — o estado vive no SO (registro do Windows / LaunchAgent) e é lido pelo plugin
+de autostart no `get_settings`; escrita via `set_autostart`.
 
 ### `TriggerSettings`
 ```ts

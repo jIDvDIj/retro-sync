@@ -14,7 +14,7 @@ use super::{
     ms_to_rfc3339, DriveClient, DRIVE_API_BASE, DRIVE_UPLOAD_BASE, FILE_FIELDS, FOLDER_MIME_TYPE,
     LIST_FIELDS, OCTET_STREAM, SIMPLE_UPLOAD_MAX_BYTES,
 };
-use crate::constants::DRIVE_APP_PROP_DEVICE;
+use crate::constants::{DRIVE_APP_PROP_DEVICE, DRIVE_APP_PROP_DEVICE_ID};
 use crate::error::{AppError, AppResult};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,23 +36,44 @@ pub struct DriveFile {
 }
 
 impl DriveFile {
-    /// Dispositivo que publicou esta versão, se gravado em `appProperties`.
+    /// Nome amigável do dispositivo que publicou esta versão (para exibição).
     pub fn device(&self) -> Option<&str> {
         self.app_properties
             .get(DRIVE_APP_PROP_DEVICE)
             .map(String::as_str)
     }
+
+    /// ID estável do dispositivo que publicou esta versão (para a detecção de
+    /// conflito entre dispositivos). Ausente em arquivos enviados por versões
+    /// antigas do app, que só gravavam o nome.
+    pub fn device_id(&self) -> Option<&str> {
+        self.app_properties
+            .get(DRIVE_APP_PROP_DEVICE_ID)
+            .map(String::as_str)
+    }
 }
 
-/// Adiciona `appProperties.device` ao metadata de upload, quando há nome de
-/// dispositivo definido. Identifica a origem de cada versão no Drive.
-fn with_device(metadata: &mut serde_json::Value, device: Option<&str>) {
-    if let Some(dev) = device {
-        let mut props = serde_json::Map::new();
-        props.insert(
-            DRIVE_APP_PROP_DEVICE.to_string(),
-            serde_json::Value::String(dev.to_string()),
-        );
+/// Identidade do dispositivo estampada em `appProperties` no upload: `name`
+/// (amigável, para exibição) e `id` (UUID estável do keyring, para a detecção
+/// de conflito entre dispositivos). Ambos opcionais — degradam para ausência.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DeviceTag<'a> {
+    pub name: Option<&'a str>,
+    pub id: Option<&'a str>,
+}
+
+/// Adiciona `appProperties` (`device` = nome, `deviceId` = id) ao metadata de
+/// upload, marcando a origem de cada versão no Drive. Sem nada definido, não
+/// escreve a chave.
+fn with_device(metadata: &mut serde_json::Value, tag: DeviceTag<'_>) {
+    let mut props = serde_json::Map::new();
+    if let Some(name) = tag.name {
+        props.insert(DRIVE_APP_PROP_DEVICE.to_string(), name.into());
+    }
+    if let Some(id) = tag.id {
+        props.insert(DRIVE_APP_PROP_DEVICE_ID.to_string(), id.into());
+    }
+    if !props.is_empty() {
         metadata["appProperties"] = serde_json::Value::Object(props);
     }
 }
@@ -193,7 +214,7 @@ impl DriveClient {
         name: &str,
         content: Vec<u8>,
         mtime_ms: i64,
-        device: Option<&str>,
+        device: DeviceTag<'_>,
     ) -> AppResult<DriveFile> {
         let mut metadata = json!({
             "name": name,
@@ -219,7 +240,7 @@ impl DriveClient {
         file_id: &str,
         content: Vec<u8>,
         mtime_ms: i64,
-        device: Option<&str>,
+        device: DeviceTag<'_>,
     ) -> AppResult<DriveFile> {
         let mut metadata = json!({ "modifiedTime": ms_to_rfc3339(mtime_ms) });
         with_device(&mut metadata, device);

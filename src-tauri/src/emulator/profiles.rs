@@ -166,7 +166,11 @@ fn expand_placeholders(template: &str) -> Option<PathBuf> {
         return Some(PathBuf::from(template));
     };
     let base = resolve_base(key)?;
-    Some(if rest.is_empty() { base } else { base.join(rest) })
+    Some(if rest.is_empty() {
+        base
+    } else {
+        base.join(rest)
+    })
 }
 
 /// Separa `"{key}/rest"` em `(key, rest)`. `None` se não começa com `{...}`.
