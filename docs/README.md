@@ -34,7 +34,7 @@ retrogames com o Google Drive.
 | [Riscos técnicos](./riscos.md) | Riscos identificados e mitigações |
 | [Distribuição pública e confiança](./distribuicao-publica.md) | SmartScreen, OAuth Google, GitHub Attestations (descartado), Microsoft Store |
 | [Bugs](./bugs/) | Bugs documentados com causa raiz e soluções consideradas |
-| [Features](./features/) | Propostas de funcionalidades futuras — identificação de jogos, configurações, perfis-como-dados, batch upload, proxy Worker |
+| [Features](./features/) | Propostas de funcionalidades futuras — identificação de jogos, configurações, perfis-como-dados, batch upload, proxy Worker, otimização de performance do sync |
 
 ## Estado atual
 
