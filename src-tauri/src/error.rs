@@ -56,13 +56,32 @@ impl AppError {
             AppError::Other(_) => "other",
         }
     }
+
+    /// Detalhe técnico do erro (caminho, nome, mensagem da lib subjacente), sem
+    /// o prefixo em português. O frontend localiza o prefixo pelo `code` e anexa
+    /// este detalhe. `Other` não tem prefixo — todo o texto vem aqui.
+    fn detail(&self) -> String {
+        match self {
+            AppError::Io(e) => e.to_string(),
+            AppError::Database(e) => e.to_string(),
+            AppError::Network(e) => e.to_string(),
+            AppError::Keyring(e) => e.to_string(),
+            AppError::Serialization(e) => e.to_string(),
+            AppError::Auth(s)
+            | AppError::EmulatorNotDetected(s)
+            | AppError::EmulatorExists(s)
+            | AppError::FileBusy(s)
+            | AppError::Other(s) => s.clone(),
+        }
+    }
 }
 
 impl Serialize for AppError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("AppError", 2)?;
+        let mut s = serializer.serialize_struct("AppError", 3)?;
         s.serialize_field("code", self.code())?;
         s.serialize_field("message", &self.to_string())?;
+        s.serialize_field("detail", &self.detail())?;
         s.end()
     }
 }

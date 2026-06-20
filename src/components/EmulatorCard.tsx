@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
-import { errorMessage } from "../lib/errors";
+import { useErrorMessage } from "../lib/errors";
 import type { Conflict, EmulatorProfile } from "../types/ipc";
 import { ConflictModal } from "./ConflictModal";
 
@@ -16,6 +17,8 @@ interface Props {
 
 /** Card de um emulador configurado: nome, pasta, estado, conflito e remoção. */
 export function EmulatorCard({ profile, running, conflicts, onRemove, onConflictResolved }: Props) {
+  const { t } = useTranslation();
+  const errorMessage = useErrorMessage();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showConflicts, setShowConflicts] = useState(false);
@@ -38,10 +41,10 @@ export function EmulatorCard({ profile, running, conflicts, onRemove, onConflict
       <div className="emulator-head">
         <span className="emulator-name">{profile.name}</span>
         {hasConflict ? (
-          <span className="badge badge-conflict">conflito</span>
+          <span className="badge badge-conflict">{t("emulator.conflictBadge")}</span>
         ) : (
           <span className={`badge ${running ? "badge-running" : "badge-idle"}`}>
-            {running ? "em execução" : "parado"}
+            {running ? t("emulator.running") : t("emulator.idle")}
           </span>
         )}
       </div>
@@ -51,11 +54,11 @@ export function EmulatorCard({ profile, running, conflicts, onRemove, onConflict
       <div className="emulator-foot">
         {hasConflict ? (
           <button onClick={() => setShowConflicts(true)}>
-            Resolver conflito{conflicts.length > 1 ? ` (${conflicts.length})` : ""}
+            {t("emulator.resolveConflict", { count: conflicts.length })}
           </button>
         ) : null}
         <button className="secondary" onClick={handleRemove} disabled={busy}>
-          {busy ? "Removendo…" : "Remover"}
+          {busy ? t("emulator.removing") : t("emulator.remove")}
         </button>
         {error ? <span className="error">{error}</span> : null}
       </div>

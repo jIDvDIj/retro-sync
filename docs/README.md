@@ -29,6 +29,7 @@ retrogames com o Google Drive.
 | [13 — Primeiro sync: Drive vence + backup](./13-primeiro-sync-backup.md) | BUG-001 — backup local antes de sobrescrever no primeiro sync |
 | [14 — Resolução de conflito](./14-resolucao-conflito.md) | BUG-002 — conflito explícito, bloqueio por emulador e modal de resolução |
 | [15 — Proxy Cloudflare Worker (OAuth)](./15-proxy-worker-oauth.md) | FEATURE-005 — Worker esconde o `client_secret`; o que vai para o GitHub Actions |
+| [16 — Internacionalização (i18n)](./16-internacionalizacao.md) | i18next/react-i18next, inglês padrão, seletor de idioma, tradução de erros por `code`+`detail` |
 | [Referência — Boundary IPC](./referencia-ipc.md) | Catálogo de comandos, eventos e tipos compartilhados Rust ↔ TS |
 | [Decisões técnicas](./decisoes-tecnicas.md) | Registro consolidado das decisões e seus trade-offs |
 | [Riscos técnicos](./riscos.md) | Riscos identificados e mitigações |
@@ -78,6 +79,12 @@ passando; ESLint, Prettier, rustfmt e clippy limpos.
 | --- | --- | --- | --- |
 | BUG-003 | Troca do `root_path` de um emulador já configurado zerava só o perfil, não o manifest → sobrescrita do Drive por instalação mais antiga | [bug-003](./bugs/bug-003-troca-de-caminho-do-emulador.md) | ✅ Resolvido |
 | BUG-004 | Saves independentes de dispositivos diferentes eram sobrescritos no primeiro sync sem conflito → `device_id` estável no keyring, conflito explícito quando a origem é outro dispositivo | [bug-004](./bugs/bug-004-conflito-entre-dispositivos-primeiro-sync.md) | ✅ Resolvido |
+
+### Internacionalização
+
+| Item | Descrição | Doc | Status |
+| --- | --- | --- | --- |
+| i18n do frontend | `react-i18next`; inglês padrão + português; seletor nas configurações; erros traduzidos por `code`+`detail`; bandeja em inglês | [16](./16-internacionalizacao.md) | ✅ Concluído |
 
 ## Visão geral em uma frase
 

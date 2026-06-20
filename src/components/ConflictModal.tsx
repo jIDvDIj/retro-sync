@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
-import { errorMessage } from "../lib/errors";
+import { currentLocale } from "../i18n";
+import { useErrorMessage } from "../lib/errors";
 import { resolveConflict } from "../lib/ipc";
 import type { Conflict, ConflictResolution } from "../types/ipc";
 
@@ -13,7 +15,7 @@ interface Props {
 }
 
 function formatDate(ms: number): string {
-  return new Date(ms).toLocaleString("pt-BR");
+  return new Date(ms).toLocaleString(currentLocale());
 }
 
 function formatSize(bytes: number): string {
@@ -24,6 +26,8 @@ function formatSize(bytes: number): string {
 
 /** Modal de resolução de conflito de um emulador (uma ou mais entradas). */
 export function ConflictModal({ emulator, conflicts, onClose, onResolved }: Props) {
+  const { t } = useTranslation();
+  const errorMessage = useErrorMessage();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,16 +48,12 @@ export function ConflictModal({ emulator, conflicts, onClose, onResolved }: Prop
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>Conflito — {emulator}</h2>
+          <h2>{t("conflict.title", { emulator })}</h2>
           <button className="secondary" onClick={onClose}>
-            Fechar
+            {t("common.close")}
           </button>
         </div>
-        <p className="muted">
-          Estes arquivos mudaram neste dispositivo e no Drive desde o último sync. Escolha qual
-          versão manter — o sync deste emulador está pausado até a resolução. A versão descartada
-          localmente é salva em backup.
-        </p>
+        <p className="muted">{t("conflict.intro")}</p>
 
         {conflicts.map((c) => (
           <div className="conflict-item" key={`${c.category}/${c.relPath}`}>
@@ -63,24 +63,26 @@ export function ConflictModal({ emulator, conflicts, onClose, onResolved }: Prop
             <div className="conflict-sides">
               <div className="conflict-side">
                 <div className="conflict-side-title">
-                  Este dispositivo{c.localDevice ? ` · ${c.localDevice}` : ""}
+                  {t("conflict.thisDevice")}
+                  {c.localDevice ? ` · ${c.localDevice}` : ""}
                 </div>
                 <div className="muted">
                   {formatDate(c.localMtimeMs)} · {formatSize(c.localSize)}
                 </div>
                 <button disabled={busy === c.relPath} onClick={() => resolve(c, "local")}>
-                  Manter local
+                  {t("conflict.keepLocal")}
                 </button>
               </div>
               <div className="conflict-side">
                 <div className="conflict-side-title">
-                  Drive{c.driveDevice ? ` · ${c.driveDevice}` : ""}
+                  {t("conflict.drive")}
+                  {c.driveDevice ? ` · ${c.driveDevice}` : ""}
                 </div>
                 <div className="muted">
                   {formatDate(c.driveMtimeMs)} · {formatSize(c.driveSize)}
                 </div>
                 <button disabled={busy === c.relPath} onClick={() => resolve(c, "drive")}>
-                  Manter do Drive
+                  {t("conflict.keepDrive")}
                 </button>
               </div>
             </div>

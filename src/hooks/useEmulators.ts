@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { errorMessage } from "../lib/errors";
+import { useErrorMessage } from "../lib/errors";
 import { listEmulators, removeEmulator } from "../lib/ipc";
 import type { EmulatorProfile } from "../types/ipc";
 
@@ -14,6 +14,7 @@ interface UseEmulators {
 
 /** Lista de emuladores configurados, com recarga e remoção. */
 export function useEmulators(): UseEmulators {
+  const errorMessage = useErrorMessage();
   const [emulators, setEmulators] = useState<EmulatorProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +28,7 @@ export function useEmulators(): UseEmulators {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [errorMessage]);
 
   useEffect(() => {
     void refresh();

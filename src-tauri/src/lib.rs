@@ -182,18 +182,19 @@ pub fn run() {
         .expect("erro ao iniciar o RetroSync");
 }
 
-/// Configura o ícone da bandeja e o menu de contexto (Abrir / Sincronizar
-/// agora / Sair).
+/// Configura o ícone da bandeja e o menu de contexto (Open / Sync now / Quit).
+/// Os rótulos ficam em inglês — o menu nativo é construído uma vez no startup,
+/// fora do alcance do i18n do frontend.
 fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let open = MenuItem::with_id(app, constants::TRAY_MENU_OPEN, "Abrir", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, constants::TRAY_MENU_OPEN, "Open", true, None::<&str>)?;
     let sync = MenuItem::with_id(
         app,
         constants::TRAY_MENU_SYNC,
-        "Sincronizar agora",
+        "Sync now",
         true,
         None::<&str>,
     )?;
-    let quit = MenuItem::with_id(app, constants::TRAY_MENU_QUIT, "Sair", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, constants::TRAY_MENU_QUIT, "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[&open, &sync, &PredefinedMenuItem::separator(app)?, &quit],

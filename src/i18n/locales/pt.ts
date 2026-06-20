@@ -1,0 +1,161 @@
+import type { Localized, Resources } from "./en";
+
+/** Português (Brasil) — textos originais do app. */
+export const pt: Localized<Resources> = {
+  common: {
+    close: "Fechar",
+    add: "Adicionar",
+  },
+  app: {
+    checkingConnection: "verificando conexão com o Google Drive…",
+    settings: "⚙ Configurações",
+    emulators: "Emuladores",
+    loading: "carregando…",
+    noEmulators:
+      "Nenhum emulador configurado. Use “Adicionar emulador” e selecione a pasta raiz do PPSSPP ou PCSX2.",
+  },
+  login: {
+    tagline: "Sincronize saves, savestates e configs dos seus emuladores com o Google Drive.",
+    permissionNote:
+      "O RetroSync <strong>não acessa seus dados pessoais</strong>. Ele só consegue ver e modificar os arquivos que ele mesmo cria no seu Google Drive.",
+    connecting: "Aguardando autorização no navegador…",
+    connect: "Conectar ao Google Drive",
+  },
+  device: {
+    nameLabel: "Nome deste dispositivo",
+    namePlaceholder: "ex.: PC Gamer, Notebook",
+  },
+  account: {
+    connected: "Conta Google conectada",
+    disconnect: "Desconectar",
+  },
+  sync: {
+    syncNow: "Sincronizar agora",
+    syncing: "Sincronizando…",
+    justNow: "agora mesmo",
+    secondsAgo: "há {{count}}s",
+    minutesAgo: "há {{count}} min",
+    hoursAgo: "há {{count}} h",
+    queued: "pendentes {{count}}",
+    failed: "falhas {{count}}",
+    lastSync: "Último sync {{when}}",
+    never: "Nenhuma sincronização ainda",
+    backupBanner_one:
+      "{{count}} arquivo local foi salvo em backup antes do primeiro sync (o Drive venceu).",
+    backupBanner_other:
+      "{{count}} arquivos locais foram salvos em backup antes do primeiro sync (o Drive venceu).",
+    openBackupFolder: "Abrir pasta de backup",
+    lastSyncError: "Falha no último sync{{emulator}}: {{message}}",
+  },
+  emulator: {
+    conflictBadge: "conflito",
+    running: "em execução",
+    idle: "parado",
+    resolveConflict_one: "Resolver conflito",
+    resolveConflict_other: "Resolver conflito ({{count}})",
+    removing: "Removendo…",
+    remove: "Remover",
+  },
+  conflict: {
+    title: "Conflito — {{emulator}}",
+    intro:
+      "Estes arquivos mudaram neste dispositivo e no Drive desde o último sync. Escolha qual versão manter — o sync deste emulador está pausado até a resolução. A versão descartada localmente é salva em backup.",
+    thisDevice: "Este dispositivo",
+    drive: "Drive",
+    keepLocal: "Manter local",
+    keepDrive: "Manter do Drive",
+  },
+  settings: {
+    title: "Configurações",
+    device: {
+      heading: "Dispositivo",
+      hint: "Identifica esta máquina nos metadados de sync. Alterá-lo aqui não exige refazer o login.",
+      save: "Salvar nome",
+      saving: "Salvando…",
+      saved: "Salvo ✓",
+    },
+    language: {
+      heading: "Idioma",
+      hint: "Muda o idioma da interface do app.",
+      label: "Idioma da interface",
+    },
+    autoSync: {
+      heading: "Sincronização automática",
+      hint: "Mesmo com tudo desligado, o botão “Sincronizar agora” continua disponível.",
+    },
+    startup: {
+      heading: "Inicialização",
+      hint: "Sobe o RetroSync junto com o sistema, direto na bandeja, para sincronizar em segundo plano sem você precisar abrir o app.",
+      label: "Abrir com o sistema",
+      sublabel: "roda em segundo plano ao ligar o computador",
+    },
+    notif: {
+      heading: "Notificações",
+      hint: "Syncs automáticos frequentes podem gerar notificações invasivas — reduza o ruído aqui.",
+      label: "Nível de notificações nativas",
+      all: "Tudo (sync, erros, emulador detectado)",
+      errorsOnly: "Apenas erros",
+      none: "Nenhuma",
+    },
+    categories: {
+      heading: "Sincronização por emulador",
+      hint: "Escolha quais categorias sincronizar. Desative “Config” para não compartilhar resolução e controles entre dispositivos diferentes.",
+      empty: "Adicione um emulador para configurar suas categorias.",
+      saves: "Saves",
+      savestates: "Savestates",
+      config: "Config",
+    },
+    triggers: {
+      startupLabel: "Ao abrir o RetroSync",
+      startupHint: "sincroniza quando o app inicia",
+      emulatorStartLabel: "Antes de abrir o emulador",
+      emulatorStartHint: "baixa os saves frescos do Drive",
+      emulatorStopLabel: "Ao fechar o emulador",
+      emulatorStopHint: "sobe os saves da sessão",
+    },
+    backups: {
+      heading: "Backups",
+      hint: "Cópias que o RetroSync guarda antes de sobrescrever um arquivo local — no primeiro sync de um arquivo que já existe no Drive, ou ao resolver um conflito mantendo a versão do Drive. Nada é apagado.",
+      open: "Abrir pasta de backups",
+    },
+  },
+  addEmulator: {
+    button: "Adicionar emulador",
+    title: "Adicionar emulador",
+    recommended: "Recomendados",
+    searching: "procurando emuladores instalados…",
+    noneDetected: "Nenhum emulador novo detectado automaticamente.",
+    installedNoSaves: "instalado, sem saves ainda",
+    adding: "Adicionando…",
+    openOnce: "abra o emulador uma vez",
+    pickFolder: "Apontar pasta",
+    pickFolderHint:
+      "Para instalações portáteis ou emuladores fora da lista, selecione a pasta raiz.",
+    detecting: "Detectando…",
+    selectFolder: "Selecionar pasta…",
+    detectedHere: "detectado nesta pasta",
+    manualIntro:
+      "Nenhum emulador reconhecido nesta pasta. Informe os dados manualmente — as pastas devem estar dentro da raiz.",
+    addManual: "Adicionar manualmente",
+    selectSubfolder: "Selecionar subpasta…",
+    subfolderError: "selecione uma subpasta dentro da pasta raiz",
+    nameLabel: "Nome",
+    namePlaceholder: "ex.: Dolphin",
+    sourceSavesFound: "saves encontrados",
+    sourceInstalled: "instalado",
+    pickRootTitle: "Selecione a pasta raiz do emulador",
+    pickSubTitle: "Selecione uma subpasta da raiz",
+  },
+  errors: {
+    io: "erro de IO",
+    database: "erro de banco de dados",
+    network: "erro de rede",
+    keyring: "erro no cofre de credenciais",
+    serialization: "erro de serialização",
+    auth: "erro de autenticação",
+    emulator_not_detected: "emulador não reconhecido na pasta",
+    emulator_exists: "já existe um emulador com este nome",
+    file_busy: "arquivo em uso (modificado durante a leitura)",
+    unexpected: "erro inesperado ao falar com o backend",
+  },
+};

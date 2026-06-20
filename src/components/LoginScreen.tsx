@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 
-import { errorMessage } from "../lib/errors";
+import { useErrorMessage } from "../lib/errors";
 import { connectGoogleDrive, setDeviceName } from "../lib/ipc";
 import type { AuthStatus } from "../types/ipc";
 
@@ -19,6 +20,8 @@ interface Props {
  * sync no Drive e é gravado antes de concluir a autenticação.
  */
 export function LoginScreen({ initialDeviceName, onConnected }: Props) {
+  const { t } = useTranslation();
+  const errorMessage = useErrorMessage();
   const [device, setDevice] = useState(initialDeviceName ?? "");
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,22 +52,19 @@ export function LoginScreen({ initialDeviceName, onConnected }: Props) {
     <main className="login-screen">
       <div className="login-card">
         <h1>RetroSync</h1>
-        <p className="login-tagline">
-          Sincronize saves, savestates e configs dos seus emuladores com o Google Drive.
-        </p>
+        <p className="login-tagline">{t("login.tagline")}</p>
 
         <p className="permission-note">
-          O RetroSync <strong>não acessa seus dados pessoais</strong>. Ele só consegue ver e
-          modificar os arquivos que ele mesmo cria no seu Google Drive.
+          <Trans i18nKey="login.permissionNote" components={{ strong: <strong /> }} />
         </p>
 
         <label className="field">
-          <span>Nome deste dispositivo</span>
+          <span>{t("device.nameLabel")}</span>
           <input
             type="text"
             value={device}
             onChange={(e) => setDevice(e.target.value)}
-            placeholder="ex.: PC Gamer, Notebook"
+            placeholder={t("device.namePlaceholder")}
             disabled={connecting}
             maxLength={60}
             autoFocus
@@ -72,7 +72,7 @@ export function LoginScreen({ initialDeviceName, onConnected }: Props) {
         </label>
 
         <button className="login-button" onClick={handleConnect} disabled={!canConnect}>
-          {connecting ? "Aguardando autorização no navegador…" : "Conectar ao Google Drive"}
+          {connecting ? t("login.connecting") : t("login.connect")}
         </button>
 
         {error ? <p className="error">{error}</p> : null}

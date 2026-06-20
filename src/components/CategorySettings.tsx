@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
-import { errorMessage } from "../lib/errors";
+import { useErrorMessage } from "../lib/errors";
 import { getEmulatorCategories, setEmulatorCategories } from "../lib/ipc";
 import type { EmulatorProfile, SyncCategories } from "../types/ipc";
 
@@ -8,14 +9,16 @@ interface Props {
   emulators: EmulatorProfile[];
 }
 
-const LABELS: { key: keyof SyncCategories; label: string }[] = [
-  { key: "saves", label: "Saves" },
-  { key: "savestates", label: "Savestates" },
-  { key: "config", label: "Config" },
-];
+const LABELS = [
+  { key: "saves", labelKey: "settings.categories.saves" },
+  { key: "savestates", labelKey: "settings.categories.savestates" },
+  { key: "config", labelKey: "settings.categories.config" },
+] as const satisfies readonly { key: keyof SyncCategories; labelKey: string }[];
 
 /** Toggles de categorias (saves/savestates/config) por emulador configurado. */
 export function CategorySettings({ emulators }: Props) {
+  const { t } = useTranslation();
+  const errorMessage = useErrorMessage();
   const [cats, setCats] = useState<Record<string, SyncCategories>>({});
   const [error, setError] = useState<string | null>(null);
 
@@ -31,7 +34,7 @@ export function CategorySettings({ emulators }: Props) {
     return () => {
       active = false;
     };
-  }, [emulators]);
+  }, [emulators, errorMessage]);
 
   const toggle = async (name: string, key: keyof SyncCategories) => {
     const current = cats[name];
@@ -48,7 +51,7 @@ export function CategorySettings({ emulators }: Props) {
   };
 
   if (emulators.length === 0) {
-    return <p className="muted">Adicione um emulador para configurar suas categorias.</p>;
+    return <p className="muted">{t("settings.categories.empty")}</p>;
   }
 
   return (
@@ -59,7 +62,7 @@ export function CategorySettings({ emulators }: Props) {
           <div className="category-row" key={e.name}>
             <span className="category-emulator">{e.name}</span>
             <div className="category-toggles">
-              {LABELS.map(({ key, label }) => (
+              {LABELS.map(({ key, labelKey }) => (
                 <label key={key} className="toggle">
                   <input
                     type="checkbox"
@@ -67,7 +70,7 @@ export function CategorySettings({ emulators }: Props) {
                     disabled={!c}
                     onChange={() => toggle(e.name, key)}
                   />
-                  {label}
+                  {t(labelKey)}
                 </label>
               ))}
             </div>

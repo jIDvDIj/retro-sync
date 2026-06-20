@@ -1,9 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import { useDiscovery } from "../hooks/useDiscovery";
-import { errorMessage } from "../lib/errors";
+import { useErrorMessage } from "../lib/errors";
 import { addEmulator, addEmulatorManual, detectEmulator } from "../lib/ipc";
 import type { DiscoveredEmulator, EmulatorProfile } from "../types/ipc";
 
@@ -15,12 +16,12 @@ interface Props {
   onAdded: () => void;
 }
 
-/** Rótulo curto da origem de uma sugestão com saves. */
-const SOURCE_LABEL: Record<DiscoveredEmulator["source"], string> = {
-  dataDir: "saves encontrados",
-  both: "saves encontrados",
-  registry: "instalado",
-};
+/** Chave de tradução do rótulo curto da origem de uma sugestão com saves. */
+const SOURCE_LABEL_KEY = {
+  dataDir: "addEmulator.sourceSavesFound",
+  both: "addEmulator.sourceSavesFound",
+  registry: "addEmulator.sourceInstalled",
+} as const satisfies Record<DiscoveredEmulator["source"], string>;
 
 /** Caminho de `child` relativo a `root`, ou `null` se não estiver sob a raiz. */
 function relativeUnder(root: string, child: string): string | null {
@@ -39,6 +40,8 @@ function relativeUnder(root: string, child: string): string | null {
  * automática), detecção por pasta e configuração manual (fallback).
  */
 export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
+  const { t } = useTranslation();
+  const errorMessage = useErrorMessage();
   const discovery = useDiscovery();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,17 +72,20 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
     setConfigRel("");
   };
 
-  const wrap = useCallback(async (key: string, fn: () => Promise<void>) => {
-    setBusy(key);
-    setError(null);
-    try {
-      await fn();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  }, []);
+  const wrap = useCallback(
+    async (key: string, fn: () => Promise<void>) => {
+      setBusy(key);
+      setError(null);
+      try {
+        await fn();
+      } catch (err) {
+        setError(errorMessage(err));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [errorMessage],
+  );
 
   const addRecommended = (d: DiscoveredEmulator) =>
     wrap(`rec:${d.name}`, async () => {
@@ -92,7 +98,7 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
     const selected = await openDialog({
       directory: true,
       multiple: false,
-      title: "Selecione a pasta raiz do emulador",
+      title: t("addEmulator.pickRootTitle"),
     });
     if (typeof selected !== "string") return;
     resetManual();
@@ -121,12 +127,12 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
       directory: true,
       multiple: false,
       defaultPath: root,
-      title: "Selecione uma subpasta da raiz",
+      title: t("addEmulator.pickSubTitle"),
     });
     if (typeof selected !== "string") return;
     const rel = relativeUnder(root, selected);
     if (!rel) {
-      setError("selecione uma subpasta dentro da pasta raiz");
+      setError(t("addEmulator.subfolderError"));
       return;
     }
     setError(null);
@@ -153,20 +159,20 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>Adicionar emulador</h2>
+          <h2>{t("addEmulator.title")}</h2>
           <button className="secondary" onClick={onClose}>
-            Fechar
+            {t("common.close")}
           </button>
         </div>
 
         <section className="settings-section">
-          <h3>Recomendados</h3>
+          <h3>{t("addEmulator.recommended")}</h3>
           {discovery.loading ? (
-            <p className="muted">procurando emuladores instalados…</p>
+            <p className="muted">{t("addEmulator.searching")}</p>
           ) : discovery.error ? (
             <p className="error">{discovery.error}</p>
           ) : recommendations.length === 0 ? (
-            <p className="muted">Nenhum emulador novo detectado automaticamente.</p>
+            <p className="muted">{t("addEmulator.noneDetected")}</p>
           ) : (
             <div className="discovery-list">
               {recommendations.map((d) => (
@@ -174,15 +180,17 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
                   <div className="discovery-info">
                     <span className="discovery-name">{d.name}</span>
                     <span className="muted discovery-meta">
-                      {d.profile ? SOURCE_LABEL[d.source] : "instalado, sem saves ainda"}
+                      {d.profile
+                        ? t(SOURCE_LABEL_KEY[d.source])
+                        : t("addEmulator.installedNoSaves")}
                     </span>
                   </div>
                   {d.profile ? (
                     <button disabled={busy !== null} onClick={() => addRecommended(d)}>
-                      {busy === `rec:${d.name}` ? "Adicionando…" : "Adicionar"}
+                      {busy === `rec:${d.name}` ? t("addEmulator.adding") : t("common.add")}
                     </button>
                   ) : (
-                    <span className="muted discovery-hint">abra o emulador uma vez</span>
+                    <span className="muted discovery-hint">{t("addEmulator.openOnce")}</span>
                   )}
                 </div>
               ))}
@@ -191,13 +199,11 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
         </section>
 
         <section className="settings-section">
-          <h3>Apontar pasta</h3>
-          <p className="muted">
-            Para instalações portáteis ou emuladores fora da lista, selecione a pasta raiz.
-          </p>
+          <h3>{t("addEmulator.pickFolder")}</h3>
+          <p className="muted">{t("addEmulator.pickFolderHint")}</p>
           <div className="settings-row">
             <button className="secondary" disabled={busy === "detect"} onClick={pickRoot}>
-              {busy === "detect" ? "Detectando…" : "Selecionar pasta…"}
+              {busy === "detect" ? t("addEmulator.detecting") : t("addEmulator.selectFolder")}
             </button>
             {root ? (
               <span className="muted discovery-meta" title={root}>
@@ -210,41 +216,42 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
             <div className="discovery-row">
               <div className="discovery-info">
                 <span className="discovery-name">{detected.name}</span>
-                <span className="muted discovery-meta">detectado nesta pasta</span>
+                <span className="muted discovery-meta">{t("addEmulator.detectedHere")}</span>
               </div>
               <button disabled={busy !== null} onClick={addDetected}>
-                {busy === "add-detected" ? "Adicionando…" : "Adicionar"}
+                {busy === "add-detected" ? t("addEmulator.adding") : t("common.add")}
               </button>
             </div>
           ) : null}
 
           {needsManual ? (
             <div className="manual-form">
-              <p className="muted">
-                Nenhum emulador reconhecido nesta pasta. Informe os dados manualmente — as pastas
-                devem estar dentro da raiz.
-              </p>
+              <p className="muted">{t("addEmulator.manualIntro")}</p>
               <label className="manual-field">
-                <span>Nome</span>
+                <span>{t("addEmulator.nameLabel")}</span>
                 <input
                   value={manualName}
                   onChange={(e) => setManualName(e.target.value)}
-                  placeholder="ex.: Dolphin"
+                  placeholder={t("addEmulator.namePlaceholder")}
                 />
               </label>
-              <ManualPathRow label="Saves" value={savesRel} onPick={() => pickSub(setSavesRel)} />
               <ManualPathRow
-                label="Savestates"
+                label={t("settings.categories.saves")}
+                value={savesRel}
+                onPick={() => pickSub(setSavesRel)}
+              />
+              <ManualPathRow
+                label={t("settings.categories.savestates")}
                 value={statesRel}
                 onPick={() => pickSub(setStatesRel)}
               />
               <ManualPathRow
-                label="Config"
+                label={t("settings.categories.config")}
                 value={configRel}
                 onPick={() => pickSub(setConfigRel)}
               />
               <button disabled={busy !== null || manualIncomplete} onClick={addManual}>
-                {busy === "add-manual" ? "Adicionando…" : "Adicionar manualmente"}
+                {busy === "add-manual" ? t("addEmulator.adding") : t("addEmulator.addManual")}
               </button>
             </div>
           ) : null}
@@ -264,11 +271,12 @@ interface ManualPathRowProps {
 
 /** Linha do formulário manual: rótulo da categoria + seletor da subpasta. */
 function ManualPathRow({ label, value, onPick }: ManualPathRowProps) {
+  const { t } = useTranslation();
   return (
     <div className="manual-path-row">
       <span className="manual-path-label">{label}</span>
       <button className="secondary" onClick={onPick}>
-        {value || "Selecionar subpasta…"}
+        {value || t("addEmulator.selectSubfolder")}
       </button>
     </div>
   );
