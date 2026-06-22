@@ -16,7 +16,7 @@
 
 [[emulator]]
 name = "PPSSPP"
-process_names = ["PPSSPPWindows64.exe", "PPSSPPWindows.exe", "PPSSPPSDL"]
+process_names = ["PPSSPPWindows64.exe", "PPSSPPWindows.exe", "PPSSPPSDL", "PPSSPPQt"]
 base_candidates = ["PSP", "memstick/PSP"]
 markers = ["SAVEDATA", "PPSSPP_STATE", "SYSTEM"]
 saves = ["SAVEDATA"]
@@ -24,7 +24,8 @@ states = ["PPSSPP_STATE"]
 config = ["SYSTEM"]
 data_dirs.windows = ["{documents}/PPSSPP", "{localappdata}/PPSSPP"]
 data_dirs.macos = ["{home}/Library/Application Support/PPSSPP"]
-data_dirs.linux = ["{config}/ppsspp"]
+# Linux nativo (XDG) + instalação Flatpak (EmuDeck/Steam Deck).
+data_dirs.linux = ["{config}/ppsspp", "{home}/.var/app/org.ppsspp.PPSSPP/config/ppsspp"]
 registry.uninstall_names = ["PPSSPP"]
 registry.app_paths = ["PPSSPPWindows64.exe"]
 
@@ -38,6 +39,7 @@ states = ["sstates"]
 config = ["inis"]
 data_dirs.windows = ["{documents}/PCSX2", "{localappdata}/PCSX2"]
 data_dirs.macos = ["{home}/Library/Application Support/PCSX2"]
-data_dirs.linux = ["{config}/PCSX2"]
+# Linux nativo (XDG) + instalação Flatpak (EmuDeck/Steam Deck).
+data_dirs.linux = ["{config}/PCSX2", "{home}/.var/app/net.pcsx2.PCSX2/config/PCSX2"]
 registry.uninstall_names = ["PCSX2"]
 registry.app_paths = ["pcsx2-qt.exe"]

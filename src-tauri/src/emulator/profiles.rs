@@ -389,4 +389,26 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn catalogo_inclui_caminhos_flatpak_no_linux_para_steam_deck() {
+        // No Steam Deck (EmuDeck) os emuladores rodam como Flatpak; seus saves
+        // ficam em ~/.var/app/<app-id>/... — sem isso a descoberta automática
+        // não os encontra. Tranca as entradas contra regressão/typo.
+        let app_id = |name: &str| -> String {
+            specs()
+                .iter()
+                .find(|s| s.name == name)
+                .map(|s| s.data_dirs.linux.join("|"))
+                .unwrap_or_default()
+        };
+        assert!(
+            app_id("PPSSPP").contains(".var/app/org.ppsspp.PPSSPP"),
+            "PPSSPP deve ter o caminho Flatpak nos data_dirs.linux"
+        );
+        assert!(
+            app_id("PCSX2").contains(".var/app/net.pcsx2.PCSX2"),
+            "PCSX2 deve ter o caminho Flatpak nos data_dirs.linux"
+        );
+    }
 }

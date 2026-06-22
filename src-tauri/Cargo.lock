@@ -3289,6 +3289,7 @@ dependencies = [
 name = "retro-sync"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64 0.22.1",
  "chrono",
  "dirs 6.0.0",
