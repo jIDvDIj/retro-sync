@@ -19,9 +19,10 @@ use tokio::sync::Mutex;
 
 use super::conflict::SyncAction;
 use super::diff::{self, PlannedOp};
+use super::storage::{FileLoc, LocalStorage};
 use super::{SyncCategory, SyncDirection, SyncProgress, SyncTarget};
 use crate::auth::AuthManager;
-use crate::constants::{DRIVE_MANIFEST_FILE, DRIVE_MAX_CONCURRENT_TRANSFERS, TMP_SUFFIX};
+use crate::constants::{DRIVE_MANIFEST_FILE, DRIVE_MAX_CONCURRENT_TRANSFERS};
 use crate::drive::{DeviceTag, DriveClient};
 use crate::error::{AppError, AppResult};
 use crate::events::{
@@ -123,10 +124,10 @@ struct CategoryCtx {
     folder_key: String,
     /// Destino de downloads de arquivos que ainda não existem localmente
     /// (primeira pasta-base da categoria).
-    download_base: PathBuf,
+    download_base: FileLoc,
     /// Pasta onde gravar backups locais desta categoria neste sync
     /// (`<backup_dir>/<emulador>/<timestamp>/<categoria>`).
-    backup_base: PathBuf,
+    backup_base: FileLoc,
     /// Nome amigável deste dispositivo (marca a origem nos uploads e exibido
     /// nos conflitos).
     device: Option<String>,
@@ -147,6 +148,9 @@ pub struct SyncEngine {
     last_sync: LastSyncStore,
     /// Raiz dos backups locais (`<app_data>/backups`).
     backup_dir: PathBuf,
+    /// Acesso ao armazenamento local de saves (filesystem no desktop; SAF /
+    /// bookmarks no mobile, futuramente). Todo o I/O local passa por aqui.
+    storage: Arc<dyn LocalStorage>,
     /// Serializa execuções: um sync por vez, os demais aguardam.
     running: Mutex<()>,
 }
@@ -159,6 +163,7 @@ impl SyncEngine {
         app: AppHandle,
         last_sync: LastSyncStore,
         backup_dir: PathBuf,
+        storage: Arc<dyn LocalStorage>,
     ) -> Self {
         Self {
             db,
@@ -167,6 +172,7 @@ impl SyncEngine {
             app,
             last_sync,
             backup_dir,
+            storage,
             running: Mutex::new(()),
         }
     }
@@ -412,11 +418,7 @@ impl SyncEngine {
 
             let remote = self.drive.list_tree(&folder_id).await?;
 
-            let (root, bases_owned) = (target.root.clone(), bases.clone());
-            let local =
-                tokio::task::spawn_blocking(move || diff::scan_local_bases(&root, &bases_owned))
-                    .await
-                    .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))??;
+            let local = self.storage.scan(&target.root, bases).await?;
 
             let (emulator, cat) = (target.label.clone(), *category);
             let manifest_entries = self
@@ -447,12 +449,13 @@ impl SyncEngine {
                 direction,
                 folder_id,
                 folder_key,
-                download_base: target.root.join(&bases[0]),
-                backup_base: self
-                    .backup_dir
-                    .join(&target.label)
-                    .join(run_stamp)
-                    .join(category.as_str()),
+                download_base: FileLoc::from_path(target.root.join(&bases[0])),
+                backup_base: FileLoc::from_path(
+                    self.backup_dir
+                        .join(&target.label)
+                        .join(run_stamp)
+                        .join(category.as_str()),
+                ),
                 device: device.map(str::to_string),
                 device_id: device_id.map(str::to_string),
                 notif,
@@ -559,9 +562,9 @@ impl SyncEngine {
             .as_ref()
             .ok_or_else(|| AppError::Other("upload planejado sem arquivo local".into()))?;
 
-        let mtime_before = file_mtime_ms(&local.abs_path).await?;
-        let content = tokio::fs::read(&local.abs_path).await?;
-        let mtime_after = file_mtime_ms(&local.abs_path).await?;
+        let mtime_before = self.storage.mtime_ms(&local.loc).await?;
+        let content = self.storage.read(&local.loc).await?;
+        let mtime_after = self.storage.mtime_ms(&local.loc).await?;
         if mtime_before != mtime_after {
             return Err(AppError::FileBusy(local.rel_path.clone()));
         }
@@ -612,15 +615,12 @@ impl SyncEngine {
     /// perda irreversível que o BUG-001 descreve.
     async fn do_download_with_backup(&self, ctx: &CategoryCtx, op: &PlannedOp) -> AppResult<()> {
         if let Some(local) = op.local.as_ref() {
-            let backup_path = ctx.backup_base.join(rel_to_native(&op.rel_path));
-            if let Some(parent) = backup_path.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
-            tokio::fs::copy(&local.abs_path, &backup_path).await?;
+            let backup_dest = self.storage.join(&ctx.backup_base, &op.rel_path);
+            self.storage.copy_to(&local.loc, &backup_dest).await?;
             tracing::info!(
                 emulador = %ctx.emulator,
                 arquivo = %op.rel_path,
-                backup = %backup_path.display(),
+                backup = %backup_dest,
                 "backup local antes do primeiro sync (Drive vence)"
             );
         }
@@ -636,29 +636,16 @@ impl SyncEngine {
         let content = self.drive.download(&remote.id).await?;
 
         let dest = match op.local.as_ref() {
-            Some(local) => local.abs_path.clone(),
-            None => ctx.download_base.join(rel_to_native(&op.rel_path)),
+            Some(local) => local.loc.clone(),
+            None => self.storage.join(&ctx.download_base, &op.rel_path),
         };
-        if let Some(parent) = dest.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-
-        // Gravação atômica: temp + rename evita save corrompido se cair no meio.
-        let tmp = dest.with_file_name(format!(
-            "{}{TMP_SUFFIX}",
-            dest.file_name().unwrap_or_default().to_string_lossy()
-        ));
-        let size_bytes = content.len() as i64;
-        tokio::fs::write(&tmp, &content).await?;
-        tokio::fs::rename(&tmp, &dest).await?;
 
         // mtime local = modifiedTime do Drive, para o diff convergir.
         let drive_mtime = remote.modified_ms();
-        if let Some(ms) = drive_mtime {
-            let ft =
-                filetime::FileTime::from_unix_time(ms / 1000, ((ms % 1000) * 1_000_000) as u32);
-            filetime::set_file_mtime(&dest, ft)?;
-        }
+        let size_bytes = content.len() as i64;
+        self.storage
+            .write_atomic(&dest, &content, drive_mtime)
+            .await?;
 
         self.record_synced(
             ctx,
@@ -699,7 +686,7 @@ impl SyncEngine {
                 .unwrap_or(0),
             drive_device: remote.device().map(str::to_string),
             drive_file_id: remote.id.clone(),
-            local_abs_path: local.abs_path.to_string_lossy().into_owned(),
+            local_abs_path: self.storage.loc_to_stored(&local.loc),
             detected_at_ms: chrono::Utc::now().timestamp_millis(),
         };
 
@@ -808,40 +795,26 @@ impl SyncEngine {
 
     /// Mantém o Drive: faz backup do local e baixa a versão remota por cima.
     async fn resolve_keep_drive(&self, c: &Conflict) -> AppResult<()> {
-        let dest = PathBuf::from(&c.local_abs_path);
-        if dest.exists() {
+        let dest = self.storage.loc_from_stored(&c.local_abs_path);
+        if self.storage.exists(&dest).await {
             let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
-            let backup_path = self
-                .backup_dir
-                .join(&c.emulator)
-                .join(format!("conflito-{stamp}"))
-                .join(c.category.as_str())
-                .join(rel_to_native(&c.rel_path));
-            if let Some(parent) = backup_path.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
-            tokio::fs::copy(&dest, &backup_path).await?;
-            tracing::info!(arquivo = %c.rel_path, backup = %backup_path.display(), "backup local antes de resolver conflito (manter Drive)");
+            let backup_base = FileLoc::from_path(
+                self.backup_dir
+                    .join(&c.emulator)
+                    .join(format!("conflito-{stamp}"))
+                    .join(c.category.as_str()),
+            );
+            let backup_dest = self.storage.join(&backup_base, &c.rel_path);
+            self.storage.copy_to(&dest, &backup_dest).await?;
+            tracing::info!(arquivo = %c.rel_path, backup = %backup_dest, "backup local antes de resolver conflito (manter Drive)");
         }
 
         let content = self.drive.download(&c.drive_file_id).await?;
         let size_bytes = content.len() as i64;
-        if let Some(parent) = dest.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        let tmp = dest.with_file_name(format!(
-            "{}{TMP_SUFFIX}",
-            dest.file_name().unwrap_or_default().to_string_lossy()
-        ));
-        tokio::fs::write(&tmp, &content).await?;
-        tokio::fs::rename(&tmp, &dest).await?;
-
         let drive_mtime = c.drive_mtime_ms;
-        let ft = filetime::FileTime::from_unix_time(
-            drive_mtime / 1000,
-            ((drive_mtime % 1000) * 1_000_000) as u32,
-        );
-        filetime::set_file_mtime(&dest, ft)?;
+        self.storage
+            .write_atomic(&dest, &content, Some(drive_mtime))
+            .await?;
 
         self.upsert_resolved_manifest(
             c,
@@ -855,10 +828,10 @@ impl SyncEngine {
 
     /// Mantém o local: envia a versão local por cima da do Drive.
     async fn resolve_keep_local(&self, c: &Conflict) -> AppResult<()> {
-        let src = PathBuf::from(&c.local_abs_path);
-        let content = tokio::fs::read(&src).await?;
+        let src = self.storage.loc_from_stored(&c.local_abs_path);
+        let content = self.storage.read(&src).await?;
         let size_bytes = content.len() as i64;
-        let local_mtime = file_mtime_ms(&src).await?;
+        let local_mtime = self.storage.mtime_ms(&src).await?;
         let device = self
             .db
             .with(settings::device_name)
@@ -904,22 +877,12 @@ impl SyncEngine {
     }
 }
 
-async fn file_mtime_ms(path: &std::path::Path) -> AppResult<i64> {
-    let metadata = tokio::fs::metadata(path).await?;
-    Ok(diff::system_time_ms(metadata.modified()?))
-}
-
 /// `"a/b/c.bin"` → `(Some("a/b"), "c.bin")`; `"c.bin"` → `(None, "c.bin")`.
 fn split_rel_path(rel_path: &str) -> (Option<&str>, &str) {
     match rel_path.rsplit_once('/') {
         Some((dir, name)) => (Some(dir), name),
         None => (None, rel_path),
     }
-}
-
-/// Caminho relativo com `/` → `PathBuf` nativo da plataforma.
-fn rel_to_native(rel_path: &str) -> PathBuf {
-    rel_path.split('/').collect()
 }
 
 /// Diretórios (relativos à categoria) que precisam existir no Drive para os

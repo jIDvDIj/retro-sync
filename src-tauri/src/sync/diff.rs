@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::conflict::{decide, SyncAction};
+use super::storage::FileLoc;
 use super::SyncDirection;
 use crate::constants::TMP_SUFFIX;
 use crate::drive::{DriveFile, RemoteFile};
@@ -17,7 +18,8 @@ use crate::storage::manifest::ManifestEntry;
 pub struct LocalFile {
     /// Relativo à pasta-base da categoria, sempre com separador `/`.
     pub rel_path: String,
-    pub abs_path: PathBuf,
+    /// Locador opaco do arquivo no armazenamento local (ver [`FileLoc`]).
+    pub loc: FileLoc,
     pub mtime_ms: i64,
     #[allow(dead_code)]
     pub size_bytes: i64,
@@ -85,7 +87,7 @@ fn walk(
         let metadata = entry.metadata()?;
         out.push(LocalFile {
             rel_path,
-            abs_path: path,
+            loc: FileLoc::from_path(path),
             mtime_ms: system_time_ms(metadata.modified()?),
             size_bytes: metadata.len() as i64,
         });
@@ -173,7 +175,7 @@ mod tests {
     fn local_file(rel: &str, mtime: i64) -> LocalFile {
         LocalFile {
             rel_path: rel.to_string(),
-            abs_path: PathBuf::from("/tmp").join(rel),
+            loc: FileLoc::from_path(PathBuf::from("/tmp").join(rel)),
             mtime_ms: mtime,
             size_bytes: 100,
         }

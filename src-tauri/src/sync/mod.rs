@@ -8,12 +8,14 @@
 mod conflict;
 mod diff;
 mod engine;
+mod storage;
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
 pub use engine::{ConflictResolution, LastSync, LastSyncStore, SyncEngine, SyncSummary};
+pub use storage::DesktopStorage;
 
 use crate::constants::{DRIVE_CONFIG_FOLDER, DRIVE_SAVES_FOLDER, DRIVE_STATES_FOLDER};
 use crate::emulator::EmulatorProfile;
