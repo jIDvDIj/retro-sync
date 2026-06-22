@@ -20,7 +20,8 @@ use super::{DiscoveredEmulator, DiscoverySource, EmulatorProfile};
 struct ProfileSpec {
     /// Nome canônico (vira o nome da pasta no Drive).
     name: String,
-    /// Nomes de processo do SO, consumidos pelo watcher.
+    /// Nomes de processo do SO, consumidos pelo watcher (só-desktop).
+    #[cfg_attr(not(desktop), allow(dead_code))]
     process_names: Vec<String>,
     /// Candidatos a "base" relativos à raiz; o primeiro existente é usado.
     /// Vazio = a própria raiz é a base.
@@ -94,6 +95,8 @@ pub fn detect(root: &Path) -> Option<EmulatorProfile> {
 }
 
 /// Nomes de processo do emulador de nome canônico `name`; vazio se desconhecido.
+/// Só-desktop: consumido pelo process watcher, inexistente no mobile.
+#[cfg(desktop)]
 pub fn process_names(name: &str) -> Vec<String> {
     specs()
         .iter()

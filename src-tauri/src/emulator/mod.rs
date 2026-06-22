@@ -63,6 +63,8 @@ pub fn detect_emulator(root_path: &Path) -> Option<EmulatorProfile> {
 
 /// Nomes de processo do SO associados a um emulador, para o process watcher.
 /// Vazio se o nome canônico não corresponder a um perfil do catálogo.
+/// Só-desktop: no mobile não há process watcher.
+#[cfg(desktop)]
 pub fn process_names(emulator_name: &str) -> Vec<String> {
     profiles::process_names(emulator_name)
 }

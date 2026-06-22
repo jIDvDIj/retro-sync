@@ -9,9 +9,12 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::constants::{
-    SETTING_AUTOSTART_INITIALIZED, SETTING_DEVICE_NAME, SETTING_NOTIFICATION_LEVEL,
-    SETTING_TRIGGER_EMULATOR_START, SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
+    SETTING_DEVICE_NAME, SETTING_NOTIFICATION_LEVEL, SETTING_TRIGGER_EMULATOR_START,
+    SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
 };
+// Consumido apenas pelas funções de autostart (só-desktop).
+#[cfg(desktop)]
+use crate::constants::SETTING_AUTOSTART_INITIALIZED;
 use crate::error::AppResult;
 
 /// Configurações globais. Espelhado em `src/types/ipc.ts` (`Settings`).
@@ -172,12 +175,14 @@ pub fn set_triggers(conn: &Connection, triggers: &TriggerSettings) -> AppResult<
 
 /// O default de fábrica do autostart (ligado) já foi aplicado? `false` na
 /// primeiríssima execução. Ver [`mark_autostart_initialized`] e o setup em
-/// `lib.rs`.
+/// `lib.rs`. Só-desktop: não há autostart no mobile.
+#[cfg(desktop)]
 pub fn autostart_initialized(conn: &Connection) -> AppResult<bool> {
     get_bool(conn, SETTING_AUTOSTART_INITIALIZED, false)
 }
 
-/// Marca o default de fábrica do autostart como já aplicado.
+/// Marca o default de fábrica do autostart como já aplicado. Só-desktop.
+#[cfg(desktop)]
 pub fn mark_autostart_initialized(conn: &Connection) -> AppResult<()> {
     set_bool(conn, SETTING_AUTOSTART_INITIALIZED, true)
 }

@@ -187,6 +187,8 @@ impl SyncEngine {
     }
 
     /// Sincroniza um único emulador (gatilhos do process watcher).
+    /// Só-desktop: no mobile não há watcher para acionar sync por emulador.
+    #[cfg(desktop)]
     pub async fn sync_emulator(
         &self,
         name: &str,

@@ -31,6 +31,9 @@ use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // `mut` é usado apenas no bloco `#[cfg(desktop)]` abaixo; no mobile o
+    // builder não é reatribuído.
+    #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init());
