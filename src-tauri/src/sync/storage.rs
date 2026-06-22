@@ -12,9 +12,15 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 
-use super::diff::{self, LocalFile};
+use super::diff::LocalFile;
+use crate::error::AppResult;
+
+#[cfg(desktop)]
+use super::diff;
+#[cfg(desktop)]
 use crate::constants::TMP_SUFFIX;
-use crate::error::{AppError, AppResult};
+#[cfg(desktop)]
+use crate::error::AppError;
 
 /// Locador opaco de um arquivo ou pasta no armazenamento local.
 ///
@@ -23,19 +29,56 @@ use crate::error::{AppError, AppResult};
 /// obtém um `FileLoc` via [`LocalStorage`] (do `scan`/`join`) ou de uma string
 /// persistida ([`LocalStorage::loc_from_stored`]), nunca manipulando o caminho.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileLoc(PathBuf);
+pub struct FileLoc(Loc);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Loc {
+    /// Caminho no filesystem nativo (desktop).
+    Path(PathBuf),
+    /// Documento no armazenamento concedido do mobile — encoding opaco
+    /// interpretado por [`super::mobile_storage`] e pelo plugin nativo (SAF /
+    /// bookmark). Ver `docs/multiplataforma-checklist.md` (Fase 4).
+    #[cfg(mobile)]
+    Doc(String),
+}
 
 impl FileLoc {
-    /// Constrói um locador a partir de um caminho nativo. No desktop é a forma
-    /// natural; no mobile a base virá da concessão de pasta persistida (Fase 4).
+    /// Locador de um caminho nativo (desktop).
     pub fn from_path(path: PathBuf) -> Self {
-        Self(path)
+        Self(Loc::Path(path))
+    }
+
+    /// Locador de um documento no armazenamento mobile (SAF/bookmark).
+    #[cfg(mobile)]
+    pub fn doc(handle: impl Into<String>) -> Self {
+        Self(Loc::Doc(handle.into()))
+    }
+
+    /// Caminho nativo subjacente, se for um locador de filesystem (desktop).
+    #[cfg(desktop)]
+    pub(crate) fn as_path(&self) -> Option<&Path> {
+        match &self.0 {
+            Loc::Path(p) => Some(p),
+        }
+    }
+
+    /// Handle do documento mobile, se for um locador mobile.
+    #[cfg(mobile)]
+    pub(crate) fn as_doc(&self) -> Option<&str> {
+        match &self.0 {
+            Loc::Doc(s) => Some(s),
+            Loc::Path(_) => None,
+        }
     }
 }
 
 impl std::fmt::Display for FileLoc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.display())
+        match &self.0 {
+            Loc::Path(p) => write!(f, "{}", p.display()),
+            #[cfg(mobile)]
+            Loc::Doc(s) => write!(f, "{s}"),
+        }
     }
 }
 
@@ -83,8 +126,18 @@ pub trait LocalStorage: Send + Sync {
 }
 
 /// Implementação desktop: filesystem nativo via `tokio::fs`/`filetime`.
+#[cfg(desktop)]
 pub struct DesktopStorage;
 
+/// Caminho nativo de um locador, ou erro se vier um locador não-filesystem
+/// (não deve acontecer no desktop, onde só existem locadores de caminho).
+#[cfg(desktop)]
+fn require_path(loc: &FileLoc) -> AppResult<&Path> {
+    loc.as_path()
+        .ok_or_else(|| AppError::Other("DesktopStorage requer um locador de filesystem".into()))
+}
+
+#[cfg(desktop)]
 #[async_trait]
 impl LocalStorage for DesktopStorage {
     async fn scan(&self, root: &Path, bases: &[PathBuf]) -> AppResult<Vec<LocalFile>> {
@@ -96,33 +149,39 @@ impl LocalStorage for DesktopStorage {
     }
 
     fn join(&self, base: &FileLoc, rel_path: &str) -> FileLoc {
-        let mut path = base.0.clone();
+        let mut path = base
+            .as_path()
+            .expect("DesktopStorage usa locador de filesystem")
+            .to_path_buf();
         // `rel_path` usa sempre `/`; reconstrói com o separador nativo.
         for part in rel_path.split('/') {
             path.push(part);
         }
-        FileLoc(path)
+        FileLoc::from_path(path)
     }
 
     fn loc_to_stored(&self, loc: &FileLoc) -> String {
-        loc.0.to_string_lossy().into_owned()
+        loc.to_string()
     }
 
     fn loc_from_stored(&self, stored: &str) -> FileLoc {
-        FileLoc(PathBuf::from(stored))
+        FileLoc::from_path(PathBuf::from(stored))
     }
 
     async fn exists(&self, loc: &FileLoc) -> bool {
-        tokio::fs::try_exists(&loc.0).await.unwrap_or(false)
+        match loc.as_path() {
+            Some(p) => tokio::fs::try_exists(p).await.unwrap_or(false),
+            None => false,
+        }
     }
 
     async fn mtime_ms(&self, loc: &FileLoc) -> AppResult<i64> {
-        let metadata = tokio::fs::metadata(&loc.0).await?;
+        let metadata = tokio::fs::metadata(require_path(loc)?).await?;
         Ok(diff::system_time_ms(metadata.modified()?))
     }
 
     async fn read(&self, loc: &FileLoc) -> AppResult<Vec<u8>> {
-        Ok(tokio::fs::read(&loc.0).await?)
+        Ok(tokio::fs::read(require_path(loc)?).await?)
     }
 
     async fn write_atomic(
@@ -131,7 +190,7 @@ impl LocalStorage for DesktopStorage {
         bytes: &[u8],
         mtime_ms: Option<i64>,
     ) -> AppResult<()> {
-        let dest = &dest.0;
+        let dest = require_path(dest)?;
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
@@ -152,10 +211,11 @@ impl LocalStorage for DesktopStorage {
     }
 
     async fn copy_to(&self, src: &FileLoc, dest: &FileLoc) -> AppResult<()> {
-        if let Some(parent) = dest.0.parent() {
+        let (src, dest) = (require_path(src)?, require_path(dest)?);
+        if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        tokio::fs::copy(&src.0, &dest.0).await?;
+        tokio::fs::copy(src, dest).await?;
         Ok(())
     }
 }

@@ -8,6 +8,8 @@
 mod conflict;
 mod diff;
 mod engine;
+#[cfg(mobile)]
+pub mod mobile_storage;
 mod storage;
 
 use std::path::PathBuf;
@@ -15,7 +17,9 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub use engine::{ConflictResolution, LastSync, LastSyncStore, SyncEngine, SyncSummary};
+#[cfg(desktop)]
 pub use storage::DesktopStorage;
+pub use storage::LocalStorage;
 
 use crate::constants::{DRIVE_CONFIG_FOLDER, DRIVE_SAVES_FOLDER, DRIVE_STATES_FOLDER};
 use crate::emulator::EmulatorProfile;

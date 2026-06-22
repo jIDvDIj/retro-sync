@@ -37,6 +37,8 @@ pub struct PlannedOp {
 /// Varre as pastas-base de uma categoria (relativas a `root`). Em `rel_path`
 /// duplicado entre bases, a primeira base vence. Ignora symlinks e arquivos
 /// temporários do RetroSync. Pastas inexistentes são puladas sem erro.
+/// Consumida pela `DesktopStorage`; no mobile o scan é feito pelo plugin nativo.
+#[cfg_attr(not(desktop), allow(dead_code))]
 pub fn scan_local_bases(root: &Path, bases: &[PathBuf]) -> AppResult<Vec<LocalFile>> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
@@ -49,6 +51,7 @@ pub fn scan_local_bases(root: &Path, bases: &[PathBuf]) -> AppResult<Vec<LocalFi
     Ok(out)
 }
 
+#[cfg_attr(not(desktop), allow(dead_code))]
 fn walk(
     base: &Path,
     dir: &Path,
@@ -95,6 +98,7 @@ fn walk(
     Ok(())
 }
 
+#[cfg_attr(not(desktop), allow(dead_code))]
 pub fn system_time_ms(time: SystemTime) -> i64 {
     time.duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)

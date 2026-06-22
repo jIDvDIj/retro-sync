@@ -62,6 +62,12 @@ pub fn run() {
             });
     }
 
+    // Plugin nativo de armazenamento concedido (SAF/bookmarks) — só-mobile.
+    #[cfg(mobile)]
+    {
+        builder = builder.plugin(sync::mobile_storage::init());
+    }
+
     builder
         .setup(|app| {
             init_logging(app.handle())?;
@@ -86,6 +92,13 @@ pub fn run() {
             let http = reqwest::Client::new();
             let auth = Arc::new(auth::AuthManager::new(http.clone()));
             let drive = Arc::new(drive::DriveClient::new(http, auth.clone()));
+            // Storage local: filesystem no desktop; plugin nativo (SAF/bookmarks)
+            // no mobile, montado a partir da ponte registrada pelo plugin acima.
+            #[cfg(desktop)]
+            let storage: Arc<dyn sync::LocalStorage> = Arc::new(sync::DesktopStorage);
+            #[cfg(mobile)]
+            let storage: Arc<dyn sync::LocalStorage> = sync::mobile_storage::storage(app.handle())?;
+
             let engine = Arc::new(sync::SyncEngine::new(
                 db.clone(),
                 drive,
@@ -93,7 +106,7 @@ pub fn run() {
                 app.handle().clone(),
                 last_sync.clone(),
                 data_dir.join(constants::LOCAL_BACKUP_DIR),
-                Arc::new(sync::DesktopStorage),
+                storage,
             ));
 
             app.manage(AppState {
