@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+#[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::auth::AuthStatus;
@@ -265,6 +266,7 @@ pub async fn get_settings(app: AppHandle, state: State<'_, AppState>) -> AppResu
 /// Liga/desliga o início automático do RetroSync junto com o sistema. O estado
 /// é persistido pelo SO (registro do Windows / LaunchAgent), não no banco local.
 /// Ao subir pelo SO, o app é lançado com `--minimized` e fica só na bandeja.
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn set_autostart(app: AppHandle, enabled: bool) -> AppResult<()> {
     let manager = app.autolaunch();
@@ -276,11 +278,27 @@ pub async fn set_autostart(app: AppHandle, enabled: bool) -> AppResult<()> {
     result.map_err(|e| AppError::Other(format!("falha ao configurar o autostart: {e}")))
 }
 
+/// No mobile não existe "subir com o sistema". O comando segue exposto (no-op)
+/// para manter a boundary IPC idêntica entre plataformas.
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn set_autostart(app: AppHandle, enabled: bool) -> AppResult<()> {
+    let _ = (&app, enabled);
+    Ok(())
+}
+
 /// Lê do SO se o RetroSync está registrado para iniciar com o sistema.
+#[cfg(desktop)]
 fn autostart_enabled(app: &AppHandle) -> AppResult<bool> {
     app.autolaunch()
         .is_enabled()
         .map_err(|e| AppError::Other(format!("autostart indisponível: {e}")))
+}
+
+/// No mobile o conceito não existe — sempre `false`.
+#[cfg(mobile)]
+fn autostart_enabled(_app: &AppHandle) -> AppResult<bool> {
+    Ok(false)
 }
 
 /// Abre a pasta de backups locais no gerenciador de arquivos do SO. A pasta é

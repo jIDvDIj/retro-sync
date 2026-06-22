@@ -19,12 +19,12 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
-tauri-plugin-autostart = "2"
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 thiserror = "2"
+async-trait = "0.1"
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
 reqwest = { version = "0.12", default-features = false, features = [
@@ -37,7 +37,6 @@ reqwest = { version = "0.12", default-features = false, features = [
 
 rusqlite = { version = "0.32", features = ["bundled"] }
 keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
-sysinfo = "0.33"
 
 chrono = { version = "0.4", features = ["serde"] }
 url = "2"
@@ -53,6 +52,13 @@ uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
+
+# Dependências exclusivas do desktop — NÃO compiladas para Android/iOS.
+# O process watcher (`sysinfo`) e o autostart ("subir com o sistema") não têm
+# equivalente no mobile; lá os gatilhos de sync são manuais / ao abrir o app.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-autostart = "2"
+sysinfo = "0.33"
 
 # Leitura do registro do Windows para a descoberta de instalações (Sinal B).
 [target.'cfg(windows)'.dependencies]

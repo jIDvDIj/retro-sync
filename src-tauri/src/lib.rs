@@ -9,13 +9,21 @@ mod events;
 mod state;
 mod storage;
 mod sync;
+// O process watcher depende de inspecionar processos do SO (`sysinfo`), o que
+// não existe/aplica no mobile — gatilhos automáticos são exclusivos do desktop.
+#[cfg(desktop)]
 mod watcher;
 
 use std::sync::Arc;
 
+#[cfg(desktop)]
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+#[cfg(desktop)]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::Manager;
+#[cfg(desktop)]
+use tauri::{AppHandle, WindowEvent};
+#[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -23,25 +31,35 @@ use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
-        // Início automático com o sistema. Ao subir junto com o login, o SO
-        // lança o app com `--minimized` para ele ficar só na bandeja.
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec![constants::STARTUP_MINIMIZED_FLAG]),
-        ))
-        .on_window_event(|window, event| {
-            // Fechar a janela apenas a esconde — o app continua vivo na
-            // bandeja. O sync de despedida roda no "Sair" do menu da tray.
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == constants::MAIN_WINDOW_LABEL {
-                    api.prevent_close();
-                    let _ = window.hide();
+        .plugin(tauri_plugin_notification::init());
+
+    // Recursos só-desktop registrados no builder: autostart ("subir com o
+    // sistema") e o fechar-esconde da janela (o app segue vivo na bandeja). No
+    // mobile não há bandeja nem ciclo de janela equivalente.
+    #[cfg(desktop)]
+    {
+        builder = builder
+            // Início automático com o sistema. Ao subir junto com o login, o SO
+            // lança o app com `--minimized` para ele ficar só na bandeja.
+            .plugin(tauri_plugin_autostart::init(
+                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                Some(vec![constants::STARTUP_MINIMIZED_FLAG]),
+            ))
+            .on_window_event(|window, event| {
+                // Fechar a janela apenas a esconde — o app continua vivo na
+                // bandeja. O sync de despedida roda no "Sair" do menu da tray.
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    if window.label() == constants::MAIN_WINDOW_LABEL {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
                 }
-            }
-        })
+            });
+    }
+
+    builder
         .setup(|app| {
             init_logging(app.handle())?;
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "RetroSync iniciado");
@@ -72,6 +90,7 @@ pub fn run() {
                 app.handle().clone(),
                 last_sync.clone(),
                 data_dir.join(constants::LOCAL_BACKUP_DIR),
+                Arc::new(sync::DesktopStorage),
             ));
 
             app.manage(AppState {
@@ -81,55 +100,62 @@ pub fn run() {
                 last_sync,
             });
 
-            setup_tray(app.handle())?;
+            // Bandeja, janela escondível, autostart e process watcher são
+            // exclusivos do desktop. No mobile o webview único já é exibido pelo
+            // sistema e os gatilhos automáticos por processo não existem.
+            #[cfg(desktop)]
+            {
+                setup_tray(app.handle())?;
 
-            // A janela nasce oculta (`visible: false` no tauri.conf.json). Em
-            // abertura normal nós a mostramos; quando o SO sobe o app junto com
-            // o sistema (flag `--minimized`), ele fica só na bandeja.
-            let launched_minimized =
-                std::env::args().any(|a| a == constants::STARTUP_MINIMIZED_FLAG);
-            if !launched_minimized {
-                if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
-                    let _ = window.show();
+                // A janela nasce oculta (`visible: false` no tauri.conf.json). Em
+                // abertura normal nós a mostramos; quando o SO sobe o app junto com
+                // o sistema (flag `--minimized`), ele fica só na bandeja.
+                let launched_minimized =
+                    std::env::args().any(|a| a == constants::STARTUP_MINIMIZED_FLAG);
+                if !launched_minimized {
+                    if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
+                        let _ = window.show();
+                    }
                 }
+
+                // Process watcher: dispara sync ao abrir/fechar um emulador.
+                watcher::start(db.clone(), engine.clone(), app.handle().clone());
+
+                // Default de fábrica: na primeiríssima execução registramos o
+                // autostart para o app subir junto com o sistema. Aplicado uma única
+                // vez (flag no banco); depois disso a escolha do usuário prevalece,
+                // mesmo que ele desative pelo app ou pelo Gerenciador de Tarefas.
+                let autostart_db = db.clone();
+                let autostart_app = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let already = autostart_db
+                        .with(storage::settings::autostart_initialized)
+                        .await
+                        .unwrap_or(true); // em erro de leitura, não mexe no estado do SO
+                    if already {
+                        return;
+                    }
+                    // `State` (de `autolaunch()`) não é `Send`: usa numa statement
+                    // isolada para não atravessar um `.await`.
+                    let enabled = autostart_app.autolaunch().enable();
+                    match enabled {
+                        Ok(()) => {
+                            let _ = autostart_db
+                                .with(storage::settings::mark_autostart_initialized)
+                                .await;
+                            tracing::info!("autostart ativado por padrão (primeira execução)");
+                        }
+                        Err(err) => {
+                            tracing::warn!(error = %err, "autostart padrão não pôde ser ativado");
+                        }
+                    }
+                });
             }
 
-            // Process watcher: dispara sync ao abrir/fechar um emulador.
-            let startup_db = db.clone();
-            let autostart_db = db.clone();
-            watcher::start(db, engine.clone(), app.handle().clone());
-
-            // Default de fábrica: na primeiríssima execução registramos o
-            // autostart para o app subir junto com o sistema. Aplicado uma única
-            // vez (flag no banco); depois disso a escolha do usuário prevalece,
-            // mesmo que ele desative pelo app ou pelo Gerenciador de Tarefas.
-            let autostart_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let already = autostart_db
-                    .with(storage::settings::autostart_initialized)
-                    .await
-                    .unwrap_or(true); // em erro de leitura, não mexe no estado do SO
-                if already {
-                    return;
-                }
-                // `State` (de `autolaunch()`) não é `Send`: usa numa statement
-                // isolada para não atravessar um `.await`.
-                let enabled = autostart_app.autolaunch().enable();
-                match enabled {
-                    Ok(()) => {
-                        let _ = autostart_db
-                            .with(storage::settings::mark_autostart_initialized)
-                            .await;
-                        tracing::info!("autostart ativado por padrão (primeira execução)");
-                    }
-                    Err(err) => {
-                        tracing::warn!(error = %err, "autostart padrão não pôde ser ativado");
-                    }
-                }
-            });
-
             // Gatilho "ao iniciar o RetroSync": sync bidirecional em background,
-            // se o usuário não tiver desativado o gatilho `startup`.
+            // se o usuário não tiver desativado o gatilho `startup`. Vale para
+            // desktop e mobile (no mobile é o sync ao abrir o app).
+            let startup_db = db.clone();
             tauri::async_runtime::spawn(async move {
                 let enabled = startup_db
                     .with(storage::settings::triggers)
@@ -185,6 +211,7 @@ pub fn run() {
 /// Configura o ícone da bandeja e o menu de contexto (Open / Sync now / Quit).
 /// Os rótulos ficam em inglês — o menu nativo é construído uma vez no startup,
 /// fora do alcance do i18n do frontend.
+#[cfg(desktop)]
 fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let open = MenuItem::with_id(app, constants::TRAY_MENU_OPEN, "Open", true, None::<&str>)?;
     let sync = MenuItem::with_id(
@@ -227,6 +254,7 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(desktop)]
 fn on_tray_menu_event(app: &AppHandle, event: MenuEvent) {
     let id = event.id.as_ref();
     if id == constants::TRAY_MENU_OPEN {
@@ -239,6 +267,7 @@ fn on_tray_menu_event(app: &AppHandle, event: MenuEvent) {
 }
 
 /// Mostra e foca a janela principal, restaurando-a se estiver oculta/minimizada.
+#[cfg(desktop)]
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
         let _ = window.show();
@@ -249,6 +278,7 @@ fn show_main_window(app: &AppHandle) {
 
 /// Dispara um sync bidirecional em background. Se `then_exit`, encerra o app
 /// ao terminar — é o sync de despedida do menu "Sair".
+#[cfg(desktop)]
 fn spawn_sync(app: AppHandle, trigger: &'static str, then_exit: bool) {
     tauri::async_runtime::spawn(async move {
         let engine = app.state::<AppState>().engine.clone();
