@@ -57,7 +57,8 @@ struct DocRef {
 #[serde(rename_all = "camelCase")]
 struct ListRequest {
     tree: String,
-    bases: Vec<String>,
+    /// Pasta-base (relativa à árvore) a varrer; `rel` das entradas é relativo a ela.
+    base: String,
 }
 
 #[derive(Deserialize)]
@@ -191,33 +192,41 @@ fn join_rel(base: &str, rel: &str) -> String {
 #[async_trait]
 impl<B: PluginBridge> LocalStorage for MobileStorage<B> {
     async fn scan(&self, root: &Path, bases: &[PathBuf]) -> AppResult<Vec<LocalFile>> {
+        // `tree` é a árvore concedida; cada `base` é varrida à parte. `rel_path`
+        // (para o diff) é relativo à base; o locador guarda `base+rel` relativo à
+        // árvore, para o plugin localizar o documento. Dedup: a primeira base
+        // vence em `rel_path` duplicado — mesmo critério da `DesktopStorage`.
         let tree = root.to_string_lossy().into_owned();
-        let base_strs: Vec<String> = bases
-            .iter()
-            .map(|b| b.to_string_lossy().replace('\\', "/"))
-            .collect();
-        let resp: ListResponse = self
-            .call(
-                CMD_LIST,
-                ListRequest {
-                    tree: tree.clone(),
-                    bases: base_strs,
-                },
-            )
-            .await?;
-        Ok(resp
-            .entries
-            .into_iter()
-            .map(|e| LocalFile {
-                loc: docref_to_loc(&DocRef {
-                    tree: tree.clone(),
-                    rel: e.rel.clone(),
-                }),
-                rel_path: e.rel,
-                mtime_ms: e.mtime_ms,
-                size_bytes: e.size,
-            })
-            .collect())
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for base in bases {
+            let base_str = base.to_string_lossy().replace('\\', "/");
+            let resp: ListResponse = self
+                .call(
+                    CMD_LIST,
+                    ListRequest {
+                        tree: tree.clone(),
+                        base: base_str.clone(),
+                    },
+                )
+                .await?;
+            for e in resp.entries {
+                if !seen.insert(e.rel.clone()) {
+                    continue;
+                }
+                let doc_rel = join_rel(&base_str, &e.rel);
+                out.push(LocalFile {
+                    loc: docref_to_loc(&DocRef {
+                        tree: tree.clone(),
+                        rel: doc_rel,
+                    }),
+                    rel_path: e.rel,
+                    mtime_ms: e.mtime_ms,
+                    size_bytes: e.size,
+                });
+            }
+        }
+        Ok(out)
     }
 
     fn join(&self, base: &FileLoc, rel_path: &str) -> FileLoc {
