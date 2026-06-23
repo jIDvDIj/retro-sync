@@ -62,6 +62,15 @@ CREATE TABLE IF NOT EXISTS emulator_settings (
 );
 ";
 
+/// v5 — segredos do app (refresh token, device_id) no mobile, onde o keyring
+/// do SO não está disponível. No desktop esta tabela existe mas fica vazia.
+const SCHEMA_V5: &str = "
+CREATE TABLE IF NOT EXISTS secrets (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+";
+
 /// v4 — conflitos pendentes (ambos os lados mudaram desde o último sync).
 /// Enquanto houver linha para um emulador, o sync dele fica bloqueado.
 const SCHEMA_V4: &str = "
@@ -95,6 +104,20 @@ impl Db {
     #[cfg(test)]
     pub fn open_in_memory() -> AppResult<Self> {
         Self::from_connection(Connection::open_in_memory()?)
+    }
+
+    /// Acesso síncrono direto (sem spawn_blocking). Usado pelo `SqliteSecretStore`
+    /// no mobile; em desktop a função existe mas não é chamada.
+    #[cfg_attr(not(mobile), allow(dead_code))]
+    pub fn with_conn_blocking<T>(
+        &self,
+        f: impl FnOnce(&Connection) -> AppResult<T>,
+    ) -> AppResult<T> {
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| AppError::Other("lock do SQLite envenenado".into()))?;
+        f(&guard)
     }
 
     /// Acesso síncrono direto para testes (sem runtime async).
@@ -149,6 +172,10 @@ fn migrate(conn: &Connection) -> AppResult<()> {
     if version < 4 {
         conn.execute_batch(SCHEMA_V4)?;
         version = 4;
+    }
+    if version < 5 {
+        conn.execute_batch(SCHEMA_V5)?;
+        version = 5;
     }
     conn.pragma_update(None, "user_version", version)?;
     Ok(())

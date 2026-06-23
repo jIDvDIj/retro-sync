@@ -10,12 +10,14 @@
 mod oauth;
 mod token_store;
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::error::{AppError, AppResult};
+use crate::secrets::SecretStore;
 use oauth::OAuthConfig;
 use token_store::{StoredAuth, TokenStore};
 
@@ -49,10 +51,11 @@ pub struct AuthManager {
     http: reqwest::Client,
     config: Option<OAuthConfig>,
     cached: RwLock<Option<CachedToken>>,
+    secrets: Arc<dyn SecretStore>,
 }
 
 impl AuthManager {
-    pub fn new(http: reqwest::Client) -> Self {
+    pub fn new(http: reqwest::Client, secrets: Arc<dyn SecretStore>) -> Self {
         let config = OAuthConfig::from_env();
         if config.is_none() {
             tracing::warn!(
@@ -63,6 +66,7 @@ impl AuthManager {
             http,
             config,
             cached: RwLock::new(None),
+            secrets,
         }
     }
 
@@ -97,7 +101,8 @@ impl AuthManager {
             refresh_token,
             email: email.clone(),
         };
-        run_blocking(move || TokenStore::save(&stored)).await?;
+        let secrets = self.secrets.clone();
+        run_blocking(move || TokenStore::save(&stored, &*secrets)).await?;
 
         self.cache_token(&tokens).await;
         tracing::info!(
@@ -139,7 +144,8 @@ impl AuthManager {
             refresh_token,
             email: email.clone(),
         };
-        run_blocking(move || TokenStore::save(&stored)).await?;
+        let secrets = self.secrets.clone();
+        run_blocking(move || TokenStore::save(&stored, &*secrets)).await?;
 
         self.cache_token(&tokens).await;
         tracing::info!(
@@ -155,7 +161,8 @@ impl AuthManager {
 
     /// Conectado = existe refresh token no keyring (não exige rede).
     pub async fn status(&self) -> AppResult<AuthStatus> {
-        let stored = run_blocking(TokenStore::load).await?;
+        let secrets = self.secrets.clone();
+        let stored = run_blocking(move || TokenStore::load(&*secrets)).await?;
         Ok(match stored {
             Some(auth) => AuthStatus {
                 connected: true,
@@ -166,7 +173,8 @@ impl AuthManager {
     }
 
     pub async fn disconnect(&self) -> AppResult<AuthStatus> {
-        run_blocking(TokenStore::clear).await?;
+        let secrets = self.secrets.clone();
+        run_blocking(move || TokenStore::clear(&*secrets)).await?;
         *self.cached.write().await = None;
         tracing::info!("desconectado do Google Drive");
         Ok(AuthStatus::disconnected())
@@ -182,7 +190,8 @@ impl AuthManager {
         }
 
         let config = self.config()?;
-        let stored = run_blocking(TokenStore::load)
+        let secrets = self.secrets.clone();
+        let stored = run_blocking(move || TokenStore::load(&*secrets))
             .await?
             .ok_or_else(|| AppError::Auth("não conectado ao Google Drive".into()))?;
 

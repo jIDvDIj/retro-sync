@@ -151,6 +151,8 @@ pub struct SyncEngine {
     /// Acesso ao armazenamento local de saves (filesystem no desktop; SAF /
     /// bookmarks no mobile, futuramente). Todo o I/O local passa por aqui.
     storage: Arc<dyn LocalStorage>,
+    /// Leitura do device_id estável para auditoria de conflitos.
+    secrets: Arc<dyn crate::secrets::SecretStore>,
     /// Serializa execuções: um sync por vez, os demais aguardam.
     running: Mutex<()>,
 }
@@ -164,6 +166,7 @@ impl SyncEngine {
         last_sync: LastSyncStore,
         backup_dir: PathBuf,
         storage: Arc<dyn LocalStorage>,
+        secrets: Arc<dyn crate::secrets::SecretStore>,
     ) -> Self {
         Self {
             db,
@@ -173,6 +176,7 @@ impl SyncEngine {
             last_sync,
             backup_dir,
             storage,
+            secrets,
             running: Mutex::new(()),
         }
     }
@@ -226,7 +230,7 @@ impl SyncEngine {
         // ID estável deste dispositivo (keyring), lido uma vez por sync. `None`
         // se o keyring estiver indisponível — desliga só a detecção de conflito
         // entre dispositivos nesta execução.
-        let device_id = crate::device::current().await;
+        let device_id = crate::device::current(self.secrets.clone()).await;
 
         let profiles = self.db.with(emulators::list).await?;
         // Por emulador: monta o target e remove as categorias que o usuário
@@ -737,7 +741,7 @@ impl SyncEngine {
     async fn publish_manifest_snapshot(&self) -> AppResult<()> {
         let entries = self.db.with(manifest::list_all).await?;
         let device = self.db.with(crate::storage::settings::device_name).await?;
-        let device_id = crate::device::current().await;
+        let device_id = crate::device::current(self.secrets.clone()).await;
         let now_ms = chrono::Utc::now().timestamp_millis();
         let doc = serde_json::json!({
             "generatedAt": crate::drive::ms_to_rfc3339(now_ms),
@@ -839,7 +843,7 @@ impl SyncEngine {
             .with(settings::device_name)
             .await
             .unwrap_or_default();
-        let device_id = crate::device::current().await;
+        let device_id = crate::device::current(self.secrets.clone()).await;
         let tag = DeviceTag {
             name: device.as_deref(),
             id: device_id.as_deref(),

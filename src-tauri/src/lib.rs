@@ -6,6 +6,7 @@ mod drive;
 mod emulator;
 mod error;
 mod events;
+mod secrets;
 mod state;
 mod storage;
 mod sync;
@@ -83,20 +84,28 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let db = storage::db::Db::open(&data_dir.join(constants::LOCAL_DB_FILE))?;
 
-            // Garante a identidade estável deste dispositivo (UUID no keyring,
-            // gerado na primeira execução; consumido na detecção de conflito).
-            // Keyring indisponível não é fatal — só logamos o aviso.
-            match device::get_or_create() {
+            let last_sync: sync::LastSyncStore = Arc::new(std::sync::Mutex::new(None));
+            let http = reqwest::Client::new();
+
+            // Inicializa o store de segredos adequado à plataforma.
+            #[cfg(desktop)]
+            let secret_store: Arc<dyn secrets::SecretStore> = Arc::new(secrets::KeyringStore);
+            #[cfg(mobile)]
+            let secret_store: Arc<dyn secrets::SecretStore> =
+                Arc::new(secrets::SqliteSecretStore(db.clone()));
+
+            // Garante a identidade estável deste dispositivo (UUID no keyring /
+            // SQLite, gerado na primeira execução; consumido na detecção de conflito).
+            // SecretStore indisponível não é fatal — só logamos o aviso.
+            match device::get_or_create(&*secret_store) {
                 Ok(id) => tracing::info!(device_id = %id, "device_id resolvido"),
                 Err(err) => tracing::warn!(
                     error = %err,
-                    "device_id indisponível (keyring); seguindo sem identidade estável"
+                    "device_id indisponível; seguindo sem identidade estável"
                 ),
             }
 
-            let last_sync: sync::LastSyncStore = Arc::new(std::sync::Mutex::new(None));
-            let http = reqwest::Client::new();
-            let auth = Arc::new(auth::AuthManager::new(http.clone()));
+            let auth = Arc::new(auth::AuthManager::new(http.clone(), secret_store.clone()));
             let drive = Arc::new(drive::DriveClient::new(http, auth.clone()));
             // Storage local: filesystem no desktop; plugin nativo (SAF/bookmarks)
             // no mobile, montado a partir da ponte registrada pelo plugin acima.
@@ -113,6 +122,7 @@ pub fn run() {
                 last_sync.clone(),
                 data_dir.join(constants::LOCAL_BACKUP_DIR),
                 storage,
+                secret_store,
             ));
 
             app.manage(AppState {

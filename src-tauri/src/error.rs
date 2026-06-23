@@ -19,6 +19,9 @@ pub enum AppError {
     #[error("erro de rede: {0}")]
     Network(#[from] reqwest::Error),
 
+    // No mobile o keyring do SO não está disponível; os segredos ficam no
+    // SQLite privado do app (ver `secrets::SqliteSecretStore`).
+    #[cfg(desktop)]
     #[error("erro no cofre de credenciais: {0}")]
     Keyring(#[from] keyring::Error),
 
@@ -47,6 +50,7 @@ impl AppError {
             AppError::Io(_) => "io",
             AppError::Database(_) => "database",
             AppError::Network(_) => "network",
+            #[cfg(desktop)]
             AppError::Keyring(_) => "keyring",
             AppError::Serialization(_) => "serialization",
             AppError::Auth(_) => "auth",
@@ -65,6 +69,7 @@ impl AppError {
             AppError::Io(e) => e.to_string(),
             AppError::Database(e) => e.to_string(),
             AppError::Network(e) => e.to_string(),
+            #[cfg(desktop)]
             AppError::Keyring(e) => e.to_string(),
             AppError::Serialization(e) => e.to_string(),
             AppError::Auth(s)

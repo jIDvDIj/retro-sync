@@ -1,39 +1,26 @@
-//! Identificador estável deste dispositivo, persistido no keychain do SO.
+//! Identificador estável deste dispositivo, persistido via `SecretStore`.
 //!
-//! Diferente do nome amigável (`device_name`, mutável, na tabela
-//! `app_settings`), o `device_id` é um UUID v4 gerado uma única vez e guardado
-//! no keyring. Por viver fora do SQLite, sobrevive à reinstalação do app e à
-//! limpeza do banco — é a identidade estável usada para reconhecer "quem
-//! publicou esta versão" na resolução de conflito entre dispositivos, sem
-//! depender do nome, que o usuário pode renomear ou repetir entre máquinas.
-//!
-//! As operações do `keyring` são bloqueantes (Credential Manager no Windows,
-//! Keychain no macOS, Secret Service no Linux); o chamador em contexto async
-//! deve envolvê-las em `tokio::task::spawn_blocking`.
+//! Desktop: keyring nativo do SO. Mobile: tabela `secrets` do SQLite.
+//! O device_id é um UUID v4 gerado na primeira execução; sobrevive a
+//! reinicializações e é usado na resolução de conflito entre dispositivos.
 
-use keyring::Entry;
+use std::sync::Arc;
+
 use uuid::Uuid;
 
-use crate::constants::{KEYRING_DEVICE_ID_KEY, KEYRING_SERVICE};
+use crate::constants::KEYRING_DEVICE_ID_KEY;
 use crate::error::AppResult;
+use crate::secrets::SecretStore;
 
-fn entry() -> AppResult<Entry> {
-    Ok(Entry::new(KEYRING_SERVICE, KEYRING_DEVICE_ID_KEY)?)
-}
-
-/// Lê o `device_id` do keyring; gera e persiste um UUID v4 na primeira vez —
-/// ou se o valor guardado estiver corrompido (não for um UUID). Bloqueante.
-pub fn get_or_create() -> AppResult<String> {
-    let entry = entry()?;
-    match entry.get_password() {
-        Ok(existing) if is_valid(&existing) => Ok(existing),
-        // NoEntry (primeira vez) ou valor corrompido: (re)gera.
-        Ok(_) | Err(keyring::Error::NoEntry) => {
+/// Lê o `device_id`; gera e persiste um UUID v4 na primeira vez. Bloqueante.
+pub fn get_or_create(secrets: &dyn SecretStore) -> AppResult<String> {
+    match secrets.get(KEYRING_DEVICE_ID_KEY)? {
+        Some(existing) if is_valid(&existing) => Ok(existing),
+        Some(_) | None => {
             let id = Uuid::new_v4().to_string();
-            entry.set_password(&id)?;
+            secrets.set(KEYRING_DEVICE_ID_KEY, &id)?;
             Ok(id)
         }
-        Err(e) => Err(e.into()),
     }
 }
 
@@ -41,17 +28,15 @@ fn is_valid(id: &str) -> bool {
     Uuid::parse_str(id).is_ok()
 }
 
-/// Resolve o `device_id` em contexto async (via `spawn_blocking`), degradando
-/// para `None` — com aviso — se o keyring estiver indisponível. A ausência de
-/// identidade estável não deve abortar um sync; apenas desliga a detecção de
-/// conflito entre dispositivos para esta execução.
-pub async fn current() -> Option<String> {
-    match tokio::task::spawn_blocking(get_or_create).await {
+/// Resolve o `device_id` em contexto async, degradando para `None` se o
+/// `SecretStore` estiver indisponível. A ausência não deve abortar um sync.
+pub async fn current(secrets: Arc<dyn SecretStore>) -> Option<String> {
+    match tokio::task::spawn_blocking(move || get_or_create(&*secrets)).await {
         Ok(Ok(id)) => Some(id),
         Ok(Err(err)) => {
             tracing::warn!(
                 error = %err,
-                "device_id indisponível (keyring); conflitos entre dispositivos não serão detectados nesta execução"
+                "device_id indisponível; conflitos entre dispositivos não serão detectados"
             );
             None
         }
