@@ -111,6 +111,48 @@ impl AuthManager {
         })
     }
 
+    /// Variante mobile do fluxo interativo: usa deep link em vez de TCP loopback.
+    /// O chamador (comando Tauri) configura o listener e passa o receptor do canal.
+    #[cfg(mobile)]
+    pub async fn connect_mobile<R: tauri::Runtime>(
+        &self,
+        app: &tauri::AppHandle<R>,
+        redirect_rx: tokio::sync::oneshot::Receiver<String>,
+    ) -> AppResult<AuthStatus> {
+        let config = self.config()?;
+        let tokens =
+            oauth::authorize_interactive_mobile(&self.http, config, app, redirect_rx).await?;
+
+        let refresh_token = tokens.refresh_token.clone().ok_or_else(|| {
+            AppError::Auth(
+                "o Google não retornou um refresh token; revogue o acesso do RetroSync em \
+                 myaccount.google.com/permissions e conecte novamente"
+                    .into(),
+            )
+        })?;
+
+        let email = oauth::fetch_user_email(&self.http, &tokens.access_token)
+            .await
+            .unwrap_or(None);
+
+        let stored = StoredAuth {
+            refresh_token,
+            email: email.clone(),
+        };
+        run_blocking(move || TokenStore::save(&stored)).await?;
+
+        self.cache_token(&tokens).await;
+        tracing::info!(
+            email = email.as_deref().unwrap_or("?"),
+            "conectado ao Google Drive (mobile)"
+        );
+
+        Ok(AuthStatus {
+            connected: true,
+            email,
+        })
+    }
+
     /// Conectado = existe refresh token no keyring (não exige rede).
     pub async fn status(&self) -> AppResult<AuthStatus> {
         let stored = run_blocking(TokenStore::load).await?;

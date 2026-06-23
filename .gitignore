@@ -20,6 +20,11 @@ worker/wrangler.toml
 
 # Artefatos de build
 /x86_64
+src-tauri/gen/
+
+# Ferramentas locais
+.agents/
+skills-lock.json
 
 # Editor directories and files
 .vscode/*

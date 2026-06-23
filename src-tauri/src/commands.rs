@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+#[cfg(mobile)]
+use tauri::Listener;
 #[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
 
@@ -38,7 +40,8 @@ pub fn health_check() -> AppResult<HealthStatus> {
 }
 
 /// Abre o navegador para o consentimento OAuth2 e aguarda a autorização.
-/// Resolve quando o fluxo termina (ou falha/expira em 5 minutos).
+/// Desktop: TCP loopback (RFC 8252). Mobile: deep link `retrosync://oauth`.
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn connect_google_drive(
     app: AppHandle,
@@ -47,6 +50,50 @@ pub async fn connect_google_drive(
     let status = state.auth.connect().await?;
     let _ = app.emit(EVT_AUTH_STATUS, &status);
     Ok(status)
+}
+
+/// Variante mobile: registra o listener de deep link antes de abrir o browser,
+/// para não perder o redirect caso o app já esteja rodando em background.
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn connect_google_drive(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<AuthStatus> {
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::oneshot;
+
+    let (tx, rx) = oneshot::channel::<String>();
+    let tx = Arc::new(Mutex::new(Some(tx)));
+
+    // O payload do evento `deep-link://new-url` é um array JSON de URLs.
+    let listener_id = {
+        let tx = tx.clone();
+        app.once("deep-link://new-url", move |event| {
+            let urls: Vec<String> =
+                serde_json::from_str(event.payload()).unwrap_or_default();
+            if let Some(url) = urls
+                .into_iter()
+                .find(|u| u.starts_with("retrosync://oauth"))
+            {
+                if let Some(sender) = tx.lock().unwrap().take() {
+                    let _ = sender.send(url);
+                }
+            }
+        })
+    };
+
+    let result = state.auth.connect_mobile(&app, rx).await;
+
+    // Se o fluxo falhou antes do deep link chegar, cancela o listener.
+    if result.is_err() {
+        app.unlisten(listener_id);
+    }
+
+    if let Ok(ref status) = result {
+        let _ = app.emit(EVT_AUTH_STATUS, status);
+    }
+    result
 }
 
 /// Status atual sem disparar fluxo interativo (consulta apenas o keyring).

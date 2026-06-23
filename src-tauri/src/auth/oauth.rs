@@ -17,6 +17,12 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::error::{AppError, AppResult};
 
+/// Redirect URI para o fluxo mobile: scheme registrado no manifesto Android/iOS.
+/// O Google redireciona para `retrosync://oauth?code=...`, que o deep-link plugin
+/// captura e entrega ao app via evento.
+#[cfg(mobile)]
+pub const MOBILE_REDIRECT_URI: &str = "retrosync://oauth";
+
 pub const GOOGLE_AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 pub const GOOGLE_TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 pub const GOOGLE_USERINFO_ENDPOINT: &str = "https://www.googleapis.com/oauth2/v3/userinfo";
@@ -142,6 +148,77 @@ pub async fn authorize_interactive(
         })??;
 
     exchange_code(http, config, &code, &pkce.verifier, &redirect_uri).await
+}
+
+/// Fluxo OAuth mobile: abre o browser com `retrosync://oauth` como redirect URI
+/// e aguarda o deep link via canal. O chamador é responsável por configurar o
+/// listener de deep link e enviar a URL pelo `redirect_tx` antes de chamar isto.
+#[cfg(mobile)]
+pub async fn authorize_interactive_mobile<R: tauri::Runtime>(
+    http: &reqwest::Client,
+    config: &OAuthConfig,
+    app: &tauri::AppHandle<R>,
+    redirect_rx: tokio::sync::oneshot::Receiver<String>,
+) -> AppResult<TokenResponse> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let pkce = generate_pkce();
+    let state = random_state();
+
+    let mut auth_url = url::Url::parse(GOOGLE_AUTH_ENDPOINT)
+        .map_err(|e| AppError::Auth(format!("URL de autorização inválida: {e}")))?;
+    auth_url
+        .query_pairs_mut()
+        .append_pair("client_id", &config.client_id)
+        .append_pair("redirect_uri", MOBILE_REDIRECT_URI)
+        .append_pair("response_type", "code")
+        .append_pair("scope", OAUTH_SCOPE)
+        .append_pair("code_challenge", &pkce.challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("state", &state);
+
+    app.opener()
+        .open_url(auth_url.as_str(), None::<&str>)
+        .map_err(|e| AppError::Auth(format!("não foi possível abrir o navegador: {e}")))?;
+    tracing::info!("aguardando autorização do Google via deep link");
+
+    let redirect_url = tokio::time::timeout(AUTH_FLOW_TIMEOUT, async {
+        redirect_rx
+            .await
+            .map_err(|_| AppError::Auth("canal de deep link fechado antes do redirect".into()))
+    })
+    .await
+    .map_err(|_| AppError::Auth("tempo esgotado aguardando o deep link OAuth".into()))??;
+
+    let parsed = url::Url::parse(&redirect_url)
+        .map_err(|e| AppError::Auth(format!("deep link inválido: {e}")))?;
+
+    let mut code: Option<String> = None;
+    let mut recv_state: Option<String> = None;
+    let mut error: Option<String> = None;
+    for (k, v) in parsed.query_pairs() {
+        match k.as_ref() {
+            "code" => code = Some(v.into_owned()),
+            "state" => recv_state = Some(v.into_owned()),
+            "error" => error = Some(v.into_owned()),
+            _ => {}
+        }
+    }
+
+    if let Some(err) = error {
+        return Err(AppError::Auth(format!(
+            "autorização negada pelo Google: {err}"
+        )));
+    }
+    if recv_state.as_deref() != Some(&state) {
+        return Err(AppError::Auth(
+            "state do deep link não confere (possível CSRF)".into(),
+        ));
+    }
+    let code =
+        code.ok_or_else(|| AppError::Auth("deep link sem authorization code".into()))?;
+
+    exchange_code(http, config, &code, &pkce.verifier, MOBILE_REDIRECT_URI).await
 }
 
 /// Aceita conexões no listener até receber o redirect do OAuth (ignorando

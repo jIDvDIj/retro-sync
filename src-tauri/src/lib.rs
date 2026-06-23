@@ -62,10 +62,16 @@ pub fn run() {
             });
     }
 
-    // Plugin nativo de armazenamento concedido (SAF/bookmarks) — só-mobile.
+    // Plugins exclusivos do mobile:
+    // - storage: SAF/bookmarks para acesso aos saves concedidos pelo usuário.
+    // - deep-link: captura `retrosync://oauth?code=...` de volta ao app (OAuth).
+    // - opener: abre o browser nativo (o crate `open` não funciona no sandbox Android).
     #[cfg(mobile)]
     {
-        builder = builder.plugin(sync::mobile_storage::init());
+        builder = builder
+            .plugin(sync::mobile_storage::init())
+            .plugin(tauri_plugin_deep_link::init())
+            .plugin(tauri_plugin_opener::init());
     }
 
     builder
