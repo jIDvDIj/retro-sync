@@ -29,12 +29,15 @@ retrogames com o Google Drive.
 | [13 — Primeiro sync: Drive vence + backup](./13-primeiro-sync-backup.md) | BUG-001 — backup local antes de sobrescrever no primeiro sync |
 | [14 — Resolução de conflito](./14-resolucao-conflito.md) | BUG-002 — conflito explícito, bloqueio por emulador e modal de resolução |
 | [15 — Proxy Cloudflare Worker (OAuth)](./15-proxy-worker-oauth.md) | FEATURE-005 — Worker esconde o `client_secret`; o que vai para o GitHub Actions |
+| [16 — Internacionalização (i18n)](./16-internacionalizacao.md) | i18next/react-i18next, inglês padrão, seletor de idioma, tradução de erros por `code`+`detail` |
 | [Referência — Boundary IPC](./referencia-ipc.md) | Catálogo de comandos, eventos e tipos compartilhados Rust ↔ TS |
 | [Decisões técnicas](./decisoes-tecnicas.md) | Registro consolidado das decisões e seus trade-offs |
 | [Riscos técnicos](./riscos.md) | Riscos identificados e mitigações |
 | [Distribuição pública e confiança](./distribuicao-publica.md) | SmartScreen, OAuth Google, GitHub Attestations (descartado), Microsoft Store |
-| [Bugs](./bugs/) | Bugs documentados com causa raiz e soluções consideradas |
-| [Features](./features/) | Propostas de funcionalidades futuras — identificação de jogos, configurações, perfis-como-dados, batch upload, proxy Worker |
+| [17 — Suporte Android](./17-suporte-android.md) | Fases 3/5/6/7: scaffolding APK, OAuth deep link, SecretStore, gatilhos lifecycle e UI mobile |
+| [Portabilidade multiplataforma](./multiplataforma-checklist.md) | Checklist faseado para Windows/Linux/macOS/Steam Deck/Android/iOS; abstração de storage, OAuth e keyring mobile |
+| [Bugs](./bugs/) | Bugs documentados com causa raiz e soluções consideradas — inclui [BUG-005](./bugs/bug-005-validacao-filesystem-mobile.md): validações `PathBuf` incompatíveis com URIs SAF no mobile |
+| [Features](./features/) | Propostas de funcionalidades futuras — identificação de jogos, configurações, perfis-como-dados, batch upload, proxy Worker, otimização de performance do sync |
 
 ## Estado atual
 
@@ -78,6 +81,26 @@ passando; ESLint, Prettier, rustfmt e clippy limpos.
 | --- | --- | --- | --- |
 | BUG-003 | Troca do `root_path` de um emulador já configurado zerava só o perfil, não o manifest → sobrescrita do Drive por instalação mais antiga | [bug-003](./bugs/bug-003-troca-de-caminho-do-emulador.md) | ✅ Resolvido |
 | BUG-004 | Saves independentes de dispositivos diferentes eram sobrescritos no primeiro sync sem conflito → `device_id` estável no keyring, conflito explícito quando a origem é outro dispositivo | [bug-004](./bugs/bug-004-conflito-entre-dispositivos-primeiro-sync.md) | ✅ Resolvido |
+
+### Internacionalização
+
+| Item | Descrição | Doc | Status |
+| --- | --- | --- | --- |
+| i18n do frontend | `react-i18next`; inglês padrão + português; seletor nas configurações; erros traduzidos por `code`+`detail`; bandeja em inglês | [16](./16-internacionalizacao.md) | ✅ Concluído |
+
+### Portabilidade multiplataforma (Android/iOS/Linux/macOS/Steam Deck)
+
+| Fase | Descrição | Doc | Status |
+| --- | --- | --- | --- |
+| 0 | Código compilável para mobile (`#[cfg(desktop)]` em tray/autostart/watcher) | [checklist](./multiplataforma-checklist.md) | ✅ Concluído |
+| 2 | Abstração de storage (trait `LocalStorage` + `FileLoc`); todo o I/O do engine isolado | [checklist](./multiplataforma-checklist.md) | ✅ Concluído |
+| 3 | Scaffolding Android: SDK/NDK, `tauri android init`, APK debug em device físico | [17](./17-suporte-android.md) | ✅ Concluído |
+| 5 | OAuth via Worker redirect: client Web app único, `/oauth/callback` no Worker, deep link | [17](./17-suporte-android.md) | ✅ Concluído |
+| 6 | `SecretStore` trait: `KeyringStore` (desktop) / `SqliteSecretStore` (mobile) | [17](./17-suporte-android.md) | ✅ Concluído |
+| 7 | Gatilhos lifecycle (`resume`/`pause`) + UI mobile (`AddEmulatorModal`, `SettingsModal`) | [17](./17-suporte-android.md) | ✅ Concluído |
+| 8 | APK assinado (`retrosync.jks`) + job `android` no CI; secrets GitHub pendentes | [17](./17-suporte-android.md) | 🟡 Secrets pendentes |
+| 1 | Desktop: descoberta Steam Deck/Flatpak (feito) + empacotamento Flatpak/macOS (precisa de máquina Linux/macOS) | [checklist](./multiplataforma-checklist.md) | 🟡 Em andamento |
+| 4 | Storage mobile: interface Rust↔plugin (`MobileStorage`) pronta; `StoragePlugin.kt` escrito, validação em device pendente | [checklist](./multiplataforma-checklist.md) | 🟡 Validação pendente |
 
 ## Visão geral em uma frase
 

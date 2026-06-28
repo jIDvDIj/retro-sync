@@ -8,6 +8,8 @@
 export interface HealthStatus {
   version: string;
   ready: boolean;
+  /** `true` quando compilado para Android ou iOS; `false` no desktop. */
+  isMobile: boolean;
 }
 
 /** `auth::AuthStatus` */
@@ -146,6 +148,9 @@ export interface AppErrorPayload {
     | "file_busy"
     | "other";
   message: string;
+  /** Detalhe técnico sem o prefixo (caminho, nome, msg da lib). O frontend
+   * localiza o prefixo pelo `code` e anexa este detalhe. */
+  detail: string;
 }
 
 /** Espelho de `src-tauri/src/events.rs` */

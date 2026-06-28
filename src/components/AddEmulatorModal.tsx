@@ -1,10 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import { useDiscovery } from "../hooks/useDiscovery";
-import { errorMessage } from "../lib/errors";
-import { addEmulator, addEmulatorManual, detectEmulator } from "../lib/ipc";
+import { usePlatform } from "../hooks/usePlatform";
+import { useErrorMessage } from "../lib/errors";
+import { addEmulator, addEmulatorManual, detectEmulator, pickEmulatorFolder } from "../lib/ipc";
 import type { DiscoveredEmulator, EmulatorProfile } from "../types/ipc";
 
 interface Props {
@@ -15,12 +17,12 @@ interface Props {
   onAdded: () => void;
 }
 
-/** Rótulo curto da origem de uma sugestão com saves. */
-const SOURCE_LABEL: Record<DiscoveredEmulator["source"], string> = {
-  dataDir: "saves encontrados",
-  both: "saves encontrados",
-  registry: "instalado",
-};
+/** Chave de tradução do rótulo curto da origem de uma sugestão com saves. */
+const SOURCE_LABEL_KEY = {
+  dataDir: "addEmulator.sourceSavesFound",
+  both: "addEmulator.sourceSavesFound",
+  registry: "addEmulator.sourceInstalled",
+} as const satisfies Record<DiscoveredEmulator["source"], string>;
 
 /** Caminho de `child` relativo a `root`, ou `null` se não estiver sob a raiz. */
 function relativeUnder(root: string, child: string): string | null {
@@ -34,11 +36,28 @@ function relativeUnder(root: string, child: string): string | null {
   return null;
 }
 
+/** Caminhos padrão por nome de emulador (mobile). */
+function defaultPaths(name: string): { saves: string; states: string; config: string } {
+  const n = name.toLowerCase();
+  if (n.includes("ppsspp")) {
+    return { saves: "PSP/SAVEDATA", states: "PSP/PPSSPP_STATE", config: "PSP/SYSTEM" };
+  }
+  if (n.includes("pcsx2")) {
+    return { saves: "memcards", states: "sstates", config: "inis" };
+  }
+  return { saves: "", states: "", config: "" };
+}
+
 /**
  * Modal de adição de emulador com as três vias: recomendados (descoberta
  * automática), detecção por pasta e configuração manual (fallback).
+ * No mobile exibe apenas o fluxo de concessão de pasta (SAF) + formulário
+ * manual com caminhos padrão por emulador.
  */
 export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
+  const { t } = useTranslation();
+  const errorMessage = useErrorMessage();
+  const { isMobile } = usePlatform();
   const discovery = useDiscovery();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,17 +88,20 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
     setConfigRel("");
   };
 
-  const wrap = useCallback(async (key: string, fn: () => Promise<void>) => {
-    setBusy(key);
-    setError(null);
-    try {
-      await fn();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  }, []);
+  const wrap = useCallback(
+    async (key: string, fn: () => Promise<void>) => {
+      setBusy(key);
+      setError(null);
+      try {
+        await fn();
+      } catch (err) {
+        setError(errorMessage(err));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [errorMessage],
+  );
 
   const addRecommended = (d: DiscoveredEmulator) =>
     wrap(`rec:${d.name}`, async () => {
@@ -88,11 +110,12 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
       onAdded();
     });
 
-  const pickRoot = async () => {
+  // Desktop: abre o seletor nativo de pasta do SO.
+  const pickRootDesktop = async () => {
     const selected = await openDialog({
       directory: true,
       multiple: false,
-      title: "Selecione a pasta raiz do emulador",
+      title: t("addEmulator.pickRootTitle"),
     });
     if (typeof selected !== "string") return;
     resetManual();
@@ -107,6 +130,18 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
     });
   };
 
+  // Mobile: abre o seletor SAF; pula a detecção (não há scan de filesystem).
+  const pickRootMobile = async () => {
+    await wrap("detect", async () => {
+      const tree = await pickEmulatorFolder();
+      resetManual();
+      setRoot(tree);
+      setNeedsManual(true);
+    });
+  };
+
+  const pickRoot = isMobile ? pickRootMobile : pickRootDesktop;
+
   const addDetected = () =>
     wrap("add-detected", async () => {
       if (!root) return;
@@ -115,18 +150,19 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
       resetManual();
     });
 
+  // Desktop: seleciona subpasta via dialog e calcula o caminho relativo.
   const pickSub = async (setter: (v: string) => void) => {
     if (!root) return;
     const selected = await openDialog({
       directory: true,
       multiple: false,
       defaultPath: root,
-      title: "Selecione uma subpasta da raiz",
+      title: t("addEmulator.pickSubTitle"),
     });
     if (typeof selected !== "string") return;
     const rel = relativeUnder(root, selected);
     if (!rel) {
-      setError("selecione uma subpasta dentro da pasta raiz");
+      setError(t("addEmulator.subfolderError"));
       return;
     }
     setError(null);
@@ -147,61 +183,77 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
       resetManual();
     });
 
+  // Quando o nome muda no mobile, preenche os paths padrão se ainda estiverem vazios.
+  const onNameChange = (name: string) => {
+    setManualName(name);
+    if (isMobile && !savesRel && !statesRel && !configRel) {
+      const defaults = defaultPaths(name);
+      setSavesRel(defaults.saves);
+      setStatesRel(defaults.states);
+      setConfigRel(defaults.config);
+    }
+  };
+
   const manualIncomplete = manualName.trim() === "" || (!savesRel && !statesRel && !configRel);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>Adicionar emulador</h2>
+          <h2>{t("addEmulator.title")}</h2>
           <button className="secondary" onClick={onClose}>
-            Fechar
+            {t("common.close")}
           </button>
         </div>
 
-        <section className="settings-section">
-          <h3>Recomendados</h3>
-          {discovery.loading ? (
-            <p className="muted">procurando emuladores instalados…</p>
-          ) : discovery.error ? (
-            <p className="error">{discovery.error}</p>
-          ) : recommendations.length === 0 ? (
-            <p className="muted">Nenhum emulador novo detectado automaticamente.</p>
-          ) : (
-            <div className="discovery-list">
-              {recommendations.map((d) => (
-                <div className="discovery-row" key={d.name}>
-                  <div className="discovery-info">
-                    <span className="discovery-name">{d.name}</span>
-                    <span className="muted discovery-meta">
-                      {d.profile ? SOURCE_LABEL[d.source] : "instalado, sem saves ainda"}
-                    </span>
+        {/* Seção de recomendados — apenas no desktop (requer scan de filesystem). */}
+        {!isMobile ? (
+          <section className="settings-section">
+            <h3>{t("addEmulator.recommended")}</h3>
+            {discovery.loading ? (
+              <p className="muted">{t("addEmulator.searching")}</p>
+            ) : discovery.error ? (
+              <p className="error">{discovery.error}</p>
+            ) : recommendations.length === 0 ? (
+              <p className="muted">{t("addEmulator.noneDetected")}</p>
+            ) : (
+              <div className="discovery-list">
+                {recommendations.map((d) => (
+                  <div className="discovery-row" key={d.name}>
+                    <div className="discovery-info">
+                      <span className="discovery-name">{d.name}</span>
+                      <span className="muted discovery-meta">
+                        {d.profile
+                          ? t(SOURCE_LABEL_KEY[d.source])
+                          : t("addEmulator.installedNoSaves")}
+                      </span>
+                    </div>
+                    {d.profile ? (
+                      <button disabled={busy !== null} onClick={() => addRecommended(d)}>
+                        {busy === `rec:${d.name}` ? t("addEmulator.adding") : t("common.add")}
+                      </button>
+                    ) : (
+                      <span className="muted discovery-hint">{t("addEmulator.openOnce")}</span>
+                    )}
                   </div>
-                  {d.profile ? (
-                    <button disabled={busy !== null} onClick={() => addRecommended(d)}>
-                      {busy === `rec:${d.name}` ? "Adicionando…" : "Adicionar"}
-                    </button>
-                  ) : (
-                    <span className="muted discovery-hint">abra o emulador uma vez</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
 
         <section className="settings-section">
-          <h3>Apontar pasta</h3>
+          <h3>{t("addEmulator.pickFolder")}</h3>
           <p className="muted">
-            Para instalações portáteis ou emuladores fora da lista, selecione a pasta raiz.
+            {isMobile ? t("addEmulator.pickFolderHintMobile") : t("addEmulator.pickFolderHint")}
           </p>
           <div className="settings-row">
             <button className="secondary" disabled={busy === "detect"} onClick={pickRoot}>
-              {busy === "detect" ? "Detectando…" : "Selecionar pasta…"}
+              {busy === "detect" ? t("addEmulator.detecting") : t("addEmulator.selectFolder")}
             </button>
             {root ? (
               <span className="muted discovery-meta" title={root}>
-                {root}
+                {isMobile ? t("addEmulator.folderGranted") : root}
               </span>
             ) : null}
           </div>
@@ -210,41 +262,64 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
             <div className="discovery-row">
               <div className="discovery-info">
                 <span className="discovery-name">{detected.name}</span>
-                <span className="muted discovery-meta">detectado nesta pasta</span>
+                <span className="muted discovery-meta">{t("addEmulator.detectedHere")}</span>
               </div>
               <button disabled={busy !== null} onClick={addDetected}>
-                {busy === "add-detected" ? "Adicionando…" : "Adicionar"}
+                {busy === "add-detected" ? t("addEmulator.adding") : t("common.add")}
               </button>
             </div>
           ) : null}
 
           {needsManual ? (
             <div className="manual-form">
-              <p className="muted">
-                Nenhum emulador reconhecido nesta pasta. Informe os dados manualmente — as pastas
-                devem estar dentro da raiz.
-              </p>
+              <p className="muted">{t("addEmulator.manualIntro")}</p>
               <label className="manual-field">
-                <span>Nome</span>
+                <span>{t("addEmulator.nameLabel")}</span>
                 <input
                   value={manualName}
-                  onChange={(e) => setManualName(e.target.value)}
-                  placeholder="ex.: Dolphin"
+                  onChange={(e) => onNameChange(e.target.value)}
+                  placeholder={t("addEmulator.namePlaceholder")}
                 />
               </label>
-              <ManualPathRow label="Saves" value={savesRel} onPick={() => pickSub(setSavesRel)} />
-              <ManualPathRow
-                label="Savestates"
-                value={statesRel}
-                onPick={() => pickSub(setStatesRel)}
-              />
-              <ManualPathRow
-                label="Config"
-                value={configRel}
-                onPick={() => pickSub(setConfigRel)}
-              />
+              {isMobile ? (
+                <>
+                  <MobilePathInput
+                    label={t("settings.categories.saves")}
+                    value={savesRel}
+                    onChange={setSavesRel}
+                  />
+                  <MobilePathInput
+                    label={t("settings.categories.savestates")}
+                    value={statesRel}
+                    onChange={setStatesRel}
+                  />
+                  <MobilePathInput
+                    label={t("settings.categories.config")}
+                    value={configRel}
+                    onChange={setConfigRel}
+                  />
+                </>
+              ) : (
+                <>
+                  <ManualPathRow
+                    label={t("settings.categories.saves")}
+                    value={savesRel}
+                    onPick={() => pickSub(setSavesRel)}
+                  />
+                  <ManualPathRow
+                    label={t("settings.categories.savestates")}
+                    value={statesRel}
+                    onPick={() => pickSub(setStatesRel)}
+                  />
+                  <ManualPathRow
+                    label={t("settings.categories.config")}
+                    value={configRel}
+                    onPick={() => pickSub(setConfigRel)}
+                  />
+                </>
+              )}
               <button disabled={busy !== null || manualIncomplete} onClick={addManual}>
-                {busy === "add-manual" ? "Adicionando…" : "Adicionar manualmente"}
+                {busy === "add-manual" ? t("addEmulator.adding") : t("addEmulator.addManual")}
               </button>
             </div>
           ) : null}
@@ -262,14 +337,36 @@ interface ManualPathRowProps {
   onPick: () => void;
 }
 
-/** Linha do formulário manual: rótulo da categoria + seletor da subpasta. */
+/** Linha do formulário manual no desktop: rótulo + botão de seleção de subpasta. */
 function ManualPathRow({ label, value, onPick }: ManualPathRowProps) {
+  const { t } = useTranslation();
   return (
     <div className="manual-path-row">
       <span className="manual-path-label">{label}</span>
       <button className="secondary" onClick={onPick}>
-        {value || "Selecionar subpasta…"}
+        {value || t("addEmulator.selectSubfolder")}
       </button>
     </div>
+  );
+}
+
+interface MobilePathInputProps {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}
+
+/** Linha do formulário manual no mobile: rótulo + campo de texto (caminho relativo). */
+function MobilePathInput({ label, value, onChange }: MobilePathInputProps) {
+  const { t } = useTranslation();
+  return (
+    <label className="manual-field">
+      <span>{label}</span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={t("addEmulator.relativePathPlaceholder")}
+      />
+    </label>
   );
 }

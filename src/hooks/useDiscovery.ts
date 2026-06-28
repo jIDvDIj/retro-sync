@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { errorMessage } from "../lib/errors";
+import { useErrorMessage } from "../lib/errors";
 import { discoverEmulators } from "../lib/ipc";
 import type { DiscoveredEmulator } from "../types/ipc";
 
@@ -13,6 +13,7 @@ interface UseDiscovery {
 
 /** Descoberta automática de emuladores instalados no sistema (não persiste nada). */
 export function useDiscovery(): UseDiscovery {
+  const errorMessage = useErrorMessage();
   const [discovered, setDiscovered] = useState<DiscoveredEmulator[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +28,7 @@ export function useDiscovery(): UseDiscovery {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [errorMessage]);
 
   useEffect(() => {
     void refresh();

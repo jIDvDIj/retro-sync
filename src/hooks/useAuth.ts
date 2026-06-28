@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { errorMessage } from "../lib/errors";
+import { useErrorMessage } from "../lib/errors";
 import { disconnectGoogleDrive, getAuthStatus } from "../lib/ipc";
 import type { AuthStatus } from "../types/ipc";
 
@@ -10,6 +10,7 @@ import type { AuthStatus } from "../types/ipc";
  * `connected`, a tela principal.
  */
 export function useAuth() {
+  const errorMessage = useErrorMessage();
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +20,7 @@ export function useAuth() {
       .then(setStatus)
       .catch((err: unknown) => setError(errorMessage(err)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [errorMessage]);
 
   const disconnect = useCallback(async () => {
     setError(null);
@@ -28,7 +29,7 @@ export function useAuth() {
     } catch (err) {
       setError(errorMessage(err));
     }
-  }, []);
+  }, [errorMessage]);
 
   return {
     status,

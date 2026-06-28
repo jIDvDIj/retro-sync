@@ -17,6 +17,12 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::error::{AppError, AppResult};
 
+/// Sufixo do redirect URI mobile: o Worker recebe o code do Google e faz um 302
+/// para o deep link `com.retrosync.app:/oauth2redirect`. O redirect URI completo
+/// é `{token_proxy_url}/oauth/callback` e deve estar registrado no Google Console.
+#[cfg(mobile)]
+pub const MOBILE_REDIRECT_SUFFIX: &str = "/oauth/callback";
+
 pub const GOOGLE_AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 pub const GOOGLE_TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 pub const GOOGLE_USERINFO_ENDPOINT: &str = "https://www.googleapis.com/oauth2/v3/userinfo";
@@ -129,6 +135,8 @@ pub async fn authorize_interactive(
         .append_pair("scope", OAUTH_SCOPE)
         .append_pair("code_challenge", &pkce.challenge)
         .append_pair("code_challenge_method", "S256")
+        .append_pair("access_type", "offline")
+        .append_pair("prompt", "consent")
         .append_pair("state", &state);
 
     open::that_detached(auth_url.as_str())
@@ -140,6 +148,91 @@ pub async fn authorize_interactive(
         .map_err(|_| {
             AppError::Auth("tempo esgotado aguardando a autorização no navegador".into())
         })??;
+
+    exchange_code(http, config, &code, &pkce.verifier, &redirect_uri).await
+}
+
+/// Fluxo OAuth mobile: abre o browser com o redirect URI do Worker como destino.
+/// O Worker recebe o code do Google, faz um 302 para o deep link do app e este
+/// captura via `deep-link://new-url`. O chamador configura o listener e passa o
+/// Receiver pelo `redirect_rx`.
+#[cfg(mobile)]
+pub async fn authorize_interactive_mobile<R: tauri::Runtime>(
+    http: &reqwest::Client,
+    config: &OAuthConfig,
+    app: &tauri::AppHandle<R>,
+    redirect_rx: tokio::sync::oneshot::Receiver<String>,
+) -> AppResult<TokenResponse> {
+    use tauri_plugin_opener::OpenerExt;
+
+    // O redirect URI é o Worker + sufixo; deve estar registrado no Google Console.
+    let redirect_uri = config
+        .token_proxy_url
+        .as_deref()
+        .map(|base| format!("{base}{MOBILE_REDIRECT_SUFFIX}"))
+        .ok_or_else(|| {
+            AppError::Auth(
+                "RETROSYNC_TOKEN_PROXY_URL não configurado — necessário para OAuth mobile".into(),
+            )
+        })?;
+
+    let pkce = generate_pkce();
+    let state = random_state();
+
+    let mut auth_url = url::Url::parse(GOOGLE_AUTH_ENDPOINT)
+        .map_err(|e| AppError::Auth(format!("URL de autorização inválida: {e}")))?;
+    auth_url
+        .query_pairs_mut()
+        .append_pair("client_id", &config.client_id)
+        .append_pair("redirect_uri", &redirect_uri)
+        .append_pair("response_type", "code")
+        .append_pair("scope", OAUTH_SCOPE)
+        .append_pair("code_challenge", &pkce.challenge)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("access_type", "offline")
+        .append_pair("prompt", "consent")
+        .append_pair("state", &state);
+
+    app.opener()
+        .open_url(auth_url.as_str(), None::<&str>)
+        .map_err(|e| AppError::Auth(format!("não foi possível abrir o navegador: {e}")))?;
+    tracing::info!("aguardando autorização do Google via deep link (redirect: {redirect_uri})");
+
+    let redirect_url = tokio::time::timeout(AUTH_FLOW_TIMEOUT, async {
+        redirect_rx
+            .await
+            .map_err(|_| AppError::Auth("canal de deep link fechado antes do redirect".into()))
+    })
+    .await
+    .map_err(|_| AppError::Auth("tempo esgotado aguardando o deep link OAuth".into()))??;
+
+    let parsed = url::Url::parse(&redirect_url)
+        .map_err(|e| AppError::Auth(format!("deep link inválido: {e}")))?;
+
+    let mut code: Option<String> = None;
+    let mut recv_state: Option<String> = None;
+    let mut error: Option<String> = None;
+    for (k, v) in parsed.query_pairs() {
+        match k.as_ref() {
+            "code" => code = Some(v.into_owned()),
+            "state" => recv_state = Some(v.into_owned()),
+            "error" => error = Some(v.into_owned()),
+            _ => {}
+        }
+    }
+
+    if let Some(err) = error {
+        return Err(AppError::Auth(format!(
+            "autorização negada pelo Google: {err}"
+        )));
+    }
+    if recv_state.as_deref() != Some(&state) {
+        return Err(AppError::Auth(
+            "state do deep link não confere (possível CSRF)".into(),
+        ));
+    }
+    let code =
+        code.ok_or_else(|| AppError::Auth("deep link sem authorization code".into()))?;
 
     exchange_code(http, config, &code, &pkce.verifier, &redirect_uri).await
 }

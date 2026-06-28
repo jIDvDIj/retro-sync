@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 interface Props {
   email: string | null;
   deviceName: string | null;
@@ -10,16 +12,17 @@ interface Props {
  * leva o usuário de volta à tela de login.
  */
 export function AccountStatus({ email, deviceName, onDisconnect, error }: Props) {
+  const { t } = useTranslation();
   return (
     <div className="connect-drive">
       <div className="connected">
         <span className="account">
           <span className="dot dot-on" />
-          {email ?? "Conta Google conectada"}
+          {email ?? t("account.connected")}
         </span>
         {deviceName ? <span className="device-tag">{deviceName}</span> : null}
         <button className="secondary" onClick={onDisconnect}>
-          Desconectar
+          {t("account.disconnect")}
         </button>
       </div>
       {error ? <p className="error">{error}</p> : null}

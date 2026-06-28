@@ -1,16 +1,19 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
-import { errorMessage } from "../lib/errors";
+import { SUPPORTED_LANGUAGES, changeLanguage, type LanguageCode } from "../i18n";
+import { useErrorMessage } from "../lib/errors";
 import { openBackupFolder, setAutostart, setDeviceName, setNotificationLevel } from "../lib/ipc";
 import type { EmulatorProfile, NotificationLevel, Settings } from "../types/ipc";
+import { usePlatform } from "../hooks/usePlatform";
 import { CategorySettings } from "./CategorySettings";
 import { TriggerSettingsSection } from "./TriggerSettings";
 
-const NOTIFICATION_OPTIONS: { value: NotificationLevel; label: string }[] = [
-  { value: "all", label: "Tudo (sync, erros, emulador detectado)" },
-  { value: "errors_only", label: "Apenas erros" },
-  { value: "none", label: "Nenhuma" },
-];
+const NOTIFICATION_OPTIONS = [
+  { value: "all", labelKey: "settings.notif.all" },
+  { value: "errors_only", labelKey: "settings.notif.errorsOnly" },
+  { value: "none", labelKey: "settings.notif.none" },
+] as const satisfies readonly { value: NotificationLevel; labelKey: string }[];
 
 interface Props {
   settings: Settings;
@@ -25,6 +28,9 @@ interface Props {
  * emulador, gatilhos automáticos, nível de notificações).
  */
 export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) {
+  const { t, i18n } = useTranslation();
+  const errorMessage = useErrorMessage();
+  const { isMobile } = usePlatform();
   const [device, setDevice] = useState(settings.deviceName ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,19 +99,35 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>Configurações</h2>
+          <h2>{t("settings.title")}</h2>
           <button className="secondary" onClick={onClose}>
-            Fechar
+            {t("common.close")}
           </button>
         </div>
 
         <section className="settings-section">
-          <h3>Dispositivo</h3>
-          <p className="muted">
-            Identifica esta máquina nos metadados de sync. Alterá-lo aqui não exige refazer o login.
-          </p>
+          <h3>{t("settings.language.heading")}</h3>
+          <p className="muted">{t("settings.language.hint")}</p>
           <label className="field">
-            <span>Nome deste dispositivo</span>
+            <span>{t("settings.language.label")}</span>
+            <select
+              value={i18n.language}
+              onChange={(e) => void changeLanguage(e.target.value as LanguageCode)}
+            >
+              {SUPPORTED_LANGUAGES.map(({ code, label }) => (
+                <option key={code} value={code}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </section>
+
+        <section className="settings-section">
+          <h3>{t("settings.device.heading")}</h3>
+          <p className="muted">{t("settings.device.hint")}</p>
+          <label className="field">
+            <span>{t("device.nameLabel")}</span>
             <input
               type="text"
               value={device}
@@ -113,59 +135,56 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
                 setDevice(e.target.value);
                 setSaved(false);
               }}
-              placeholder="ex.: PC Gamer, Notebook"
+              placeholder={t("device.namePlaceholder")}
               maxLength={60}
             />
           </label>
           <div className="settings-row">
             <button onClick={saveDevice} disabled={busy || !dirty || device.trim().length === 0}>
-              {busy ? "Salvando…" : "Salvar nome"}
+              {busy ? t("settings.device.saving") : t("settings.device.save")}
             </button>
-            {saved && !dirty ? <span className="saved-hint">Salvo ✓</span> : null}
+            {saved && !dirty ? (
+              <span className="saved-hint">{t("settings.device.saved")}</span>
+            ) : null}
           </div>
           {error ? <p className="error">{error}</p> : null}
         </section>
 
         <section className="settings-section">
-          <h3>Sincronização automática</h3>
-          <p className="muted">
-            Mesmo com tudo desligado, o botão “Sincronizar agora” continua disponível.
-          </p>
+          <h3>{t("settings.autoSync.heading")}</h3>
+          <p className="muted">{t("settings.autoSync.hint")}</p>
           <TriggerSettingsSection triggers={settings.triggers} onChanged={onSaved} />
         </section>
 
-        <section className="settings-section">
-          <h3>Inicialização</h3>
-          <p className="muted">
-            Sobe o RetroSync junto com o sistema, direto na bandeja, para sincronizar em segundo
-            plano sem você precisar abrir o app.
-          </p>
-          <div className="trigger-list">
-            <label className="trigger-row">
-              <input type="checkbox" checked={autostart} onChange={toggleAutostart} />
-              <span className="trigger-text">
-                <span className="trigger-label">Abrir com o sistema</span>
-                <span className="muted">roda em segundo plano ao ligar o computador</span>
-              </span>
-            </label>
-            {autostartError ? <p className="error">{autostartError}</p> : null}
-          </div>
-        </section>
+        {!isMobile ? (
+          <section className="settings-section">
+            <h3>{t("settings.startup.heading")}</h3>
+            <p className="muted">{t("settings.startup.hint")}</p>
+            <div className="trigger-list">
+              <label className="trigger-row">
+                <input type="checkbox" checked={autostart} onChange={toggleAutostart} />
+                <span className="trigger-text">
+                  <span className="trigger-label">{t("settings.startup.label")}</span>
+                  <span className="muted">{t("settings.startup.sublabel")}</span>
+                </span>
+              </label>
+              {autostartError ? <p className="error">{autostartError}</p> : null}
+            </div>
+          </section>
+        ) : null}
 
         <section className="settings-section">
-          <h3>Notificações</h3>
-          <p className="muted">
-            Syncs automáticos frequentes podem gerar notificações invasivas — reduza o ruído aqui.
-          </p>
+          <h3>{t("settings.notif.heading")}</h3>
+          <p className="muted">{t("settings.notif.hint")}</p>
           <label className="field">
-            <span>Nível de notificações nativas</span>
+            <span>{t("settings.notif.label")}</span>
             <select
               value={notifLevel}
               onChange={(e) => changeNotifLevel(e.target.value as NotificationLevel)}
             >
-              {NOTIFICATION_OPTIONS.map(({ value, label }) => (
+              {NOTIFICATION_OPTIONS.map(({ value, labelKey }) => (
                 <option key={value} value={value}>
-                  {label}
+                  {t(labelKey)}
                 </option>
               ))}
             </select>
@@ -174,24 +193,17 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
         </section>
 
         <section className="settings-section">
-          <h3>Sincronização por emulador</h3>
-          <p className="muted">
-            Escolha quais categorias sincronizar. Desative “Config” para não compartilhar resolução
-            e controles entre dispositivos diferentes.
-          </p>
+          <h3>{t("settings.categories.heading")}</h3>
+          <p className="muted">{t("settings.categories.hint")}</p>
           <CategorySettings emulators={emulators} />
         </section>
 
         <section className="settings-section">
-          <h3>Backups</h3>
-          <p className="muted">
-            Cópias que o RetroSync guarda antes de sobrescrever um arquivo local — no primeiro sync
-            de um arquivo que já existe no Drive, ou ao resolver um conflito mantendo a versão do
-            Drive. Nada é apagado.
-          </p>
+          <h3>{t("settings.backups.heading")}</h3>
+          <p className="muted">{t("settings.backups.hint")}</p>
           <div className="settings-row">
             <button className="secondary" onClick={openBackups}>
-              Abrir pasta de backups
+              {t("settings.backups.open")}
             </button>
           </div>
           {backupError ? <p className="error">{backupError}</p> : null}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { AccountStatus } from "./components/AccountStatus";
 import { AddEmulator } from "./components/AddEmulator";
@@ -14,6 +15,7 @@ import { useSyncEvents } from "./hooks/useSyncEvents";
 import "./App.css";
 
 function App() {
+  const { t } = useTranslation();
   const auth = useAuth();
   const { settings, reload: reloadSettings } = useSettings();
 
@@ -21,7 +23,7 @@ function App() {
   if (auth.loading) {
     return (
       <main className="login-screen">
-        <p className="muted">verificando conexão com o Google Drive…</p>
+        <p className="muted">{t("app.checkingConnection")}</p>
       </main>
     );
   }
@@ -53,6 +55,7 @@ interface MainScreenProps {
  * emuladores/sync/conflitos vivem aqui para não rodar na tela de login.
  */
 function MainScreen({ auth, settings, reloadSettings }: MainScreenProps) {
+  const { t } = useTranslation();
   const sync = useSyncEvents();
   const { emulators, loading, error, refresh, remove } = useEmulators();
   const { conflicts, reload: reloadConflicts } = useConflicts();
@@ -70,26 +73,23 @@ function MainScreen({ auth, settings, reloadSettings }: MainScreenProps) {
             error={auth.error}
           />
           <button className="secondary" onClick={() => setShowSettings(true)}>
-            ⚙ Configurações
+            {t("app.settings")}
           </button>
         </div>
       </header>
 
       <section className="emulators">
         <div className="section-head">
-          <h2>Emuladores</h2>
+          <h2>{t("app.emulators")}</h2>
           <AddEmulator onAdded={refresh} existingNames={emulators.map((e) => e.name)} />
         </div>
 
         {loading ? (
-          <p className="muted">carregando…</p>
+          <p className="muted">{t("app.loading")}</p>
         ) : error ? (
           <p className="error">{error}</p>
         ) : emulators.length === 0 ? (
-          <p className="muted empty">
-            Nenhum emulador configurado. Use “Adicionar emulador” e selecione a pasta raiz do PPSSPP
-            ou PCSX2.
-          </p>
+          <p className="muted empty">{t("app.noEmulators")}</p>
         ) : (
           <div className="emulator-grid">
             {emulators.map((profile) => (

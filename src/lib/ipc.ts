@@ -123,6 +123,14 @@ export function openBackupFolder(): Promise<void> {
   return invoke<void>("open_backup_folder");
 }
 
+/**
+ * Abre o seletor de pasta nativo do SO (SAF no Android) e retorna a URI da
+ * árvore concedida. No desktop lança erro — use o seletor de ficheiros nativo.
+ */
+export function pickEmulatorFolder(): Promise<string> {
+  return invoke<string>("pick_emulator_folder");
+}
+
 /** Conflitos pendentes (ambos os lados mudaram desde o último sync). */
 export function listConflicts(): Promise<Conflict[]> {
   return invoke<Conflict[]>("list_conflicts");
