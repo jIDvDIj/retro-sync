@@ -120,7 +120,7 @@ pub fn build_manual_profile(
 /// Valida e normaliza caminhos relativos à raiz. Entradas vazias são ignoradas
 /// (campo não preenchido na UI); rejeita absolutos, `..` e prefixos/raiz, e
 /// exige que cada pasta exista sob `root`.
-fn validate_rel_dirs(root: &Path, dirs: Vec<String>) -> Result<Vec<PathBuf>, String> {
+fn validate_rel_dirs(#[cfg(not(mobile))] root: &Path, #[cfg(mobile)] _root: &Path, dirs: Vec<String>) -> Result<Vec<PathBuf>, String> {
     let mut out = Vec::with_capacity(dirs.len());
     for d in dirs {
         if d.trim().is_empty() {
@@ -136,6 +136,8 @@ fn validate_rel_dirs(root: &Path, dirs: Vec<String>) -> Result<Vec<PathBuf>, Str
         if rel.is_absolute() || escapes {
             return Err(format!("o caminho deve ser relativo à raiz: {d}"));
         }
+        // No mobile o root é uma URI SAF — não é possível validar subpastas via filesystem.
+        #[cfg(not(mobile))]
         if !root.join(&rel).is_dir() {
             return Err(format!("pasta não encontrada sob a raiz: {d}"));
         }

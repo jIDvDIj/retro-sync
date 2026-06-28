@@ -230,6 +230,11 @@ impl<B: PluginBridge> LocalStorage for MobileStorage<B> {
     }
 
     fn join(&self, base: &FileLoc, rel_path: &str) -> FileLoc {
+        // Path nativo (ex.: diretório de backup) — preserva o tipo para que
+        // operações subsequentes usem tokio::fs e não o plugin SAF.
+        if let Some(path) = base.as_native_path() {
+            return FileLoc::from_path(path.join(rel_path));
+        }
         let mut d = loc_to_docref(base);
         d.rel = join_rel(&d.rel, rel_path);
         docref_to_loc(&d)
@@ -290,6 +295,15 @@ impl<B: PluginBridge> LocalStorage for MobileStorage<B> {
         bytes: &[u8],
         mtime_ms: Option<i64>,
     ) -> AppResult<()> {
+        // Destino em armazenamento privado do app (ex.: resolução de conflito) —
+        // usa tokio::fs diretamente, sem passar pelo plugin SAF.
+        if let Some(path) = dest.as_native_path() {
+            if let Some(parent) = path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::write(path, bytes).await?;
+            return Ok(());
+        }
         let d = loc_to_docref(dest);
         let req = WriteRequest {
             tree: d.tree,
@@ -302,6 +316,16 @@ impl<B: PluginBridge> LocalStorage for MobileStorage<B> {
     }
 
     async fn copy_to(&self, src: &FileLoc, dest: &FileLoc) -> AppResult<()> {
+        // Destino em path nativo (ex.: backup em armazenamento privado do app) —
+        // lê do SAF via plugin e grava no filesystem diretamente.
+        if let Some(dest_path) = dest.as_native_path() {
+            let bytes = self.read(src).await?;
+            if let Some(parent) = dest_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::write(dest_path, bytes).await?;
+            return Ok(());
+        }
         let s = loc_to_docref(src);
         let t = loc_to_docref(dest);
         let req = CopyRequest {
@@ -360,6 +384,20 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             Ok(())
         })
         .build()
+}
+
+/// Abre o seletor de pasta nativo (SAF no Android) e retorna a URI da árvore
+/// concedida. A permissão é persistida pelo plugin para reinícios do app.
+pub async fn pick_folder<R: Runtime>(app: &tauri::AppHandle<R>) -> AppResult<String> {
+    let state = app
+        .try_state::<BridgeState>()
+        .ok_or_else(|| AppError::Other("plugin de storage não inicializado".into()))?;
+    let result = state.0.invoke("pickFolder", serde_json::json!({})).await?;
+    result
+        .get("tree")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| AppError::Other("pickFolder não retornou 'tree'".into()))
 }
 
 /// Monta a [`MobileStorage`] a partir da ponte registrada por [`init`].

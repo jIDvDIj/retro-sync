@@ -126,8 +126,12 @@ export const en = {
     openOnce: "open the emulator once",
     pickFolder: "Point to a folder",
     pickFolderHint: "For portable installs or emulators not in the list, select the root folder.",
+    pickFolderHintMobile:
+      "Grant access to the folder where the emulator stores its saves (e.g. PSP/ for PPSSPP).",
     detecting: "Detecting…",
     selectFolder: "Select folder…",
+    folderGranted: "Folder granted ✓",
+    relativePathPlaceholder: "e.g. PSP/SAVEDATA",
     detectedHere: "detected in this folder",
     manualIntro:
       "No emulator recognized in this folder. Enter the details manually — the folders must be inside the root.",

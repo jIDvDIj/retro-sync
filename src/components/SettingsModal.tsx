@@ -5,6 +5,7 @@ import { SUPPORTED_LANGUAGES, changeLanguage, type LanguageCode } from "../i18n"
 import { useErrorMessage } from "../lib/errors";
 import { openBackupFolder, setAutostart, setDeviceName, setNotificationLevel } from "../lib/ipc";
 import type { EmulatorProfile, NotificationLevel, Settings } from "../types/ipc";
+import { usePlatform } from "../hooks/usePlatform";
 import { CategorySettings } from "./CategorySettings";
 import { TriggerSettingsSection } from "./TriggerSettings";
 
@@ -29,6 +30,7 @@ interface Props {
 export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) {
   const { t, i18n } = useTranslation();
   const errorMessage = useErrorMessage();
+  const { isMobile } = usePlatform();
   const [device, setDevice] = useState(settings.deviceName ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,20 +156,22 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
           <TriggerSettingsSection triggers={settings.triggers} onChanged={onSaved} />
         </section>
 
-        <section className="settings-section">
-          <h3>{t("settings.startup.heading")}</h3>
-          <p className="muted">{t("settings.startup.hint")}</p>
-          <div className="trigger-list">
-            <label className="trigger-row">
-              <input type="checkbox" checked={autostart} onChange={toggleAutostart} />
-              <span className="trigger-text">
-                <span className="trigger-label">{t("settings.startup.label")}</span>
-                <span className="muted">{t("settings.startup.sublabel")}</span>
-              </span>
-            </label>
-            {autostartError ? <p className="error">{autostartError}</p> : null}
-          </div>
-        </section>
+        {!isMobile ? (
+          <section className="settings-section">
+            <h3>{t("settings.startup.heading")}</h3>
+            <p className="muted">{t("settings.startup.hint")}</p>
+            <div className="trigger-list">
+              <label className="trigger-row">
+                <input type="checkbox" checked={autostart} onChange={toggleAutostart} />
+                <span className="trigger-text">
+                  <span className="trigger-label">{t("settings.startup.label")}</span>
+                  <span className="muted">{t("settings.startup.sublabel")}</span>
+                </span>
+              </label>
+              {autostartError ? <p className="error">{autostartError}</p> : null}
+            </div>
+          </section>
+        ) : null}
 
         <section className="settings-section">
           <h3>{t("settings.notif.heading")}</h3>

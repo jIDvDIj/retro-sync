@@ -8,6 +8,8 @@
 export interface HealthStatus {
   version: string;
   ready: boolean;
+  /** `true` quando compilado para Android ou iOS; `false` no desktop. */
+  isMobile: boolean;
 }
 
 /** `auth::AuthStatus` */

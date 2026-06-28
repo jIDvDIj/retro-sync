@@ -160,9 +160,14 @@ e no fechamento (`running: false`) de um emulador configurado.
 Todo comando que rejeita devolve este shape (de `error::AppError`):
 ```ts
 { code: "io" | "database" | "network" | "keyring" | "serialization"
-       | "auth" | "emulator_not_detected" | "file_busy" | "other";
-  message: string }
+       | "auth" | "emulator_not_detected" | "emulator_exists" | "file_busy" | "other";
+  message: string;   // texto completo (prefixo + detalhe), em português — fallback
+  detail: string }   // só o detalhe técnico (caminho, nome, msg da lib), sem prefixo
 ```
+O frontend localiza o prefixo pelo `code` (ver `errors.<code>` no i18n) e anexa o `detail`;
+`message` permanece como fallback para `code: "other"` (sem prefixo a traduzir). Por isso o
+`code` é um enum fechado: trocá-lo no `error.rs` exige atualizar o union no `ipc.ts` **e** as
+chaves `errors.*` nos locales.
 
 ## Manutenção do contrato
 

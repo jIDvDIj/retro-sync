@@ -17,11 +17,11 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::error::{AppError, AppResult};
 
-/// Redirect URI para o fluxo mobile: scheme registrado no manifesto Android/iOS.
-/// O Google redireciona para `retrosync://oauth?code=...`, que o deep-link plugin
-/// captura e entrega ao app via evento.
+/// Sufixo do redirect URI mobile: o Worker recebe o code do Google e faz um 302
+/// para o deep link `com.retrosync.app:/oauth2redirect`. O redirect URI completo
+/// é `{token_proxy_url}/oauth/callback` e deve estar registrado no Google Console.
 #[cfg(mobile)]
-pub const MOBILE_REDIRECT_URI: &str = "retrosync://oauth";
+pub const MOBILE_REDIRECT_SUFFIX: &str = "/oauth/callback";
 
 pub const GOOGLE_AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 pub const GOOGLE_TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
@@ -135,6 +135,8 @@ pub async fn authorize_interactive(
         .append_pair("scope", OAUTH_SCOPE)
         .append_pair("code_challenge", &pkce.challenge)
         .append_pair("code_challenge_method", "S256")
+        .append_pair("access_type", "offline")
+        .append_pair("prompt", "consent")
         .append_pair("state", &state);
 
     open::that_detached(auth_url.as_str())
@@ -150,9 +152,10 @@ pub async fn authorize_interactive(
     exchange_code(http, config, &code, &pkce.verifier, &redirect_uri).await
 }
 
-/// Fluxo OAuth mobile: abre o browser com `retrosync://oauth` como redirect URI
-/// e aguarda o deep link via canal. O chamador é responsável por configurar o
-/// listener de deep link e enviar a URL pelo `redirect_tx` antes de chamar isto.
+/// Fluxo OAuth mobile: abre o browser com o redirect URI do Worker como destino.
+/// O Worker recebe o code do Google, faz um 302 para o deep link do app e este
+/// captura via `deep-link://new-url`. O chamador configura o listener e passa o
+/// Receiver pelo `redirect_rx`.
 #[cfg(mobile)]
 pub async fn authorize_interactive_mobile<R: tauri::Runtime>(
     http: &reqwest::Client,
@@ -162,6 +165,17 @@ pub async fn authorize_interactive_mobile<R: tauri::Runtime>(
 ) -> AppResult<TokenResponse> {
     use tauri_plugin_opener::OpenerExt;
 
+    // O redirect URI é o Worker + sufixo; deve estar registrado no Google Console.
+    let redirect_uri = config
+        .token_proxy_url
+        .as_deref()
+        .map(|base| format!("{base}{MOBILE_REDIRECT_SUFFIX}"))
+        .ok_or_else(|| {
+            AppError::Auth(
+                "RETROSYNC_TOKEN_PROXY_URL não configurado — necessário para OAuth mobile".into(),
+            )
+        })?;
+
     let pkce = generate_pkce();
     let state = random_state();
 
@@ -170,17 +184,19 @@ pub async fn authorize_interactive_mobile<R: tauri::Runtime>(
     auth_url
         .query_pairs_mut()
         .append_pair("client_id", &config.client_id)
-        .append_pair("redirect_uri", MOBILE_REDIRECT_URI)
+        .append_pair("redirect_uri", &redirect_uri)
         .append_pair("response_type", "code")
         .append_pair("scope", OAUTH_SCOPE)
         .append_pair("code_challenge", &pkce.challenge)
         .append_pair("code_challenge_method", "S256")
+        .append_pair("access_type", "offline")
+        .append_pair("prompt", "consent")
         .append_pair("state", &state);
 
     app.opener()
         .open_url(auth_url.as_str(), None::<&str>)
         .map_err(|e| AppError::Auth(format!("não foi possível abrir o navegador: {e}")))?;
-    tracing::info!("aguardando autorização do Google via deep link");
+    tracing::info!("aguardando autorização do Google via deep link (redirect: {redirect_uri})");
 
     let redirect_url = tokio::time::timeout(AUTH_FLOW_TIMEOUT, async {
         redirect_rx
@@ -218,7 +234,7 @@ pub async fn authorize_interactive_mobile<R: tauri::Runtime>(
     let code =
         code.ok_or_else(|| AppError::Auth("deep link sem authorization code".into()))?;
 
-    exchange_code(http, config, &code, &pkce.verifier, MOBILE_REDIRECT_URI).await
+    exchange_code(http, config, &code, &pkce.verifier, &redirect_uri).await
 }
 
 /// Aceita conexões no listener até receber o redirect do OAuth (ignorando

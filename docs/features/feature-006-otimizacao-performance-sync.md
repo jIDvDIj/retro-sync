@@ -83,6 +83,32 @@ antes de fixar — ganho depende do perfil de arquivos e da banda do usuário.
 
 ---
 
+## Riscos e mitigações
+
+### Item 1 — persistir o cache de IDs
+
+| Risco | Mitigação |
+|---|---|
+| **ID obsoleto** — pasta movida/apagada/lixeira pelo usuário no Drive → o ID guardado retorna `404/notFound` e, sem o "miss" do cache, a pasta não é recriada | **Invalidação reativa:** tratar `404/notFound` numa operação contra pasta cacheada como miss daquele caminho — despejar a entrada do `HashMap` em memória **e** da tabela SQLite e re-resolver via `ensure_folder_cached` (acha a existente ou recria) + um único retry. O reverse-lookup `folder_id → cache_key` sai da própria tabela. |
+| **Troca de conta Google** — `cache_key` é por caminho, mas o ID é por conta; IDs persistidos viram inválidos ao logar com outra conta | **Limpar no disconnect:** o `AuthManager` zera a tabela `drive_folders` e o map em memória no logout/troca de conta (ponto único conhecido). Multi-conta futuro: coluna `account_id` (o `sub`/email do token) filtrada no load. |
+| **Pastas duplicadas** — re-resolução concorrente após invalidação pode cair numa duplicata | **Resolução serializada + escolha determinística:** a pré-criação sequencial de subpastas antes dos uploads concorrentes (já em `engine.rs`) segue como barreira; `find_folder` escolhe deterministicamente quando há duplicata (ex.: mais antiga por `createdTime`), para dispositivos convergirem à mesma pasta canônica. Persistir o cache reduz misses → reduz o risco. |
+
+### Item 2 — reduzir o custo do `list_tree`
+
+| Risco | Mitigação |
+|---|---|
+| **Early-out perde mudanças remotas** — pular a listagem porque "o manifest diz que nada mudou" não enxerga save novo de outro dispositivo ou arquivo posto direto no Drive (reintroduz o BUG-004) | **Não pular — listar incremental.** Preferida: **poda por `modifiedTime` de pasta** — o `modifiedTime` da pasta avança quando filhos mudam; lista os filhos diretos da raiz da categoria e só recursa nas subpastas cujo `modifiedTime` divergiu do manifest. Poda subárvores intocadas sem perder detecção remota; 100% compatível com `drive.file`. |
+| **Reconstrução de árvore via query ampla** introduz paginação e remontagem de caminho no cliente → mais código, mais chance de bug | Mesma mitigação acima evita a query ampla. Alternativa agressiva — **Changes API** (`startPageToken` por conta + `changes.list`): validar antes o comportamento com `drive.file` (`spaces`/`restrictToMyDrive`) e ter fallback para `list_tree` completo quando não há token (primeiro sync) ou em token inválido (`410` → re-baseline). |
+
+### Item 3 — aumentar `DRIVE_MAX_CONCURRENT_TRANSFERS`
+
+| Risco | Mitigação |
+|---|---|
+| **Pico de memória** — `do_upload` lê o arquivo inteiro para a RAM (`tokio::fs::read`); `N concorrentes × savestate grande` multiplica o pico | **Streaming + orçamento de bytes:** trocar `tokio::fs::read` por corpo *streamed* do handle no upload resumable (pico limitado pelo buffer, não pelo tamanho do arquivo). Complemento: semáforo **ponderado por bytes em voo** em vez de contagem fixa — muitos arquivos pequenos em paralelo, mas poucos grandes. |
+| **Mais `429`/`rateLimitExceeded`** sob concorrência maior | **Respeitar `Retry-After` + subir gradual e medido:** o `send_with_retry` honra o header `Retry-After` no `429` (em vez de backoff fixo); opcional token-bucket global pela cota por usuário. Tornar o `3` ajustável e elevar em passos (3 → 6) **medindo** com o workload real. |
+
+---
+
 ## Relação com outras propostas
 
 - [FEATURE-004 — Batch upload](./feature-004-batch-upload.md) ataca o **outro lado** (reduzir o

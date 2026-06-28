@@ -28,7 +28,7 @@
   "plugins": {
     "deep-link": {
       "mobile": [
-        { "scheme": "retrosync", "host": "oauth" }
+        { "scheme": ["com.retrosync.app"], "path_prefix": ["/oauth2redirect"] }
       ]
     }
   },

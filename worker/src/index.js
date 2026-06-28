@@ -1,9 +1,34 @@
 const GOOGLE_TOKEN = "https://oauth2.googleapis.com/token";
 
+// URI do deep link que o Android registra via tauri-plugin-deep-link.
+const MOBILE_DEEP_LINK = "com.retrosync.app:/oauth2redirect";
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    // /oauth/callback — chamado pelo Google após autenticação (GET, sem X-Proxy-Secret).
+    // Recebe code+state e redireciona para o deep link do app Android.
+    if (url.pathname === "/oauth/callback") {
+      if (request.method !== "GET") {
+        return new Response("Method Not Allowed", { status: 405 });
+      }
+      const code  = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      const error = url.searchParams.get("error");
+
+      if (error) {
+        return new Response(`OAuth error: ${error}`, { status: 400 });
+      }
+      if (!code || !state) {
+        return new Response("Bad Request: missing code or state", { status: 400 });
+      }
+
+      const deepLink = `${MOBILE_DEEP_LINK}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+      return Response.redirect(deepLink, 302);
+    }
+
+    // Todos os outros endpoints exigem POST + X-Proxy-Secret.
     if (request.method !== "POST") {
       return new Response("Method Not Allowed", { status: 405 });
     }
@@ -25,7 +50,12 @@ export default {
       if (!body.code || !body.code_verifier || !body.redirect_uri) {
         return new Response("Bad Request: missing fields", { status: 400 });
       }
-      if (!body.redirect_uri.startsWith("http://127.0.0.1:")) {
+      // Aceita redirect do loopback (desktop) ou do próprio Worker (mobile).
+      const workerCallback = `${url.origin}/oauth/callback`;
+      const validRedirect =
+        body.redirect_uri.startsWith("http://127.0.0.1:") ||
+        body.redirect_uri === workerCallback;
+      if (!validRedirect) {
         return new Response("Bad Request: invalid redirect_uri", { status: 400 });
       }
       form = new URLSearchParams({

@@ -28,6 +28,8 @@ use crate::sync::{ConflictResolution, LastSync, SyncCategory, SyncDirection, Syn
 pub struct HealthStatus {
     pub version: String,
     pub ready: bool,
+    /// `true` quando compilado para Android ou iOS; `false` no desktop.
+    pub is_mobile: bool,
 }
 
 /// Verificação mínima de que a boundary frontend ↔ Rust está funcional.
@@ -36,7 +38,24 @@ pub fn health_check() -> AppResult<HealthStatus> {
     Ok(HealthStatus {
         version: env!("CARGO_PKG_VERSION").to_string(),
         ready: true,
+        is_mobile: cfg!(mobile),
     })
+}
+
+/// Abre o seletor nativo de pasta do SO (SAF no Android) e retorna a URI da
+/// árvore concedida. No desktop retorna erro — use o seletor de ficheiros.
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn pick_emulator_folder(app: AppHandle) -> AppResult<String> {
+    crate::sync::mobile_storage::pick_folder(&app).await
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn pick_emulator_folder(_app: AppHandle) -> AppResult<String> {
+    Err(AppError::Other(
+        "pick_emulator_folder não disponível no desktop".into(),
+    ))
 }
 
 /// Abre o navegador para o consentimento OAuth2 e aguarda a autorização.
@@ -74,7 +93,7 @@ pub async fn connect_google_drive(
                 serde_json::from_str(event.payload()).unwrap_or_default();
             if let Some(url) = urls
                 .into_iter()
-                .find(|u| u.starts_with("retrosync://oauth"))
+                .find(|u| u.starts_with("com.retrosync.app:/oauth2redirect"))
             {
                 if let Some(sender) = tx.lock().unwrap().take() {
                     let _ = sender.send(url);
@@ -118,6 +137,7 @@ pub async fn disconnect_google_drive(
 #[tauri::command]
 pub async fn detect_emulator(path: String) -> AppResult<Option<EmulatorProfile>> {
     let root = PathBuf::from(&path);
+    #[cfg(not(mobile))]
     if !root.is_dir() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -135,6 +155,7 @@ pub async fn detect_emulator(path: String) -> AppResult<Option<EmulatorProfile>>
 #[tauri::command]
 pub async fn add_emulator(state: State<'_, AppState>, path: String) -> AppResult<EmulatorProfile> {
     let root = PathBuf::from(&path);
+    #[cfg(not(mobile))]
     if !root.is_dir() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -178,6 +199,9 @@ pub async fn add_emulator_manual(
     config_paths: Vec<String>,
 ) -> AppResult<EmulatorProfile> {
     let root = PathBuf::from(&path);
+    // No mobile o path é uma URI SAF (content://...) — não é um caminho de filesystem,
+    // então is_dir() sempre retorna false. A validação é feita pelo plugin nativo.
+    #[cfg(not(mobile))]
     if !root.is_dir() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,

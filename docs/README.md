@@ -34,7 +34,9 @@ retrogames com o Google Drive.
 | [Decisões técnicas](./decisoes-tecnicas.md) | Registro consolidado das decisões e seus trade-offs |
 | [Riscos técnicos](./riscos.md) | Riscos identificados e mitigações |
 | [Distribuição pública e confiança](./distribuicao-publica.md) | SmartScreen, OAuth Google, GitHub Attestations (descartado), Microsoft Store |
-| [Bugs](./bugs/) | Bugs documentados com causa raiz e soluções consideradas |
+| [17 — Suporte Android](./17-suporte-android.md) | Fases 3/5/6/7: scaffolding APK, OAuth deep link, SecretStore, gatilhos lifecycle e UI mobile |
+| [Portabilidade multiplataforma](./multiplataforma-checklist.md) | Checklist faseado para Windows/Linux/macOS/Steam Deck/Android/iOS; abstração de storage, OAuth e keyring mobile |
+| [Bugs](./bugs/) | Bugs documentados com causa raiz e soluções consideradas — inclui [BUG-005](./bugs/bug-005-validacao-filesystem-mobile.md): validações `PathBuf` incompatíveis com URIs SAF no mobile |
 | [Features](./features/) | Propostas de funcionalidades futuras — identificação de jogos, configurações, perfis-como-dados, batch upload, proxy Worker, otimização de performance do sync |
 
 ## Estado atual
@@ -85,6 +87,20 @@ passando; ESLint, Prettier, rustfmt e clippy limpos.
 | Item | Descrição | Doc | Status |
 | --- | --- | --- | --- |
 | i18n do frontend | `react-i18next`; inglês padrão + português; seletor nas configurações; erros traduzidos por `code`+`detail`; bandeja em inglês | [16](./16-internacionalizacao.md) | ✅ Concluído |
+
+### Portabilidade multiplataforma (Android/iOS/Linux/macOS/Steam Deck)
+
+| Fase | Descrição | Doc | Status |
+| --- | --- | --- | --- |
+| 0 | Código compilável para mobile (`#[cfg(desktop)]` em tray/autostart/watcher) | [checklist](./multiplataforma-checklist.md) | ✅ Concluído |
+| 2 | Abstração de storage (trait `LocalStorage` + `FileLoc`); todo o I/O do engine isolado | [checklist](./multiplataforma-checklist.md) | ✅ Concluído |
+| 3 | Scaffolding Android: SDK/NDK, `tauri android init`, APK debug em device físico | [17](./17-suporte-android.md) | ✅ Concluído |
+| 5 | OAuth via Worker redirect: client Web app único, `/oauth/callback` no Worker, deep link | [17](./17-suporte-android.md) | ✅ Concluído |
+| 6 | `SecretStore` trait: `KeyringStore` (desktop) / `SqliteSecretStore` (mobile) | [17](./17-suporte-android.md) | ✅ Concluído |
+| 7 | Gatilhos lifecycle (`resume`/`pause`) + UI mobile (`AddEmulatorModal`, `SettingsModal`) | [17](./17-suporte-android.md) | ✅ Concluído |
+| 8 | APK assinado (`retrosync.jks`) + job `android` no CI; secrets GitHub pendentes | [17](./17-suporte-android.md) | 🟡 Secrets pendentes |
+| 1 | Desktop: descoberta Steam Deck/Flatpak (feito) + empacotamento Flatpak/macOS (precisa de máquina Linux/macOS) | [checklist](./multiplataforma-checklist.md) | 🟡 Em andamento |
+| 4 | Storage mobile: interface Rust↔plugin (`MobileStorage`) pronta; `StoragePlugin.kt` escrito, validação em device pendente | [checklist](./multiplataforma-checklist.md) | 🟡 Validação pendente |
 
 ## Visão geral em uma frase
 

@@ -131,8 +131,12 @@ export const pt: Localized<Resources> = {
     pickFolder: "Apontar pasta",
     pickFolderHint:
       "Para instalações portáteis ou emuladores fora da lista, selecione a pasta raiz.",
+    pickFolderHintMobile:
+      "Conceda acesso à pasta onde o emulador guarda seus saves (ex.: PSP/ para o PPSSPP).",
     detecting: "Detectando…",
     selectFolder: "Selecionar pasta…",
+    folderGranted: "Pasta concedida ✓",
+    relativePathPlaceholder: "ex.: PSP/SAVEDATA",
     detectedHere: "detectado nesta pasta",
     manualIntro:
       "Nenhum emulador reconhecido nesta pasta. Informe os dados manualmente — as pastas devem estar dentro da raiz.",

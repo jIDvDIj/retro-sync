@@ -66,6 +66,9 @@ pub const TRIGGER_SHUTDOWN: &str = "shutdown";
 pub const TRIGGER_MANUAL: &str = "manual";
 pub const TRIGGER_EMULATOR_START: &str = "emulator-start";
 pub const TRIGGER_EMULATOR_STOP: &str = "emulator-stop";
+/// Gatilhos exclusivos do mobile (substituem watcher e startup/shutdown).
+pub const TRIGGER_FOREGROUND: &str = "foreground";
+pub const TRIGGER_BACKGROUND: &str = "background";
 
 /// Chaves da tabela `app_settings` (configurações globais do usuário).
 /// Nome amigável deste dispositivo (ex.: "PC Gamer"), definido no login.

@@ -184,6 +184,43 @@ pub fn run() {
                 });
             }
 
+            // Gatilhos mobile: foreground (app volta à tela) e background (app some).
+            // Substituem o process watcher e o sync de despedida do desktop.
+            #[cfg(mobile)]
+            {
+                use tauri::Listener;
+                let eng = engine.clone();
+                app.listen("tauri://resume", move |_| {
+                    let e = eng.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(err) = e
+                            .sync_all(
+                                sync::SyncDirection::Bidirectional,
+                                constants::TRIGGER_FOREGROUND,
+                            )
+                            .await
+                        {
+                            tracing::warn!(error = %err, "sync de foreground falhou");
+                        }
+                    });
+                });
+                let eng = engine.clone();
+                app.listen("tauri://pause", move |_| {
+                    let e = eng.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(err) = e
+                            .sync_all(
+                                sync::SyncDirection::LocalToDrive,
+                                constants::TRIGGER_BACKGROUND,
+                            )
+                            .await
+                        {
+                            tracing::warn!(error = %err, "sync de background falhou");
+                        }
+                    });
+                });
+            }
+
             // Gatilho "ao iniciar o RetroSync": sync bidirecional em background,
             // se o usuário não tiver desativado o gatilho `startup`. Vale para
             // desktop e mobile (no mobile é o sync ao abrir o app).
@@ -234,7 +271,8 @@ pub fn run() {
             commands::get_emulator_categories,
             commands::set_emulator_categories,
             commands::list_conflicts,
-            commands::resolve_conflict
+            commands::resolve_conflict,
+            commands::pick_emulator_folder
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o RetroSync");

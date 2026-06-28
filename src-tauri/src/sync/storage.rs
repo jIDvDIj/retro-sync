@@ -54,12 +54,20 @@ impl FileLoc {
         Self(Loc::Doc(handle.into()))
     }
 
-    /// Caminho nativo subjacente, se for um locador de filesystem (desktop).
-    #[cfg(desktop)]
-    pub(crate) fn as_path(&self) -> Option<&Path> {
+    /// Caminho nativo subjacente, se for um locador de filesystem.
+    /// No desktop todos os locadores são paths; no mobile apenas os de
+    /// armazenamento privado do app (ex.: diretório de backup).
+    pub(crate) fn as_native_path(&self) -> Option<&Path> {
         match &self.0 {
             Loc::Path(p) => Some(p),
+            #[cfg(mobile)]
+            Loc::Doc(_) => None,
         }
+    }
+
+    #[cfg(desktop)]
+    pub(crate) fn as_path(&self) -> Option<&Path> {
+        self.as_native_path()
     }
 
     /// Handle do documento mobile, se for um locador mobile.
