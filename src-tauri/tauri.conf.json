@@ -27,9 +27,7 @@
   },
   "plugins": {
     "deep-link": {
-      "mobile": [
-        { "scheme": ["com.retrosync.app"], "path_prefix": ["/oauth2redirect"] }
-      ]
+      "mobile": [{ "scheme": ["com.retrosync.app"], "path_prefix": ["/oauth2redirect"] }]
     }
   },
   "bundle": {

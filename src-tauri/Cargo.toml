@@ -52,9 +52,15 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 
-# Dependências exclusivas do desktop — NÃO compiladas para Android/iOS.
+# Dependências exclusivas do ambiente desktop — NÃO compiladas para Android/iOS.
 # O process watcher (`sysinfo`) e o autostart ("subir com o sistema") não têm
 # equivalente no mobile; lá os gatilhos de sync são manuais / ao abrir o app.
+#
+# NOTA: cfg(desktop) é definido pelo build script do Tauri e não é reconhecido
+# pelo Cargo na resolução de dependências. A forma correta para seções
+# [target.*.dependencies] é usar predicados padrão do Rust (target_os).
+# O #[cfg(desktop)] no código-fonte continua funcionando — o build script já
+# rodou quando o compilador avalia atributos de item.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
 sysinfo = "0.33"

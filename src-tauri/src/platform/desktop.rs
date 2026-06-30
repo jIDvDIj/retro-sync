@@ -1,0 +1,161 @@
+//! Inicialização exclusiva do ambiente desktop: bandeja do sistema, watcher de
+//! processos, janela inicial e autostart padrão.
+//!
+//! Tudo aqui é guardado por `#[cfg(desktop)]` no módulo pai — nunca é
+//! compilado em builds mobile (Android / iOS).
+
+use std::sync::Arc;
+
+use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{App, AppHandle, Manager, WindowEvent};
+use tauri_plugin_autostart::ManagerExt;
+
+use crate::constants;
+use crate::storage::db::Db;
+use crate::sync::SyncEngine;
+
+/// Ponto de entrada: configura tudo que é desktop-only após o setup comum.
+pub fn setup(
+    app: &mut App,
+    db: Db,
+    engine: Arc<SyncEngine>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    setup_tray(app.handle())?;
+    maybe_show_window(app.handle());
+    start_watcher(db.clone(), engine, app.handle().clone());
+    setup_default_autostart(app.handle().clone(), db);
+    Ok(())
+}
+
+/// Handler de `CloseRequested` que esconde a janela em vez de encerrá-la —
+/// o app segue vivo na bandeja. Registrado via `.on_window_event()` no Builder.
+pub fn on_close_requested(window: &tauri::Window, event: &WindowEvent) {
+    if let WindowEvent::CloseRequested { api, .. } = event {
+        if window.label() == constants::MAIN_WINDOW_LABEL {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+    }
+}
+
+fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let open = MenuItem::with_id(app, constants::TRAY_MENU_OPEN, "Open", true, None::<&str>)?;
+    let sync = MenuItem::with_id(
+        app,
+        constants::TRAY_MENU_SYNC,
+        "Sync now",
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, constants::TRAY_MENU_QUIT, "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(
+        app,
+        &[&open, &sync, &PredefinedMenuItem::separator(app)?, &quit],
+    )?;
+
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or("ícone padrão da janela ausente")?;
+
+    TrayIconBuilder::with_id("retrosync-tray")
+        .icon(icon)
+        .tooltip("RetroSync")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(on_tray_menu_event)
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+fn on_tray_menu_event(app: &AppHandle, event: MenuEvent) {
+    let id = event.id.as_ref();
+    if id == constants::TRAY_MENU_OPEN {
+        show_main_window(app);
+    } else if id == constants::TRAY_MENU_SYNC {
+        spawn_sync(app.clone(), constants::TRIGGER_MANUAL, false);
+    } else if id == constants::TRAY_MENU_QUIT {
+        spawn_sync(app.clone(), constants::TRIGGER_SHUTDOWN, true);
+    }
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// Dispara um sync bidirecional em background. Se `then_exit`, encerra o app
+/// ao terminar — é o sync de despedida do menu "Sair".
+fn spawn_sync(app: AppHandle, trigger: &'static str, then_exit: bool) {
+    use crate::state::AppState;
+    use crate::sync::SyncDirection;
+    tauri::async_runtime::spawn(async move {
+        let engine = app.state::<AppState>().engine.clone();
+        if let Err(err) = engine
+            .sync_all(SyncDirection::Bidirectional, trigger)
+            .await
+        {
+            tracing::warn!(trigger, error = %err, "sync acionado pela bandeja falhou");
+        }
+        if then_exit {
+            app.exit(0);
+        }
+    });
+}
+
+/// A janela nasce oculta (`visible: false` no tauri.conf.json). Em abertura
+/// normal nós a mostramos; quando o SO lança o app com `--minimized`
+/// (autostart junto com o sistema), fica só na bandeja.
+fn maybe_show_window(app: &AppHandle) {
+    let launched_minimized = std::env::args().any(|a| a == constants::STARTUP_MINIMIZED_FLAG);
+    if !launched_minimized {
+        if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
+            let _ = window.show();
+        }
+    }
+}
+
+fn start_watcher(db: Db, engine: Arc<SyncEngine>, app: AppHandle) {
+    crate::watcher::start(db, engine, app);
+}
+
+/// Na primeiríssima execução registra o autostart para o app subir com o
+/// sistema. Depois disso, a escolha do usuário prevalece.
+fn setup_default_autostart(app: AppHandle, db: Db) {
+    tauri::async_runtime::spawn(async move {
+        let already = db
+            .with(crate::storage::settings::autostart_initialized)
+            .await
+            .unwrap_or(true);
+        if already {
+            return;
+        }
+        let enabled = app.autolaunch().enable();
+        match enabled {
+            Ok(()) => {
+                let _ = db
+                    .with(crate::storage::settings::mark_autostart_initialized)
+                    .await;
+                tracing::info!("autostart ativado por padrão (primeira execução)");
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "autostart padrão não pôde ser ativado");
+            }
+        }
+    });
+}

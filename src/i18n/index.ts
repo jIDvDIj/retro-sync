@@ -1,8 +1,8 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
-import { en, type Resources } from "./locales/en";
-import { pt } from "./locales/pt";
+import { en, type Resources } from "./locales/en/index";
+import { pt } from "./locales/pt/index";
 
 /** Idiomas oferecidos no seletor das configurações. */
 export const SUPPORTED_LANGUAGES = [
