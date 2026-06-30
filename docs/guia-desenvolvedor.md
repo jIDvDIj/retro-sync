@@ -10,14 +10,14 @@ rodar o app, buildar, validar a qualidade do código e entender por onde começa
 
 ## 1. Pré-requisitos
 
-O alvo de produção é **Windows nativo**. Instale, no Windows:
+O alvo de produção é **Windows nativo**. Instale, no Windows (**PowerShell como Administrador**):
 
-| Ferramenta | Detalhe |
+| Ferramenta | Comando |
 | --- | --- |
-| **Rust** | Via [rustup](https://rustup.rs/), toolchain MSVC padrão |
-| **Microsoft C++ Build Tools** | Workload "Desktop development with C++" ([Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)) |
-| **WebView2** | Já incluso no Windows 10/11 atualizados |
-| **Node.js** | ≥ 20 LTS |
+| **Rust** | `winget install Rustlang.Rustup` |
+| **Microsoft C++ Build Tools** | `winget install Microsoft.VisualStudio.2022.BuildTools` → depois abra o VS Installer e marque a workload "Desenvolvimento para desktop com C++" |
+| **WebView2** | `winget install Microsoft.EdgeWebView2Runtime` (já incluso no Windows 10/11 atualizados) |
+| **Node.js** | ≥ 20 LTS (verifique com `node --version`) |
 
 Referência oficial: [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/).
 
@@ -121,12 +121,23 @@ cargo test   --manifest-path src-tauri/Cargo.toml <nome_do_teste>   # um único 
 
 Se você desenvolve a partir do WSL2 (com o repo em `/mnt/c`):
 
+- **Rust não está instalado no WSL**: o `winget` instala apenas no Windows. Para usar
+  `cargo check/clippy/test` no WSL, instale o Rust separadamente:
+
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  # responda "1" (default); depois recarregue:
+  source ~/.cargo/env
+  ```
+
 - **Cargo lento / poluindo o `/mnt/c`**: exporte um target dir fora do 9p antes dos comandos
   cargo:
 
   ```bash
   export CARGO_TARGET_DIR=$HOME/.cache/retro-sync-target
   ```
+
+  Coloque esse `export` no seu `~/.bashrc` ou `~/.zshrc` para não precisar repetir.
 
 - **`Cannot find module @rollup/rollup-linux-x64-gnu`** ao rodar `npm run build`: o
   `node_modules` em `/mnt/c` é compartilhado entre Windows e WSL, e cada `npm install` de um
@@ -142,16 +153,24 @@ Se você desenvolve a partir do WSL2 (com o repo em `/mnt/c`):
 
 ```
 src-tauri/src/        # Backend Rust — TODA a lógica de negócio
-├── lib.rs            # run(): Builder, setup (state + tray + watcher + sync de startup)
+├── lib.rs            # run(): setup comum + delega para platform/desktop ou platform/mobile
 ├── commands.rs       # Boundary #[tauri::command] — toda ela vive aqui
+│                     #   desktop-only: set_autostart, open_backup_folder (#[cfg(desktop)])
+│                     #   mobile-only:  pick_emulator_folder (#[cfg(mobile)])
 ├── state.rs          # AppState (auth, db, engine, last_sync)
 ├── constants.rs      # Pastas do Drive, chaves keyring, triggers (sem magic strings)
-├── auth/             # OAuth2 + PKCE, keyring, refresh automático de token
+├── secrets.rs        # Trait SecretStore: KeyringStore (desktop) / SqliteSecretStore (mobile)
+├── platform/
+│   ├── desktop.rs    # Bandeja, prevent_close, process watcher, autostart — #[cfg(desktop)]
+│   └── mobile.rs     # Init mobile (stub; lifecycle via tauri://resume/pause em lib.rs)
+├── auth/             # OAuth2 + PKCE, SecretStore, refresh automático de token
 ├── drive/            # Cliente Google Drive API (reqwest + retry/backoff)
-├── emulator/         # Perfis declarativos + detecção (PPSSPP, PCSX2)
-├── storage/          # SQLite: manifest, fila offline, emuladores, settings
+├── emulator/         # Perfis declarativos (profiles.toml) + detecção (PPSSPP, PCSX2)
+├── storage/          # SQLite: manifest, fila offline, emuladores, settings, conflicts
 ├── sync/             # SyncEngine (diff, conflitos, upload/download)
-└── watcher/          # Monitor de processos (sysinfo) → gatilhos de sync
+│   ├── storage.rs    # Trait LocalStorage + DesktopStorage — isola I/O local do engine
+│   └── mobile_storage.rs  # Implementação mobile do LocalStorage (SAF/Android)
+└── watcher/          # Monitor de processos (sysinfo) → gatilhos de sync — #[cfg(desktop)]
 src/                  # Frontend React — UI "burra": só invoke/emit
 ├── components/       # Telas e modais
 ├── hooks/            # Auth, descoberta, sync, conflitos, settings
@@ -159,6 +178,11 @@ src/                  # Frontend React — UI "burra": só invoke/emit
 └── types/ipc.ts      # Espelho TS das structs Rust + nomes de eventos
 worker/               # Cloudflare Worker — proxy do token endpoint OAuth
 ```
+
+> **Separação desktop / mobile**: código exclusivo do desktop é guardado com `#[cfg(desktop)]`
+> e vive em `platform/desktop.rs` (bandeja, watcher, autostart) ou em blocos `#[cfg(desktop)]`
+> em `commands.rs`. O `SyncEngine` e todo o core de sync são agnósticos de plataforma — operam
+> sobre a trait `LocalStorage`, não sobre `std::fs` diretamente.
 
 Leituras recomendadas, nesta ordem:
 

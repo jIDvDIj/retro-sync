@@ -13,7 +13,7 @@ export default {
       if (request.method !== "GET") {
         return new Response("Method Not Allowed", { status: 405 });
       }
-      const code  = url.searchParams.get("code");
+      const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
       const error = url.searchParams.get("error");
 
@@ -53,8 +53,7 @@ export default {
       // Aceita redirect do loopback (desktop) ou do próprio Worker (mobile).
       const workerCallback = `${url.origin}/oauth/callback`;
       const validRedirect =
-        body.redirect_uri.startsWith("http://127.0.0.1:") ||
-        body.redirect_uri === workerCallback;
+        body.redirect_uri.startsWith("http://127.0.0.1:") || body.redirect_uri === workerCallback;
       if (!validRedirect) {
         return new Response("Bad Request: invalid redirect_uri", { status: 400 });
       }

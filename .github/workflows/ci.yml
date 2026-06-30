@@ -23,5 +23,8 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      - name: i18n parity check
+        run: npm run i18n:check
+
       - name: Build frontend
         run: npm run build

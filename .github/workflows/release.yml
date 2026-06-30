@@ -199,7 +199,7 @@ jobs:
           RETROSYNC_GOOGLE_CLIENT_ID: ${{ secrets.RETROSYNC_GOOGLE_CLIENT_ID }}
           RETROSYNC_TOKEN_PROXY_URL: ${{ secrets.RETROSYNC_TOKEN_PROXY_URL }}
           RETROSYNC_PROXY_SECRET: ${{ secrets.RETROSYNC_PROXY_SECRET }}
-          
+
           # Assinatura + notarização do macOS. O tauri-action só assina/notariza
           # quando estas variáveis estão presentes; sem elas o build sai sem assinatura
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}

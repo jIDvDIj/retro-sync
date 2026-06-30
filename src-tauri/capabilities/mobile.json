@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Capability for the main webview (mobile)",
+  "platforms": ["android", "iOS"],
+  "webviews": ["main"],
+  "permissions": ["core:default", "dialog:default", "notification:default"]
+}

@@ -326,11 +326,19 @@ pub async fn sync_now(state: State<'_, AppState>) -> AppResult<SyncSummary> {
 }
 
 /// Configurações globais do usuário (nome do dispositivo, etc.). O flag de
-/// autostart não vive no banco — é lido do SO via plugin e injetado aqui.
+/// autostart não vive no banco — é lido do SO via plugin e injetado aqui
+/// (apenas em desktop; em mobile permanece `false`).
 #[tauri::command]
 pub async fn get_settings(app: AppHandle, state: State<'_, AppState>) -> AppResult<Settings> {
     let mut settings = state.db.with(settings::load).await?;
-    settings.autostart = autostart_enabled(&app)?;
+    #[cfg(desktop)]
+    {
+        settings.autostart = autostart_enabled(&app)?;
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = &app;
+    }
     Ok(settings)
 }
 
@@ -374,6 +382,7 @@ fn autostart_enabled(_app: &AppHandle) -> AppResult<bool> {
 
 /// Abre a pasta de backups locais no gerenciador de arquivos do SO. A pasta é
 /// criada se ainda não existir (BUG-001 — backups do primeiro sync).
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn open_backup_folder(app: AppHandle) -> AppResult<()> {
     let dir = app

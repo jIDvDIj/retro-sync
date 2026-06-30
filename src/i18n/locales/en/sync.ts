@@ -1,0 +1,36 @@
+export const sync = {
+  sync: {
+    syncNow: "Sync now",
+    syncing: "Syncing…",
+    justNow: "just now",
+    secondsAgo: "{{count}}s ago",
+    minutesAgo: "{{count}} min ago",
+    hoursAgo: "{{count}} h ago",
+    queued: "queued {{count}}",
+    failed: "failed {{count}}",
+    lastSync: "Last sync {{when}}",
+    never: "No sync yet",
+    backupBanner_one: "{{count}} local file was backed up before the first sync (Drive won).",
+    backupBanner_other: "{{count}} local files were backed up before the first sync (Drive won).",
+    openBackupFolder: "Open backup folder",
+    lastSyncError: "Last sync failed{{emulator}}: {{message}}",
+  },
+  emulator: {
+    conflictBadge: "conflict",
+    running: "running",
+    idle: "stopped",
+    resolveConflict_one: "Resolve conflict",
+    resolveConflict_other: "Resolve conflict ({{count}})",
+    removing: "Removing…",
+    remove: "Remove",
+  },
+  conflict: {
+    title: "Conflict — {{emulator}}",
+    intro:
+      "These files changed on this device and on Drive since the last sync. Choose which version to keep — syncing this emulator is paused until you resolve it. The version discarded locally is saved to backup.",
+    thisDevice: "This device",
+    drive: "Drive",
+    keepLocal: "Keep local",
+    keepDrive: "Keep Drive's",
+  },
+} as const;
