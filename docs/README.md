@@ -36,57 +36,10 @@ retrogames com o Google Drive.
 | [Distribuição pública e confiança](./distribuicao-publica.md) | SmartScreen, OAuth Google, GitHub Attestations (descartado), Microsoft Store |
 | [17 — Suporte Android](./17-suporte-android.md) | Fases 3/5/6/7: scaffolding APK, OAuth deep link, SecretStore, gatilhos lifecycle e UI mobile |
 | [Portabilidade multiplataforma](./multiplataforma-checklist.md) | Checklist faseado para Windows/Linux/macOS/Steam Deck/Android/iOS; abstração de storage, OAuth e keyring mobile |
+| [Como adicionar por plataforma](./plataformas-como-adicionar.md) | Guia prático: comandos gerais, desktop-only, mobile-only; módulos `platform/`; dependências condicionais; checklist |
 | [Bugs](./bugs/) | Bugs documentados com causa raiz e soluções consideradas — inclui [BUG-005](./bugs/bug-005-validacao-filesystem-mobile.md): validações `PathBuf` incompatíveis com URIs SAF no mobile |
 | [Features](./features/) | Propostas de funcionalidades futuras — identificação de jogos, configurações, perfis-como-dados, batch upload, proxy Worker, otimização de performance do sync |
-
-## Estado atual
-
-| Passo | Descrição | Status |
-| --- | --- | --- |
-| 1 | Arquitetura e decisões técnicas | ✅ Concluído |
-| 2 | Scaffolding do projeto | ✅ Concluído (`dc3ddf7`) |
-| 3 | Autenticação Google OAuth2 | ✅ Concluído (`0ea3a86`, `637d911`) |
-| 4 | Detecção de emuladores | ✅ Concluído (`d5a1da3`) |
-| 5 | Módulo de sincronização | ✅ Concluído (`f3639fc`) |
-| 6 | Monitoramento de processos | ✅ Concluído (`60a0ae6`) |
-| 7 | UI e system tray | ✅ Concluído (`bbc8ac7`) |
-
-**v1.0 funcionalmente completa** — os 7 passos concluídos. **Lint/format**: ESLint, Prettier,
-rustfmt e clippy limpos.
-
-### v1.1 — Configurações e segurança de dados (FEATURE-002, BUG-001, BUG-002)
-
-| Passo | Descrição | Doc | Status |
-| --- | --- | --- | --- |
-| 1 | Login + nome do dispositivo | [08](./08-login-dispositivo.md) | ✅ Concluído |
-| 2 | Nome do dispositivo nas configurações | [09](./09-configuracoes-dispositivo.md) | ✅ Concluído |
-| 3 | Categorias de sync por emulador | [10](./10-categorias-sync.md) | ✅ Concluído |
-| 4 | Sync automático por gatilho | [11](./11-gatilhos-automaticos.md) | ✅ Concluído |
-| 5 | Nível de notificações nativas | [12](./12-nivel-notificacoes.md) | ✅ Concluído |
-| 6 | Primeiro sync (Drive vence + backup) | [13](./13-primeiro-sync-backup.md) | ✅ Concluído |
-| 7 | Resolução de conflito | [14](./14-resolucao-conflito.md) | ✅ Concluído |
-
-**v1.1 completa** — os 5 passos da FEATURE-002 + BUG-001 + BUG-002. **72 testes** unitários Rust
-passando; ESLint, Prettier, rustfmt e clippy limpos.
-
-### Segurança — proxy de credenciais (FEATURE-005)
-
-| Item | Descrição | Doc | Status |
-| --- | --- | --- | --- |
-| Proxy Worker | Cloudflare Worker esconde o `client_secret`; só `CLIENT_ID`/`TOKEN_PROXY_URL`/`PROXY_SECRET` no CI | [15](./15-proxy-worker-oauth.md) | ✅ Concluído |
-
-### Correções pós-v1.1
-
-| Bug | Descrição | Doc | Status |
-| --- | --- | --- | --- |
-| BUG-003 | Troca do `root_path` de um emulador já configurado zerava só o perfil, não o manifest → sobrescrita do Drive por instalação mais antiga | [bug-003](./bugs/bug-003-troca-de-caminho-do-emulador.md) | ✅ Resolvido |
-| BUG-004 | Saves independentes de dispositivos diferentes eram sobrescritos no primeiro sync sem conflito → `device_id` estável no keyring, conflito explícito quando a origem é outro dispositivo | [bug-004](./bugs/bug-004-conflito-entre-dispositivos-primeiro-sync.md) | ✅ Resolvido |
-
-### Internacionalização
-
-| Item | Descrição | Doc | Status |
-| --- | --- | --- | --- |
-| i18n do frontend | `react-i18next`; inglês padrão + português; seletor nas configurações; erros traduzidos por `code`+`detail`; bandeja em inglês | [16](./16-internacionalizacao.md) | ✅ Concluído |
+| [Referência — Plataformas (RomM)](./referencia-plataformas-romm.md) | Análise do modelo de plataformas do RomM: `UniversalPlatformSlug`, detecção por pasta, organização de saves por console e o que trazer para o RetroSync |
 
 ### Portabilidade multiplataforma (Android/iOS/Linux/macOS/Steam Deck)
 
@@ -117,6 +70,6 @@ pelo arquivo mais recente e nunca apagando nada.
    conhece PPSSPP nem PCSX2.
 3. **Segurança por padrão** — tokens nunca cruzam a boundary; credenciais no keychain
    do SO; escopo OAuth mínimo (`drive.file`).
-4. **Não-destrutivo** — a v1.0 nunca deleta arquivos no Drive.
+4. **Não-destrutivo** — nunca deleta arquivos no Drive.
 5. **Offline-first** — falhas de rede viram pendências persistidas, não erros fatais.
 6. **Sem magic strings** — nomes de pastas, chaves e parâmetros são constantes nomeadas.
