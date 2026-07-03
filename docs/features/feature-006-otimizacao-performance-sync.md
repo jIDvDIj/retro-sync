@@ -1,6 +1,15 @@
 # FEATURE-006 — Otimização de performance do sync (chamadas à Drive API)
 
-**Status:** proposta (parte já implementada — ver abaixo)
+**Status:** ✅ itens 1 e 3 implementados · 🟡 item 2 pendente.
+- **Item 1 (cache de IDs persistido):** ✅ tabela `drive_folders` (SCHEMA_V6) +
+  `storage::drive_folders`; `DriveClient` carrega o cache no boot e grava a cada ID novo;
+  invalidação reativa em `notFound` (erro tipado `AppError::DriveObjectNotFound` →
+  `SyncEngine` re-resolve) e limpeza no logout (`clear_folder_cache`).
+- **Item 3 (concorrência):** ✅ `DRIVE_MAX_CONCURRENT_TRANSFERS` elevado de 3 → 6.
+- **Item 2 (poda do `list_tree` por `modifiedTime`):** 🟡 não implementado — deixado para
+  depois por exigir persistir o `modifiedTime` das pastas e ter maior risco de regressão
+  na detecção de mudança remota (BUG-004). Ver seção abaixo.
+
 **Componentes afetados:** `src-tauri/src/drive/client.rs`, `src-tauri/src/drive/folders.rs`, `src-tauri/src/drive/files.rs`, `src-tauri/src/sync/engine.rs`, `src-tauri/src/storage/`
 
 ---

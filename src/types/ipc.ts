@@ -64,6 +64,18 @@ export interface SyncCategories {
   config: boolean;
 }
 
+/** `games::SyncedGame` — jogo sincronizado, agregado do manifest (FEATURE-001) */
+export interface SyncedGame {
+  /** Serial técnico extraído do caminho (`ULUS12345`) ou nome de arquivo. */
+  serial: string;
+  /** `null` quando o serial não está na base de nomes — a UI mostra o serial. */
+  name: string | null;
+  emulator: string;
+  categories: ("saves" | "savestates" | "config")[];
+  lastSyncedAtMs: number;
+  sizeBytes: number;
+}
+
 /** `sync::SyncDirection` */
 export type SyncDirection = "DriveToLocal" | "LocalToDrive" | "Bidirectional";
 
@@ -146,6 +158,7 @@ export interface AppErrorPayload {
     | "emulator_not_detected"
     | "emulator_exists"
     | "file_busy"
+    | "drive_not_found"
     | "other";
   message: string;
   /** Detalhe técnico sem o prefixo (caminho, nome, msg da lib). O frontend

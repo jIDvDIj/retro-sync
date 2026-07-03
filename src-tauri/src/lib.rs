@@ -6,6 +6,7 @@ mod drive;
 mod emulator;
 mod error;
 mod events;
+mod games;
 mod platform;
 mod secrets;
 mod state;
@@ -86,7 +87,7 @@ pub fn run() {
             }
 
             let auth = Arc::new(auth::AuthManager::new(http.clone(), secret_store.clone()));
-            let drive = Arc::new(drive::DriveClient::new(http, auth.clone()));
+            let drive = Arc::new(drive::DriveClient::new(http, auth.clone(), db.clone()));
 
             // Storage local: filesystem no desktop; plugin nativo (SAF/bookmarks)
             // no mobile, montado a partir da ponte registrada pelo plugin acima.
@@ -102,7 +103,7 @@ pub fn run() {
                 app.handle().clone(),
                 last_sync.clone(),
                 data_dir.join(constants::LOCAL_BACKUP_DIR),
-                storage,
+                storage.clone(),
                 secret_store,
             ));
 
@@ -111,6 +112,7 @@ pub fn run() {
                 db: db.clone(),
                 engine: engine.clone(),
                 last_sync,
+                storage,
             });
 
             // Bandeja, janela escondível, autostart e process watcher são
@@ -197,6 +199,7 @@ pub fn run() {
             commands::add_emulator_manual,
             commands::discover_emulators,
             commands::list_emulators,
+            commands::list_synced_games,
             commands::remove_emulator,
             commands::sync_now,
             commands::get_last_sync,

@@ -337,6 +337,23 @@ impl<B: PluginBridge> LocalStorage for MobileStorage<B> {
         let _: serde_json::Value = self.call(CMD_COPY, req).await?;
         Ok(())
     }
+
+    async fn is_valid_root(&self, loc: &FileLoc) -> bool {
+        // A raiz mobile é a árvore concedida (URI SAF): existe = concedida e
+        // acessível. O plugin resolve `DocumentFile` a partir da URI (BUG-005).
+        self.exists(loc).await
+    }
+
+    async fn subdir_exists(&self, root: &FileLoc, rel: &str) -> bool {
+        // Constrói `{tree, rel}` explicitamente para não achatar árvore+subpasta
+        // num único path (o que `join` faria para locadores de caminho nativo).
+        let base = loc_to_docref(root);
+        let doc = DocRef {
+            tree: base.tree,
+            rel: join_rel(&base.rel, rel),
+        };
+        self.exists(&docref_to_loc(&doc)).await
+    }
 }
 
 // --- Ligação ao runtime nativo (PluginHandle) ---

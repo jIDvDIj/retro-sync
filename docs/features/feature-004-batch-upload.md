@@ -1,7 +1,10 @@
 # FEATURE-004 — Batch upload para sync inicial com coleções grandes
 
-**Status:** proposta  
-**Componentes afetados:** `src-tauri/src/drive/files.rs`, `src-tauri/src/sync/` (onde uploads são disparados)
+**Status:** ✅ implementada — `DriveClient::upload_batch` (`drive/files.rs`, `multipart/mixed`
+até `DRIVE_BATCH_MAX_OPS` = 100) e o pré-passo `SyncEngine::batch_new_uploads`
+(`sync/engine.rs`), que agrupa uploads de arquivos novos e pequenos e cai para o caminho
+per-file no que o batch não conseguir. Ativado a partir de `DRIVE_BATCH_MIN_OPS` elegíveis.  
+**Componentes afetados:** `src-tauri/src/drive/files.rs`, `src-tauri/src/sync/engine.rs`, `src-tauri/src/constants.rs`
 
 ---
 

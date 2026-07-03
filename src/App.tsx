@@ -11,6 +11,7 @@ import { useAuth } from "./hooks/useAuth";
 import { useConflicts } from "./hooks/useConflicts";
 import { useEmulators } from "./hooks/useEmulators";
 import { useSettings } from "./hooks/useSettings";
+import { useSyncedGames } from "./hooks/useSyncedGames";
 import { useSyncEvents } from "./hooks/useSyncEvents";
 import "./App.css";
 
@@ -59,6 +60,7 @@ function MainScreen({ auth, settings, reloadSettings }: MainScreenProps) {
   const sync = useSyncEvents();
   const { emulators, loading, error, refresh, remove } = useEmulators();
   const { conflicts, reload: reloadConflicts } = useConflicts();
+  const games = useSyncedGames();
   const [showSettings, setShowSettings] = useState(false);
 
   return (
@@ -98,6 +100,7 @@ function MainScreen({ auth, settings, reloadSettings }: MainScreenProps) {
                 profile={profile}
                 running={sync.running.has(profile.name)}
                 conflicts={conflicts.filter((c) => c.emulator === profile.name)}
+                games={games.filter((g) => g.emulator === profile.name)}
                 onRemove={remove}
                 onConflictResolved={reloadConflicts}
               />

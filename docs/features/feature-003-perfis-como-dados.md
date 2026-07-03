@@ -1,6 +1,9 @@
 # FEATURE-003 — Perfis-como-dados + descoberta automática + fallback manual
 
-**Status:** proposta
+**Status:** ✅ implementada — `emulator/profiles.toml` + `emulator/profiles.rs`
+(catálogo dirigido por dados), comandos `add_emulator_manual` e `discover_emulators`,
+tipos `DiscoveredEmulator`/`DiscoverySource` espelhados no TS. Os módulos `ppsspp.rs`
+e `pcsx2.rs` deixaram de existir. O texto abaixo é o plano original.
 **Componentes afetados:** `src-tauri/src/emulator/`, `src-tauri/src/commands.rs`,
 `src-tauri/src/error.rs`, `src/types/ipc.ts`, `src/lib/ipc.ts`, `src/`
 

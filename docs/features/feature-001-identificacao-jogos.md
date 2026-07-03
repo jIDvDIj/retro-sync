@@ -1,7 +1,13 @@
 # FEATURE-001 — Identificação de jogos sincronizados por emulador
 
-**Status:** proposta  
-**Componentes afetados:** `src-tauri/src/emulator/`, `src-tauri/src/storage/`, `src-tauri/src/commands.rs`, `src/`
+**Status:** ✅ implementada (parcial) — extração de serial do `rel_path`, agregação por
+jogo e comando `list_synced_games` (`games::aggregate`), com struct `SyncedGame` espelhada
+no TS e lista por emulador na UI (`GameList`, toggle no `EmulatorCard`). A tradução
+serial → nome usa uma **tabela embutida pequena e verificada** (`games::NAMES`); a
+cobertura ampla via **OpenVGDB** (Opção A, abaixo) segue pendente — sem correspondência,
+a UI exibe o próprio serial.  
+**Componentes:** `src-tauri/src/games/`, `src-tauri/src/commands.rs` (`list_synced_games`),
+`src/types/ipc.ts` (`SyncedGame`), `src/components/GameList.tsx`, `src/hooks/useSyncedGames.ts`
 
 ---
 

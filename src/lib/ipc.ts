@@ -16,6 +16,7 @@ import type {
   NotificationLevel,
   Settings,
   SyncCategories,
+  SyncedGame,
   SyncSummary,
   TriggerSettings,
 } from "../types/ipc";
@@ -76,6 +77,11 @@ export function listEmulators(): Promise<EmulatorProfile[]> {
 /** Emuladores do catálogo detectados instalados no sistema. Não persiste nada. */
 export function discoverEmulators(): Promise<DiscoveredEmulator[]> {
   return invoke<DiscoveredEmulator[]>("discover_emulators");
+}
+
+/** Jogos sincronizados (agregados do manifest), com nome legível quando conhecido. */
+export function listSyncedGames(): Promise<SyncedGame[]> {
+  return invoke<SyncedGame[]>("list_synced_games");
 }
 
 /** Remove da sincronização; nada é apagado no Drive nem no disco. */

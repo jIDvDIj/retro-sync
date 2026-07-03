@@ -76,6 +76,18 @@ impl DriveClient {
             .write()
             .await
             .insert(cache_key.to_string(), folder.id.clone());
+
+        // Espelha o ID no SQLite para sobreviver a reinícios (FEATURE-006).
+        // Best-effort: uma falha aqui só faz o próximo boot re-resolver esta pasta.
+        let (key, id) = (cache_key.to_string(), folder.id.clone());
+        if let Err(err) = self
+            .db
+            .with(move |conn| crate::storage::drive_folders::upsert(conn, &key, &id))
+            .await
+        {
+            tracing::warn!(error = %err, path = cache_key, "falha ao persistir ID de pasta do Drive");
+        }
+
         Ok(folder.id)
     }
 
