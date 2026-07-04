@@ -1,5 +1,8 @@
 # BUG-005 — Validações de filesystem incompatíveis com URIs SAF (mobile)
 
+**Status:** ✅ resolvido — validação desacoplada via `LocalStorage`
+(`is_valid_root`/`subdir_exists`); os `#[cfg(not(mobile))]` de validação foram removidos.
+
 ## Sintoma
 
 Ao adicionar um emulador no Android, o app retorna erros como:
@@ -49,31 +52,33 @@ Idealmente **nenhum código fora de `sync/storage.rs`** deveria manipular caminh
 diretamente — todo acesso a "existe essa pasta?" deveria passar pelo trait `LocalStorage`,
 que sabe como tratar tanto `PathBuf` quanto URIs SAF.
 
-## Solução desacoplada (a implementar)
+## Solução desacoplada (aplicada)
 
-Adicionar ao trait `LocalStorage` um método de validação:
+O trait `LocalStorage` ganhou dois métodos de validação:
 
 ```rust
 pub trait LocalStorage: Send + Sync {
     // ... métodos existentes ...
 
-    /// Verifica se o locador aponta para um diretório válido e acessível.
+    /// O locador aponta para um diretório válido e acessível?
     async fn is_valid_root(&self, loc: &FileLoc) -> bool;
 
-    /// Verifica se um caminho relativo existe sob a raiz.
+    /// Existe a subpasta `rel` (separador `/`) sob `root`?
     async fn subdir_exists(&self, root: &FileLoc, rel: &str) -> bool;
 }
 ```
 
-`DesktopStorage` implementaria com `Path::is_dir`; `MobileStorage` delegaria ao
-`StoragePlugin` (que usaria `DocumentFile.isDirectory()` via SAF).
+`DesktopStorage` implementa com `Path::is_dir` (via `tokio::fs::metadata`); `MobileStorage`
+delega ao plugin nativo reusando o comando `exists` (`DocumentFile` a partir da URI SAF),
+sem exigir código Kotlin novo.
 
-Os comandos `add_emulator` / `add_emulator_manual` receberiam o `LocalStorage` via
-`AppState` e chamariam `is_valid_root` / `subdir_exists` em vez de `PathBuf::is_dir`.
-Isso eliminaria todos os `#[cfg(not(mobile))]` de validação e centralizaria o
-conhecimento de "como acessar arquivos" no trait.
+`AppState` passou a expor o `Arc<dyn LocalStorage>`. Os comandos `detect_emulator`,
+`add_emulator` e `add_emulator_manual` chamam `is_valid_root`/`subdir_exists` em vez de
+`PathBuf::is_dir` — a validação de existência saiu do `build_manual_profile` (agora puro,
+só segurança de caminho) e todos os `#[cfg(not(mobile))]` de validação foram removidos. O
+conhecimento de "como acessar arquivos" ficou centralizado no trait.
 
 ## Status
 
-- [x] Paliativo aplicado (`#[cfg(not(mobile))]`) — mobile funciona sem validação antecipada
-- [ ] Refatoração desacoplada pendente (adicionar `is_valid_root`/`subdir_exists` ao trait)
+- [x] Paliativo aplicado (`#[cfg(not(mobile))]`) — mobile funcionava sem validação antecipada
+- [x] Refatoração desacoplada (`is_valid_root`/`subdir_exists` no trait; comandos via `AppState`)

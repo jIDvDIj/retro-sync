@@ -28,6 +28,10 @@ export const sync: Localized<typeof SyncEn> = {
     resolveConflict_other: "Resolver conflito ({{count}})",
     removing: "Removendo…",
     remove: "Remover",
+    games_one: "▸ {{count}} jogo",
+    games_other: "▸ {{count}} jogos",
+    hideGames: "▾ Ocultar jogos",
+    noGames: "nenhum jogo sincronizado ainda",
   },
   conflict: {
     title: "Conflito — {{emulator}}",

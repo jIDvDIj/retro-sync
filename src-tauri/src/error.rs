@@ -40,6 +40,9 @@ pub enum AppError {
     #[error("arquivo em uso (modificado durante a leitura): {0}")]
     FileBusy(String),
 
+    #[error("objeto não encontrado no Drive: {0}")]
+    DriveObjectNotFound(String),
+
     #[error("{0}")]
     Other(String),
 }
@@ -57,6 +60,7 @@ impl AppError {
             AppError::EmulatorNotDetected(_) => "emulator_not_detected",
             AppError::EmulatorExists(_) => "emulator_exists",
             AppError::FileBusy(_) => "file_busy",
+            AppError::DriveObjectNotFound(_) => "drive_not_found",
             AppError::Other(_) => "other",
         }
     }
@@ -76,6 +80,7 @@ impl AppError {
             | AppError::EmulatorNotDetected(s)
             | AppError::EmulatorExists(s)
             | AppError::FileBusy(s)
+            | AppError::DriveObjectNotFound(s)
             | AppError::Other(s) => s.clone(),
         }
     }

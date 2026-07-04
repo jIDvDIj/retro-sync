@@ -16,14 +16,15 @@ use crate::constants::{LOCAL_BACKUP_DIR, TRIGGER_MANUAL};
 use crate::emulator::{self, EmulatorProfile};
 use crate::error::{AppError, AppResult};
 use crate::events::EVT_AUTH_STATUS;
+use crate::games::{self, SyncedGame};
 use crate::state::AppState;
 use crate::storage::conflicts::{self, Conflict};
 use crate::storage::emulators::SyncCategories;
 use crate::storage::settings::{NotificationLevel, Settings, TriggerSettings};
 use crate::storage::{emulators, manifest, queue, settings};
-use crate::sync::{ConflictResolution, LastSync, SyncCategory, SyncDirection, SyncSummary};
-#[cfg(mobile)]
-use crate::sync::LocalStorage;
+use crate::sync::{
+    ConflictResolution, FileLoc, LastSync, SyncCategory, SyncDirection, SyncSummary,
+};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -160,23 +161,39 @@ pub async fn disconnect_google_drive(
     state: State<'_, AppState>,
 ) -> AppResult<AuthStatus> {
     let status = state.auth.disconnect().await?;
+    // Os IDs de pasta cacheados são por conta Google — zera para não reaproveitá-los
+    // ao conectar com outra conta (FEATURE-006).
+    state.engine.clear_folder_cache().await;
     let _ = app.emit(EVT_AUTH_STATUS, &status);
     Ok(status)
+}
+
+/// Valida via `LocalStorage` que `path` aponta para uma pasta acessível. No
+/// desktop é `Path::is_dir`; no mobile a raiz é uma URI SAF conferida pelo
+/// plugin nativo. Centraliza a checagem que antes vazava `std::fs` e era pulada
+/// no mobile (BUG-005).
+async fn ensure_valid_root(state: &State<'_, AppState>, path: &str) -> AppResult<()> {
+    let loc = FileLoc::from_path(PathBuf::from(path));
+    if state.storage.is_valid_root(&loc).await {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("pasta não encontrada: {path}"),
+        )
+        .into())
+    }
 }
 
 /// Identifica o emulador presente na pasta selecionada pelo usuário.
 /// `Ok(None)` = pasta válida, mas nenhum emulador suportado reconhecido.
 #[tauri::command]
-pub async fn detect_emulator(path: String) -> AppResult<Option<EmulatorProfile>> {
+pub async fn detect_emulator(
+    state: State<'_, AppState>,
+    path: String,
+) -> AppResult<Option<EmulatorProfile>> {
+    ensure_valid_root(&state, &path).await?;
     let root = PathBuf::from(&path);
-    #[cfg(not(mobile))]
-    if !root.is_dir() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("pasta não encontrada: {}", root.display()),
-        )
-        .into());
-    }
 
     tokio::task::spawn_blocking(move || Ok(emulator::detect_emulator(&root)))
         .await
@@ -187,14 +204,8 @@ pub async fn detect_emulator(path: String) -> AppResult<Option<EmulatorProfile>>
 #[cfg(not(mobile))]
 #[tauri::command]
 pub async fn add_emulator(state: State<'_, AppState>, path: String) -> AppResult<EmulatorProfile> {
+    ensure_valid_root(&state, &path).await?;
     let root = PathBuf::from(&path);
-    if !root.is_dir() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("pasta não encontrada: {}", root.display()),
-        )
-        .into());
-    }
 
     let profile = tokio::task::spawn_blocking(move || emulator::detect_emulator(&root))
         .await
@@ -260,23 +271,30 @@ pub async fn add_emulator_manual(
     config_paths: Vec<String>,
 ) -> AppResult<EmulatorProfile> {
     let root = PathBuf::from(&path);
-    // No mobile o path é uma URI SAF (content://...) — não é um caminho de filesystem,
-    // então is_dir() sempre retorna false. A validação é feita pelo plugin nativo.
-    #[cfg(not(mobile))]
-    if !root.is_dir() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("pasta não encontrada: {}", root.display()),
-        )
-        .into());
-    }
+    let root_loc = FileLoc::from_path(root.clone());
+    // No mobile o path é uma URI SAF (content://...); a checagem de existência
+    // passa pelo plugin nativo via LocalStorage, não por std::fs (BUG-005).
+    ensure_valid_root(&state, &path).await?;
 
-    let profile = tokio::task::spawn_blocking(move || {
-        emulator::build_manual_profile(&root, name, saves_paths, state_paths, config_paths)
-    })
-    .await
-    .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))?
-    .map_err(AppError::Other)?;
+    let profile = emulator::build_manual_profile(&root, name, saves_paths, state_paths, config_paths)
+        .map_err(AppError::Other)?;
+
+    // Cada pasta informada precisa existir sob a raiz. A checagem sai do
+    // `build_manual_profile` (puro) e passa pelo `LocalStorage`, que sabe tratar
+    // tanto caminhos nativos quanto URIs SAF.
+    for rel in profile
+        .saves_paths
+        .iter()
+        .chain(&profile.state_paths)
+        .chain(&profile.config_paths)
+    {
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        if !state.storage.subdir_exists(&root_loc, &rel_str).await {
+            return Err(AppError::Other(format!(
+                "pasta não encontrada sob a raiz: {rel_str}"
+            )));
+        }
+    }
 
     let name_check = profile.name.clone();
     if state
@@ -309,6 +327,15 @@ pub async fn discover_emulators() -> AppResult<Vec<emulator::DiscoveredEmulator>
 #[tauri::command]
 pub async fn list_emulators(state: State<'_, AppState>) -> AppResult<Vec<EmulatorProfile>> {
     state.db.with(emulators::list).await
+}
+
+/// Jogos cujos arquivos foram sincronizados, agregados a partir do manifest e
+/// com o serial traduzido para nome legível quando conhecido (FEATURE-001). A
+/// UI lista por emulador; sem nome, exibe o próprio serial.
+#[tauri::command]
+pub async fn list_synced_games(state: State<'_, AppState>) -> AppResult<Vec<SyncedGame>> {
+    let entries = state.db.with(manifest::list_all).await?;
+    Ok(games::aggregate(entries))
 }
 
 /// Remove o emulador da sincronização (manifest e pendências inclusos).

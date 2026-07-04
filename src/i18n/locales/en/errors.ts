@@ -9,6 +9,7 @@ export const errors = {
     emulator_not_detected: "Emulator not recognized in folder",
     emulator_exists: "An emulator with this name already exists",
     file_busy: "File in use (modified while reading)",
+    drive_not_found: "Folder or file not found on Drive",
     unexpected: "Unexpected error talking to the backend",
   },
 } as const;

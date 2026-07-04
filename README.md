@@ -1,5 +1,8 @@
 # RetroSync
 
+[![CI](https://github.com/jIDvDIj/retro-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/jIDvDIj/retro-sync/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/jIDvDIj/retro-sync/graph/badge.svg)](https://codecov.io/gh/jIDvDIj/retro-sync)
+
 **Seus jogos, do ponto exato onde você parou — em qualquer máquina.**
 
 O RetroSync é um aplicativo para computador que guarda automaticamente seus **saves,

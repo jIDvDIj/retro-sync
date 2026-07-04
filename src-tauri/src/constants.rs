@@ -53,8 +53,22 @@ pub const WATCHER_STOP_DEBOUNCE_TICKS: u32 = 2;
 /// Máximo de tentativas (com backoff exponencial) por chamada à API do Drive.
 pub const DRIVE_MAX_RETRIES: u32 = 3;
 
-/// Máximo de transferências simultâneas com o Drive.
-pub const DRIVE_MAX_CONCURRENT_TRANSFERS: usize = 3;
+/// Máximo de transferências simultâneas com o Drive. Elevado de 3 → 6 para
+/// encurtar o tempo total em coleções com muitos arquivos pequenos; o
+/// `send_with_retry` absorve eventuais 429/rateLimit com backoff (FEATURE-006).
+pub const DRIVE_MAX_CONCURRENT_TRANSFERS: usize = 6;
+
+/// Acima deste tamanho o upload usa sessão resumable; abaixo, multipart — e o
+/// arquivo é elegível ao batch (a Batch API não suporta resumable).
+pub const DRIVE_SIMPLE_UPLOAD_MAX_BYTES: usize = 5 * 1024 * 1024;
+
+/// Máximo de operações agrupadas num único request de batch (limite do Google).
+pub const DRIVE_BATCH_MAX_OPS: usize = 100;
+
+/// Mínimo de uploads novos elegíveis para valer a pena montar um batch. Abaixo
+/// disso, o caminho per-file concorrente já resolve sem o overhead do batch —
+/// o ganho do batch aparece no primeiro sync de coleções grandes (FEATURE-004).
+pub const DRIVE_BATCH_MIN_OPS: usize = 12;
 
 /// Sufixo de arquivos temporários de download (gravação atômica via rename).
 /// O scan local ignora arquivos com este sufixo.

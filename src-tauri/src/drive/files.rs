@@ -11,8 +11,8 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::{
-    ms_to_rfc3339, DriveClient, DRIVE_API_BASE, DRIVE_UPLOAD_BASE, FILE_FIELDS, FOLDER_MIME_TYPE,
-    LIST_FIELDS, OCTET_STREAM, SIMPLE_UPLOAD_MAX_BYTES,
+    ms_to_rfc3339, DriveClient, DRIVE_API_BASE, DRIVE_BATCH_BASE, DRIVE_UPLOAD_BASE, FILE_FIELDS,
+    FOLDER_MIME_TYPE, LIST_FIELDS, OCTET_STREAM, SIMPLE_UPLOAD_MAX_BYTES,
 };
 use crate::constants::{DRIVE_APP_PROP_DEVICE, DRIVE_APP_PROP_DEVICE_ID};
 use crate::error::{AppError, AppResult};
@@ -93,6 +93,20 @@ impl DriveFile {
 pub struct RemoteFile {
     pub rel_path: String,
     pub file: DriveFile,
+}
+
+/// Um upload de arquivo **novo** agrupável em batch. Restrito a arquivos pequenos
+/// (≤ `SIMPLE_UPLOAD_MAX_BYTES`): a Batch API só aceita `multipart`, não sessões
+/// resumable. Possui os dados (sem lifetimes) para acumular numa `Vec` entre
+/// awaits no engine (FEATURE-004).
+#[derive(Debug, Clone)]
+pub struct BatchUploadOp {
+    pub parent_id: String,
+    pub name: String,
+    pub content: Vec<u8>,
+    pub mtime_ms: i64,
+    pub device_name: Option<String>,
+    pub device_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -254,6 +268,49 @@ impl DriveClient {
         }
     }
 
+    /// Envia até `DRIVE_BATCH_MAX_OPS` arquivos novos e pequenos em um único
+    /// request `multipart/mixed`, reduzindo ~100× o número de chamadas HTTP no
+    /// primeiro sync de coleções grandes (FEATURE-004). Retorna os `DriveFile` na
+    /// MESMA ordem das operações. Erro se o batch — ou qualquer sub-request —
+    /// falhar; o chamador então cai no caminho per-file.
+    pub async fn upload_batch(&self, ops: Vec<BatchUploadOp>) -> AppResult<Vec<DriveFile>> {
+        if ops.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (boundary, body) = build_batch_body(&ops)?;
+        let content_type = format!("multipart/mixed; boundary={boundary}");
+
+        let response = self
+            .send_with_retry("files.batchUpload", |token| {
+                self.http
+                    .post(DRIVE_BATCH_BASE)
+                    .bearer_auth(token)
+                    .header(reqwest::header::CONTENT_TYPE, content_type.clone())
+                    .body(body.clone())
+            })
+            .await?;
+
+        let resp_boundary = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_boundary)
+            .ok_or_else(|| AppError::Other("resposta de batch sem boundary".into()))?;
+        let text = response.text().await?;
+
+        let mut items = parse_batch_response(&resp_boundary, &text)?;
+        if items.len() != ops.len() {
+            return Err(AppError::Other(format!(
+                "batch retornou {} respostas para {} operações",
+                items.len(),
+                ops.len()
+            )));
+        }
+        // A ordem das partes na resposta não é garantida; reordena pelo Content-ID.
+        items.sort_by_key(|(idx, _)| *idx);
+        Ok(items.into_iter().map(|(_, file)| file).collect())
+    }
+
     async fn upload_multipart(
         &self,
         method: reqwest::Method,
@@ -346,4 +403,216 @@ fn build_multipart_related(
     body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
 
     Ok((boundary, body))
+}
+
+/// Monta o corpo `multipart/mixed` do batch: cada parte é um `application/http`
+/// contendo um POST `multipart/related` (metadata + conteúdo). O `Content-ID`
+/// numera cada parte para correlacionar com a resposta.
+fn build_batch_body(ops: &[BatchUploadOp]) -> AppResult<(String, Vec<u8>)> {
+    // `fields` precisa ir percent-encoded (vírgulas) no path literal do sub-request.
+    let fields = FILE_FIELDS.replace(',', "%2C");
+    let boundary = format!("retrosync-batch-{:016x}", rand::random::<u64>());
+    let mut body = Vec::new();
+    for (i, op) in ops.iter().enumerate() {
+        let mut metadata = json!({
+            "name": op.name,
+            "parents": [op.parent_id],
+            "modifiedTime": ms_to_rfc3339(op.mtime_ms),
+        });
+        with_device(
+            &mut metadata,
+            DeviceTag {
+                name: op.device_name.as_deref(),
+                id: op.device_id.as_deref(),
+            },
+        );
+        let (sub_boundary, related) = build_multipart_related(&metadata, &op.content)?;
+
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        body.extend_from_slice(b"Content-Type: application/http\r\n");
+        body.extend_from_slice(format!("Content-ID: <item-{i}>\r\n\r\n").as_bytes());
+        body.extend_from_slice(
+            format!("POST /upload/drive/v3/files?uploadType=multipart&fields={fields}\r\n")
+                .as_bytes(),
+        );
+        body.extend_from_slice(
+            format!("Content-Type: multipart/related; boundary={sub_boundary}\r\n\r\n").as_bytes(),
+        );
+        body.extend_from_slice(&related);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    Ok((boundary, body))
+}
+
+/// Extrai `boundary=...` de um Content-Type `multipart/...`.
+fn parse_boundary(content_type: &str) -> Option<String> {
+    content_type.split(';').find_map(|part| {
+        part.trim()
+            .strip_prefix("boundary=")
+            .map(|b| b.trim_matches('"').to_string())
+    })
+}
+
+/// Divide o corpo `multipart/mixed` da resposta e extrai `(índice, DriveFile)` de
+/// cada sub-resposta. Erro se alguma sub-resposta não for 2xx.
+fn parse_batch_response(boundary: &str, body: &str) -> AppResult<Vec<(usize, DriveFile)>> {
+    let delim = format!("--{boundary}");
+    let mut out = Vec::new();
+    for part in body.split(delim.as_str()) {
+        let part = part.trim_start_matches(['\r', '\n', ' ']);
+        // Fecho do multipart (`--{boundary}--`) ou preâmbulo vazio.
+        if part.is_empty() || part.starts_with("--") {
+            continue;
+        }
+        // Só interessam as partes que carregam uma sub-resposta HTTP.
+        if !part.contains("HTTP/") {
+            continue;
+        }
+        if !inner_status_ok(part) {
+            let status = inner_status_line(part).unwrap_or("desconhecido");
+            return Err(AppError::Other(format!(
+                "sub-request do batch falhou: {status}"
+            )));
+        }
+        let idx = part
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("Content-ID:"))
+            .and_then(parse_response_index)
+            .unwrap_or(out.len());
+        let json = extract_json(part)
+            .ok_or_else(|| AppError::Other("sub-resposta do batch sem corpo JSON".into()))?;
+        let file: DriveFile = serde_json::from_str(json)?;
+        out.push((idx, file));
+    }
+    Ok(out)
+}
+
+/// A linha de status HTTP da sub-resposta (ex.: `HTTP/1.1 200 OK`).
+fn inner_status_line(part: &str) -> Option<&str> {
+    part.lines().map(str::trim).find(|l| l.starts_with("HTTP/"))
+}
+
+/// `true` se a sub-resposta trouxe um status 2xx.
+fn inner_status_ok(part: &str) -> bool {
+    inner_status_line(part)
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|code| code.parse::<u16>().ok())
+        .is_some_and(|code| (200..300).contains(&code))
+}
+
+/// Índice da parte a partir do `Content-ID` (`<response-item-3>` → `3`).
+fn parse_response_index(content_id: &str) -> Option<usize> {
+    content_id
+        .trim()
+        .trim_matches(['<', '>'])
+        .rsplit('-')
+        .next()?
+        .parse()
+        .ok()
+}
+
+/// Corpo JSON de uma parte: do primeiro `{` ao último `}` (as sub-respostas de
+/// upload têm um único objeto JSON após os headers).
+fn extract_json(part: &str) -> Option<&str> {
+    let start = part.find('{')?;
+    let end = part.rfind('}')?;
+    (end >= start).then(|| &part[start..=end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn op(name: &str, content: &[u8]) -> BatchUploadOp {
+        BatchUploadOp {
+            parent_id: "parent-123".into(),
+            name: name.into(),
+            content: content.to_vec(),
+            mtime_ms: 1_700_000_000_000,
+            device_name: Some("PC Gamer".into()),
+            device_id: Some("dev-uuid".into()),
+        }
+    }
+
+    #[test]
+    fn build_batch_body_gera_partes_por_op() {
+        let (boundary, body) = build_batch_body(&[op("a.bin", b"aaa"), op("b.bin", b"bbb")]).unwrap();
+        let text = String::from_utf8_lossy(&body);
+
+        // Duas sub-requests numeradas + fecho do multipart.
+        assert_eq!(text.matches("Content-Type: application/http").count(), 2);
+        assert!(text.contains("Content-ID: <item-0>"));
+        assert!(text.contains("Content-ID: <item-1>"));
+        assert!(text.contains("POST /upload/drive/v3/files?uploadType=multipart&fields="));
+        // `fields` vai percent-encoded.
+        assert!(text.contains("id%2Cname%2CmimeType"));
+        assert!(text.contains(&format!("--{boundary}--")));
+        // Origem do dispositivo estampada no metadata.
+        assert!(text.contains("appProperties"));
+        assert!(text.contains("PC Gamer"));
+    }
+
+    #[test]
+    fn parse_batch_response_extrai_e_ordena_por_content_id() {
+        // Resposta fora de ordem (item-1 antes de item-0): o parser reordena.
+        let boundary = "batchBOUNDARY";
+        let body = format!(
+            "--{b}\r\n\
+             Content-Type: application/http\r\n\
+             Content-ID: <response-item-1>\r\n\r\n\
+             HTTP/1.1 200 OK\r\n\
+             Content-Type: application/json; charset=UTF-8\r\n\r\n\
+             {{\"id\":\"id-B\",\"name\":\"b.bin\"}}\r\n\
+             --{b}\r\n\
+             Content-Type: application/http\r\n\
+             Content-ID: <response-item-0>\r\n\r\n\
+             HTTP/1.1 200 OK\r\n\
+             Content-Type: application/json; charset=UTF-8\r\n\r\n\
+             {{\"id\":\"id-A\",\"name\":\"a.bin\"}}\r\n\
+             --{b}--\r\n",
+            b = boundary
+        );
+
+        let mut items = parse_batch_response(boundary, &body).unwrap();
+        items.sort_by_key(|(idx, _)| *idx);
+        let ids: Vec<&str> = items.iter().map(|(_, f)| f.id.as_str()).collect();
+        assert_eq!(ids, vec!["id-A", "id-B"]);
+    }
+
+    #[test]
+    fn parse_batch_response_falha_em_sub_request_nao_2xx() {
+        let boundary = "b";
+        let body = format!(
+            "--{b}\r\n\
+             Content-Type: application/http\r\n\
+             Content-ID: <response-item-0>\r\n\r\n\
+             HTTP/1.1 403 Forbidden\r\n\
+             Content-Type: application/json\r\n\r\n\
+             {{\"error\":\"nope\"}}\r\n\
+             --{b}--\r\n",
+            b = boundary
+        );
+        assert!(parse_batch_response(boundary, &body).is_err());
+    }
+
+    #[test]
+    fn parse_boundary_le_do_content_type() {
+        assert_eq!(
+            parse_boundary("multipart/mixed; boundary=abc123").as_deref(),
+            Some("abc123")
+        );
+        assert_eq!(
+            parse_boundary("multipart/mixed; boundary=\"quoted\"").as_deref(),
+            Some("quoted")
+        );
+        assert_eq!(parse_boundary("application/json").as_deref(), None);
+    }
+
+    #[test]
+    fn parse_response_index_le_o_numero_final() {
+        assert_eq!(parse_response_index("<response-item-3>"), Some(3));
+        assert_eq!(parse_response_index(" <item-0> "), Some(0));
+        assert_eq!(parse_response_index("<sem-numero-x>"), None);
+    }
 }

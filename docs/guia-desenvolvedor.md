@@ -35,11 +35,16 @@ Referência oficial: [tauri.app/start/prerequisites](https://tauri.app/start/pre
 ```bash
 git clone <url-do-repo>
 cd retro-sync
-npm install            # dependências do frontend
+npm install                  # dependências do frontend
+sh scripts/install-hooks.sh  # instala o hook que valida Conventional Commits
 ```
 
 As dependências do Rust são baixadas automaticamente na primeira compilação
 (`tauri dev`/`build` ou `cargo`).
+
+> O hook `commit-msg` (versionado em `scripts/git-hooks/`) rejeita commits fora do padrão
+> `tipo(escopo): descrição`. Como o diretório `.git/` não é versionado, a instalação precisa
+> ser feita uma vez por clone.
 
 ---
 
@@ -99,21 +104,30 @@ Rode antes de abrir um PR — é o que a CI valida:
 
 ```bash
 # Frontend
-npm run lint            # ESLint
+npm run lint            # ESLint (inclui i18next/no-literal-string p/ strings hardcoded)
 npm run format:check    # Prettier (--check); `npm run format` aplica
 npm run build           # tsc + vite build (o que a CI roda em PR)
+npm run i18n:check      # paridade de chaves en ⇄ pt (via tsc)
+npm run i18n:extract    # auditoria: chaves usadas × definidas (órfãs/faltando)
 
 # Backend Rust
 cargo fmt    --manifest-path src-tauri/Cargo.toml     # rustfmt
 cargo clippy --manifest-path src-tauri/Cargo.toml     # lints
 cargo test   --manifest-path src-tauri/Cargo.toml     # testes unitários
 cargo test   --manifest-path src-tauri/Cargo.toml <nome_do_teste>   # um único teste
+sh scripts/check-licenses.sh                          # licenças das deps (cargo-deny)
 ```
 
-- **CI** (`.github/workflows/ci.yml`): em cada PR roda `lint` + `format:check` + `build` do
-  frontend.
-- **Release** (`.github/workflows/release.yml`): push de tag `v*` builda e publica (draft)
-  para macOS/Linux/Windows via `tauri-action`, validando antes os secrets de credenciais.
+- **CI** (`.github/workflows/ci.yml`): em cada PR roda, em jobs paralelos:
+  `lint`/`format:check`/`i18n:check`/`build` do frontend; testes Rust em **Windows e
+  Linux**; `clippy` (warnings bloqueantes); `cargo audit` (RustSec); licenças
+  (`cargo-deny`); cobertura (`cargo-tarpaulin` → Codecov); e `cargo check` do target
+  Android (pega quebras em código `#[cfg(mobile)]` antes da release). O job
+  **`ci-passed`** agrega tudo — é o único required check da proteção de branch.
+- **Release** (`.github/workflows/release.yml`): push na `main` calcula a versão pelos
+  Conventional Commits, cria a tag `app-v*`, monta as release notes
+  (`relnotes/vX.Y.md` + API do GitHub) e builda/publica para macOS/Linux/Windows/Android,
+  validando antes os secrets de credenciais.
 
 ---
 

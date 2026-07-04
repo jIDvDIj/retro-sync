@@ -93,13 +93,15 @@ pub fn discover_installed() -> Vec<DiscoveredEmulator> {
 
 /// Monta um `EmulatorProfile` a partir de pastas informadas manualmente pelo
 /// usuário (fallback quando a detecção automática falha). Os caminhos chegam
-/// relativos à raiz; cada um é validado e normalizado.
+/// relativos à raiz; cada um é validado quanto à *segurança* e normalizado.
 ///
 /// Falha (com mensagem para o usuário) se: o nome for vazio; algum caminho for
-/// absoluto, contiver `..`/prefixo de raiz, ou não existir como pasta sob a
-/// raiz; ou se nenhuma categoria tiver pasta (perfil vazio).
+/// absoluto ou contiver `..`/prefixo de raiz; ou se nenhuma categoria tiver
+/// pasta (perfil vazio).
 ///
-/// Faz I/O síncrono de disco — em contexto async, chamar via `spawn_blocking`.
+/// **Não** verifica se as pastas existem — essa checagem (que no mobile depende
+/// do SAF, não de `std::fs`) é feita pelo chamador via
+/// [`crate::sync::LocalStorage::subdir_exists`] (BUG-005). Função pura, sem I/O.
 pub fn build_manual_profile(
     root: &Path,
     name: String,
@@ -112,9 +114,9 @@ pub fn build_manual_profile(
         return Err("nome do emulador é obrigatório".into());
     }
 
-    let saves_paths = validate_rel_dirs(root, saves)?;
-    let state_paths = validate_rel_dirs(root, states)?;
-    let config_paths = validate_rel_dirs(root, config)?;
+    let saves_paths = validate_rel_dirs(saves)?;
+    let state_paths = validate_rel_dirs(states)?;
+    let config_paths = validate_rel_dirs(config)?;
 
     if saves_paths.is_empty() && state_paths.is_empty() && config_paths.is_empty() {
         return Err("informe ao menos uma pasta (saves, savestates ou config)".into());
@@ -130,9 +132,9 @@ pub fn build_manual_profile(
 }
 
 /// Valida e normaliza caminhos relativos à raiz. Entradas vazias são ignoradas
-/// (campo não preenchido na UI); rejeita absolutos, `..` e prefixos/raiz, e
-/// exige que cada pasta exista sob `root`.
-fn validate_rel_dirs(#[cfg(not(mobile))] root: &Path, #[cfg(mobile)] _root: &Path, dirs: Vec<String>) -> Result<Vec<PathBuf>, String> {
+/// (campo não preenchido na UI); rejeita absolutos, `..` e prefixos/raiz. A
+/// existência de cada pasta é conferida depois, pelo `LocalStorage` do chamador.
+fn validate_rel_dirs(dirs: Vec<String>) -> Result<Vec<PathBuf>, String> {
     let mut out = Vec::with_capacity(dirs.len());
     for d in dirs {
         if d.trim().is_empty() {
@@ -147,11 +149,6 @@ fn validate_rel_dirs(#[cfg(not(mobile))] root: &Path, #[cfg(mobile)] _root: &Pat
         });
         if rel.is_absolute() || escapes {
             return Err(format!("o caminho deve ser relativo à raiz: {d}"));
-        }
-        // No mobile o root é uma URI SAF — não é possível validar subpastas via filesystem.
-        #[cfg(not(mobile))]
-        if !root.join(&rel).is_dir() {
-            return Err(format!("pasta não encontrada sob a raiz: {d}"));
         }
         out.push(rel);
     }
@@ -306,19 +303,9 @@ mod tests {
         assert!(err.contains("ao menos uma pasta"));
     }
 
-    #[test]
-    fn manual_rejeita_caminho_inexistente() {
-        let tmp = tempfile::tempdir().unwrap();
-        let err = build_manual_profile(
-            tmp.path(),
-            "Emu".into(),
-            vec!["naoexiste".into()],
-            vec![],
-            vec![],
-        )
-        .unwrap_err();
-        assert!(err.contains("não encontrada"));
-    }
+    // A existência de cada pasta passou a ser conferida no comando via
+    // `LocalStorage::subdir_exists` (BUG-005) — coberta pelos testes de
+    // `subdir_exists` em `sync::storage`. Aqui só validamos segurança de caminho.
 
     #[test]
     fn manual_rejeita_path_traversal() {
