@@ -40,6 +40,7 @@ retrogames com o Google Drive.
 | [Bugs](./bugs/) | Bugs documentados com causa raiz e soluções consideradas — inclui [BUG-005](./bugs/bug-005-validacao-filesystem-mobile.md): validações `PathBuf` incompatíveis com URIs SAF no mobile |
 | [Features](./features/) | Propostas de funcionalidades futuras — identificação de jogos, configurações, perfis-como-dados, batch upload, proxy Worker, otimização de performance do sync |
 | [Referência — Plataformas (RomM)](./referencia-plataformas-romm.md) | Análise do modelo de plataformas do RomM: `UniversalPlatformSlug`, detecção por pasta, organização de saves por console e o que trazer para o RetroSync |
+| [Setup — Melhorias de tooling](./setup-melhorias-scripts.md) | Passo a passo das configurações pendentes das melhorias de scripts (hook de commit, Codecov, cargo-deny, lint i18n, relnotes) |
 
 ### Portabilidade multiplataforma (Android/iOS/Linux/macOS/Steam Deck)
 
