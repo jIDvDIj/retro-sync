@@ -22,6 +22,8 @@ use crate::storage::emulators::SyncCategories;
 use crate::storage::settings::{NotificationLevel, Settings, TriggerSettings};
 use crate::storage::{emulators, manifest, queue, settings};
 use crate::sync::{ConflictResolution, LastSync, SyncCategory, SyncDirection, SyncSummary};
+#[cfg(mobile)]
+use crate::sync::LocalStorage;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +57,36 @@ pub async fn pick_emulator_folder(app: AppHandle) -> AppResult<String> {
 pub async fn pick_emulator_folder(_app: AppHandle) -> AppResult<String> {
     Err(AppError::Other(
         "pick_emulator_folder não disponível no desktop".into(),
+    ))
+}
+
+/// Tenta reconhecer automaticamente o emulador na árvore SAF `tree` (URI
+/// concedida por [`pick_emulator_folder`]), testando o mesmo catálogo do
+/// `profiles.toml` usado no desktop — a diferença é que cada checagem de
+/// pasta vira uma chamada `exists` ao plugin nativo em vez de `is_dir()`.
+/// `None` quando nenhum emulador do catálogo é reconhecido (cai no formulário
+/// manual, como hoje).
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn detect_emulator_mobile(
+    tree: String,
+    state: State<'_, AppState>,
+) -> AppResult<Option<EmulatorProfile>> {
+    let storage = state.engine.storage().clone();
+    let profile = emulator::detect_emulator_async(&tree, |rel| {
+        let storage = storage.clone();
+        let loc = crate::sync::mobile_storage::doc_loc(&tree, &rel);
+        async move { storage.exists(&loc).await }
+    })
+    .await;
+    Ok(profile)
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn detect_emulator_mobile(_tree: String) -> AppResult<Option<EmulatorProfile>> {
+    Err(AppError::Other(
+        "detect_emulator_mobile não disponível no desktop".into(),
     ))
 }
 
@@ -152,10 +184,10 @@ pub async fn detect_emulator(path: String) -> AppResult<Option<EmulatorProfile>>
 }
 
 /// Detecta o emulador na pasta e o registra para sincronização.
+#[cfg(not(mobile))]
 #[tauri::command]
 pub async fn add_emulator(state: State<'_, AppState>, path: String) -> AppResult<EmulatorProfile> {
     let root = PathBuf::from(&path);
-    #[cfg(not(mobile))]
     if !root.is_dir() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -169,6 +201,35 @@ pub async fn add_emulator(state: State<'_, AppState>, path: String) -> AppResult
         .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))?
         .ok_or(AppError::EmulatorNotDetected(path))?;
 
+    persist_detected(&state, profile).await
+}
+
+/// Variante mobile: `path` é a URI SAF concedida, não um caminho de
+/// filesystem — a detecção passa pelo mesmo mecanismo assíncrono usado por
+/// `detect_emulator_mobile`, em vez de `emulator::detect_emulator` (que
+/// depende de `is_dir()` e sempre falharia aqui).
+#[cfg(mobile)]
+#[tauri::command]
+pub async fn add_emulator(state: State<'_, AppState>, path: String) -> AppResult<EmulatorProfile> {
+    let storage = state.engine.storage().clone();
+    let tree = path.clone();
+    let profile = emulator::detect_emulator_async(&tree, |rel| {
+        let storage = storage.clone();
+        let loc = crate::sync::mobile_storage::doc_loc(&tree, &rel);
+        async move { storage.exists(&loc).await }
+    })
+    .await
+    .ok_or(AppError::EmulatorNotDetected(path))?;
+
+    persist_detected(&state, profile).await
+}
+
+/// Grava o perfil detectado (upsert por raiz, com reset de estado de sync se o
+/// caminho mudou) — compartilhado pelas duas variantes de `add_emulator`.
+async fn persist_detected(
+    state: &State<'_, AppState>,
+    profile: EmulatorProfile,
+) -> AppResult<EmulatorProfile> {
     let to_store = profile.clone();
     let path_reset = state
         .db

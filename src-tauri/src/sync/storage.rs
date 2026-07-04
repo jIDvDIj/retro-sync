@@ -103,6 +103,15 @@ pub trait LocalStorage: Send + Sync {
     /// Resolve `base + rel_path` (`"jogo/save.bin"`) num locador de arquivo.
     fn join(&self, base: &FileLoc, rel_path: &str) -> FileLoc;
 
+    /// Locador da raiz de um emulador (`EmulatorProfile::root_path`). Ponto de
+    /// partida para [`Self::join`] — no desktop é um caminho de filesystem; no
+    /// mobile é a árvore SAF concedida (com `rel` vazio). Nunca usar
+    /// `FileLoc::from_path` diretamente sobre `root_path` fora daqui: no
+    /// mobile ele guarda uma URI (`content://...`), não um caminho real, e
+    /// tratá-lo como nativo grava fora da árvore concedida (falha com "Read-only
+    /// file system").
+    fn root_loc(&self, root: &Path) -> FileLoc;
+
     /// Serializa um locador para persistência (coluna `local_abs_path` do
     /// conflito no SQLite, que também cruza a boundary IPC).
     fn loc_to_stored(&self, loc: &FileLoc) -> String;
@@ -166,6 +175,10 @@ impl LocalStorage for DesktopStorage {
             path.push(part);
         }
         FileLoc::from_path(path)
+    }
+
+    fn root_loc(&self, root: &Path) -> FileLoc {
+        FileLoc::from_path(root.to_path_buf())
     }
 
     fn loc_to_stored(&self, loc: &FileLoc) -> String {
