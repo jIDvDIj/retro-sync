@@ -61,6 +61,18 @@ pub fn detect_emulator(root_path: &Path) -> Option<EmulatorProfile> {
     profiles::detect(root_path)
 }
 
+/// Variante mobile de [`detect_emulator`]: identifica o emulador presente sob
+/// a árvore SAF `root_display` delegando cada checagem de existência a
+/// `exists` (chamada ao plugin nativo), já que não há filesystem direto.
+#[cfg(mobile)]
+pub async fn detect_emulator_async<F, Fut>(root_display: &str, exists: F) -> Option<EmulatorProfile>
+where
+    F: FnMut(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    profiles::detect_async(root_display, exists).await
+}
+
 /// Nomes de processo do SO associados a um emulador, para o process watcher.
 /// Vazio se o nome canônico não corresponder a um perfil do catálogo.
 /// Só-desktop: no mobile não há process watcher.
