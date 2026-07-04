@@ -6,7 +6,13 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useDiscovery } from "../hooks/useDiscovery";
 import { usePlatform } from "../hooks/usePlatform";
 import { useErrorMessage } from "../lib/errors";
-import { addEmulator, addEmulatorManual, detectEmulator, pickEmulatorFolder } from "../lib/ipc";
+import {
+  addEmulator,
+  addEmulatorManual,
+  detectEmulator,
+  detectEmulatorMobile,
+  pickEmulatorFolder,
+} from "../lib/ipc";
 import type { DiscoveredEmulator, EmulatorProfile } from "../types/ipc";
 
 interface Props {
@@ -130,13 +136,20 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
     });
   };
 
-  // Mobile: abre o seletor SAF; pula a detecção (não há scan de filesystem).
+  // Mobile: abre o seletor SAF e tenta reconhecer o emulador via plugin
+  // nativo (mesmo catálogo do desktop, checagem de pasta por chamada SAF em
+  // vez de is_dir()); cai no formulário manual se não reconhecer.
   const pickRootMobile = async () => {
     await wrap("detect", async () => {
       const tree = await pickEmulatorFolder();
       resetManual();
       setRoot(tree);
-      setNeedsManual(true);
+      const profile = await detectEmulatorMobile(tree);
+      if (profile) {
+        setDetected(profile);
+      } else {
+        setNeedsManual(true);
+      }
     });
   };
 

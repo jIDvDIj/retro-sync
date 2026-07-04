@@ -181,6 +181,14 @@ impl SyncEngine {
         }
     }
 
+    /// Acesso ao armazenamento local — usado pela detecção automática mobile
+    /// (`commands::detect_emulator_mobile`), que precisa checar existência de
+    /// pastas via SAF fora do fluxo normal de sync.
+    #[cfg(mobile)]
+    pub fn storage(&self) -> &Arc<dyn LocalStorage> {
+        &self.storage
+    }
+
     /// Sincroniza todos os emuladores configurados.
     pub async fn sync_all(
         &self,
@@ -455,7 +463,10 @@ impl SyncEngine {
                 direction,
                 folder_id,
                 folder_key,
-                download_base: FileLoc::from_path(target.root.join(&bases[0])),
+                download_base: self.storage.join(
+                    &self.storage.root_loc(&target.root),
+                    &bases[0].to_string_lossy().replace('\\', "/"),
+                ),
                 backup_base: FileLoc::from_path(
                     self.backup_dir
                         .join(&target.label)

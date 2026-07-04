@@ -181,6 +181,17 @@ fn docref_to_loc(d: &DocRef) -> FileLoc {
     FileLoc::doc(serde_json::to_string(d).unwrap_or_default())
 }
 
+/// Constrói o [`FileLoc`] de um documento sob a árvore `tree`, no caminho
+/// relativo `rel`. Usado pela detecção automática mobile
+/// (`commands::detect_emulator_mobile`), que precisa checar existência de
+/// pastas candidatas fora do fluxo normal de sync.
+pub fn doc_loc(tree: &str, rel: &str) -> FileLoc {
+    docref_to_loc(&DocRef {
+        tree: tree.to_string(),
+        rel: rel.to_string(),
+    })
+}
+
 fn join_rel(base: &str, rel: &str) -> String {
     if base.is_empty() {
         rel.to_string()
@@ -238,6 +249,13 @@ impl<B: PluginBridge> LocalStorage for MobileStorage<B> {
         let mut d = loc_to_docref(base);
         d.rel = join_rel(&d.rel, rel_path);
         docref_to_loc(&d)
+    }
+
+    fn root_loc(&self, root: &Path) -> FileLoc {
+        // `root` guarda a URI SAF (`content://...`) como string — nunca um
+        // caminho de filesystem real. `doc_loc` com `rel` vazio aponta para a
+        // própria raiz da árvore concedida.
+        doc_loc(&root.to_string_lossy(), "")
     }
 
     fn loc_to_stored(&self, loc: &FileLoc) -> String {

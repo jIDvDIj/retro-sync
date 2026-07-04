@@ -94,6 +94,87 @@ pub fn detect(root: &Path) -> Option<EmulatorProfile> {
     specs().iter().find_map(|spec| try_match(root, spec))
 }
 
+/// Variante assíncrona de [`detect`], usada no mobile: em vez de checar
+/// `is_dir()` no filesystem, delega a existência de cada caminho candidato a
+/// `exists` (tipicamente uma chamada ao plugin SAF). `root_display` só é usado
+/// para preencher `EmulatorProfile::root_path` no perfil resultante.
+#[cfg(mobile)]
+pub async fn detect_async<F, Fut>(root_display: &str, mut exists: F) -> Option<EmulatorProfile>
+where
+    F: FnMut(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    for spec in specs() {
+        if let Some(profile) = try_match_async(root_display, spec, &mut exists).await {
+            return Some(profile);
+        }
+    }
+    None
+}
+
+#[cfg(mobile)]
+async fn try_match_async<F, Fut>(
+    root_display: &str,
+    spec: &ProfileSpec,
+    exists: &mut F,
+) -> Option<EmulatorProfile>
+where
+    F: FnMut(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    // 1. Resolve a base: primeiro base_candidate existente, ou a própria raiz.
+    let base = if spec.base_candidates.is_empty() {
+        String::new()
+    } else {
+        let mut found = None;
+        for c in &spec.base_candidates {
+            if exists(c.clone()).await {
+                found = Some(c.clone());
+                break;
+            }
+        }
+        found?
+    };
+    let join_base = |d: &str| -> String {
+        if base.is_empty() {
+            d.to_string()
+        } else {
+            format!("{base}/{d}")
+        }
+    };
+
+    // 2. required: todas precisam existir sob a base.
+    for d in &spec.required {
+        if !exists(join_base(d)).await {
+            return None;
+        }
+    }
+    // 3. markers: ao menos uma precisa existir (quando há marcadores).
+    if !spec.markers.is_empty() {
+        let mut any = false;
+        for d in &spec.markers {
+            if exists(join_base(d)).await {
+                any = true;
+                break;
+            }
+        }
+        if !any {
+            return None;
+        }
+    }
+
+    let join_vec = |dirs: &[String]| -> Vec<PathBuf> {
+        dirs.iter().map(|d| PathBuf::from(join_base(d))).collect()
+    };
+    Some(EmulatorProfile {
+        name: spec.name.clone(),
+        root_path: PathBuf::from(root_display),
+        saves_paths: join_vec(&spec.saves),
+        config_paths: join_vec(&spec.config),
+        state_paths: join_vec(&spec.states),
+    })
+}
+
 /// Nomes de processo do emulador de nome canônico `name`; vazio se desconhecido.
 /// Só-desktop: consumido pelo process watcher, inexistente no mobile.
 #[cfg(desktop)]

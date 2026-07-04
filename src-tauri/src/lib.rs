@@ -209,6 +209,7 @@ pub fn run() {
             commands::list_conflicts,
             commands::resolve_conflict,
             commands::pick_emulator_folder,
+            commands::detect_emulator_mobile,
             #[cfg(desktop)]
             commands::set_autostart,
             #[cfg(desktop)]
