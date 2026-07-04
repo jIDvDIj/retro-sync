@@ -1,0 +1,3 @@
+# Unifica identidades de commit (nome canônico por e-mail).
+# Usado pelo git em %aN/%aE e por scripts/update-authors.sh.
+David Wesley S. de Lucena <david02tk@gmail.com>
