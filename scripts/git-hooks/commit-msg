@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+# Valida a mensagem de commit contra Conventional Commits:
+#   tipo(escopo): descrição   — escopo e "!" (breaking change) opcionais.
+#
+# Instalado em .git/hooks/ por scripts/install-hooks.sh (o diretório .git/
+# não é versionado). Inspirado no script/commit-msg.go do Syncthing.
+
+subject=$(head -n 1 "$1")
+
+# Mensagens geradas pelo próprio git não seguem o padrão e passam direto.
+case "$subject" in
+  "Merge "* | "Revert "* | "fixup! "* | "squash! "*) exit 0 ;;
+esac
+
+types='feat|fix|docs|chore|refactor|test|style|perf|ci|build|merge'
+
+if ! printf '%s\n' "$subject" | grep -qE "^($types)(\([a-z0-9/._-]+\))?!?: .+"; then
+  echo "Erro: mensagem de commit não segue Conventional Commits." >&2
+  echo "" >&2
+  echo "  Esperado: tipo(escopo): descrição" >&2
+  echo "  Tipos:    ${types}" >&2
+  echo "  Recebido: ${subject}" >&2
+  echo "" >&2
+  echo "Exemplos: feat(sync): batch upload de saves" >&2
+  echo "          fix(auth): renovar token expirado antes do sync" >&2
+  exit 1
+fi
+
+exit 0

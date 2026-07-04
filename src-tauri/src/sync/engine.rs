@@ -161,6 +161,8 @@ pub struct SyncEngine {
 }
 
 impl SyncEngine {
+    // Construtor de injeção: recebe o wiring completo do app montado no setup.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: Db,
         drive: Arc<DriveClient>,

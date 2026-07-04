@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Sincronização automática de saves e configurações de emuladores com o Google Drive"
 authors = ["David"]
 edition = "2021"
+# App distribuído como binário, nunca publicado no crates.io; também permite ao
+# cargo-deny ignorar a ausência de license field neste crate (deny.toml).
+publish = false
 
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary

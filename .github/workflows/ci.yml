@@ -28,3 +28,184 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+  # Testes Rust por SO — pega quebra específica de Windows antes da release.
+  # (Toolchain beta ficou de fora de propósito: falso positivo de rustc beta
+  # bloquearia o gatekeeper ci-passed.)
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  # Lints do Rust — o código está limpo hoje, então warnings são bloqueantes.
+  clippy:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: cargo clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+  # Vulnerabilidades conhecidas (RustSec) nas dependências do Cargo.lock.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      # Ignores justificados (remover quando os parents atualizarem o quick-xml):
+      # - RUSTSEC-2026-0194/0195: quick-xml <0.41, transitivo via plist 1.9.0 e
+      #   tauri-winrt-notification 0.7.2 — ambos exigem <0.41, sem fix disponível
+      #   por cargo update. O XML processado não é controlado por atacante
+      #   (Info.plist local e XML de notificação gerado pelo próprio app).
+      - name: cargo audit
+        run: |
+          cargo audit --file src-tauri/Cargo.lock \
+            --ignore RUSTSEC-2026-0194 \
+            --ignore RUSTSEC-2026-0195
+
+  # Licenças das dependências Rust — política em src-tauri/deny.toml.
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checar licenças (cargo-deny)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+          manifest-path: src-tauri/Cargo.toml
+
+  # Compila o backend para o target Android (cargo check). Sem isso, uma quebra
+  # em código #[cfg(mobile)] só apareceria na hora da release — os demais jobs
+  # compilam apenas o target desktop. Não builda APK: sem Gradle, sem keystore.
+  #
+  # DESABILITADO temporariamente junto com o build Android do release.yml
+  # (secrets ANDROID_* pendentes). Para reativar: remover o `if: false` abaixo
+  # e devolver `android-check` ao needs do job ci-passed.
+  android-check:
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Mesma versão de NDK do job android do release.yml.
+      - name: Install NDK
+        run: sdkmanager "ndk;26.3.11579264"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      # cargo-ndk configura clang/linker do NDK para o cc (rusqlite bundled etc.);
+      # o binário fica no cache do rust-cache (cache-bin) após a primeira execução.
+      - name: Instalar cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      # cargo-ndk resolve `cargo metadata` no diretório corrente antes de
+      # repassar flags ao cargo, então precisa rodar de dentro do src-tauri.
+      - name: cargo check (aarch64-linux-android)
+        working-directory: src-tauri
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
+        run: cargo ndk -t arm64-v8a --platform 24 check
+
+  # Testes Rust com cobertura (cargo-tarpaulin) + upload para o Codecov.
+  coverage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Instalar cargo-tarpaulin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
+
+      - name: Testes com cobertura
+        run: |
+          cargo tarpaulin --manifest-path src-tauri/Cargo.toml \
+            --engine llvm --out Xml --output-dir coverage --timeout 300
+
+      - name: Upload para o Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/cobertura.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+  # Gatekeeper: único check a marcar como "required" na proteção de branch.
+  # Agrega todos os jobs — adicionar/remover job no workflow exige atualizar
+  # apenas o needs abaixo, sem mexer na configuração do GitHub.
+  # android-check está fora do needs enquanto desabilitado (if: false vira
+  # "skipped", e aqui só "success" passa) — devolver ao reativar.
+  ci-passed:
+    if: always()
+    needs: [checks, test, clippy, audit, licenses, coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar resultado de todos os jobs
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Resultados: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then
+              echo "::error::Há job com resultado '$r' — CI reprovado."
+              exit 1
+            fi
+          done

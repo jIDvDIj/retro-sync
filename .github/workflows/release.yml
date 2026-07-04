@@ -21,9 +21,8 @@ jobs:
     outputs:
       version: ${{ steps.tag.outputs.new_version }}
       tag: ${{ steps.tag.outputs.new_tag }}
-      # Changelog gerado a partir dos Conventional Commits desde a tag anterior;
-      # vira o corpo da release.
-      changelog: ${{ steps.tag.outputs.changelog }}
+      # Corpo da release: relnotes manuais + notas geradas pela API do GitHub.
+      release_body: ${{ steps.notes.outputs.body }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,11 +36,61 @@ jobs:
           tag_prefix: app-v
           default_bump: patch # fix→patch, feat→minor, BREAKING→major
 
+      # Combina os destaques manuais (relnotes/vX.Y.md, se existir) com as notas
+      # automáticas da API do GitHub (lista de PRs + contribuidores). Se a API
+      # falhar, cai no changelog de Conventional Commits calculado pela tag action.
+      - name: Montar corpo da release
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.new_tag }}
+          PREV_TAG: ${{ steps.tag.outputs.previous_tag }}
+          VERSION: ${{ steps.tag.outputs.new_version }}
+          CHANGELOG: ${{ steps.tag.outputs.changelog }}
+        run: |
+          body_file=$(mktemp)
+
+          manual="relnotes/v$(echo "$VERSION" | cut -d. -f1,2).md"
+          if [ -f "$manual" ]; then
+            cat "$manual" >> "$body_file"
+            echo "" >> "$body_file"
+          fi
+
+          args=(-f tag_name="$TAG")
+          # Na primeira release a tag anterior (app-v0.0.0) não existe; nesse caso
+          # a API detecta o intervalo sozinha.
+          if git rev-parse -q --verify "refs/tags/$PREV_TAG" >/dev/null; then
+            args+=(-f previous_tag_name="$PREV_TAG")
+          fi
+          if ! gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              "${args[@]}" --jq '.body' >> "$body_file"; then
+            echo "::warning::generate-notes falhou; usando o changelog de commits."
+            printf '%s\n' "$CHANGELOG" >> "$body_file"
+          fi
+
+          {
+            echo "body<<RELNOTES_EOF"
+            cat "$body_file"
+            echo ""
+            echo "---"
+            echo "Baixe o instalador da sua plataforma nos assets abaixo."
+            echo "RELNOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  # DESABILITADO até os secrets ANDROID_KEYSTORE_BASE64 / ANDROID_STORE_PASSWORD /
+  # ANDROID_KEY_PASSWORD serem configurados no GitHub (a validação de secrets
+  # abortava este job e derrubava o workflow inteiro a cada push na main).
+  # Para reativar: remover o `if: false` (ver docs/setup-melhorias-scripts.md).
   android:
+    if: false
     needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Builds reproduzíveis: timestamp fixo do commit em vez do relógio do runner.
+      - name: Definir SOURCE_DATE_EPOCH
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:
@@ -118,6 +167,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
+          body: ${{ needs.version.outputs.release_body }}
           files: |
             src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
             src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab
@@ -142,6 +192,11 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+
+      # Builds reproduzíveis: timestamp fixo do commit em vez do relógio do runner.
+      - name: Definir SOURCE_DATE_EPOCH
+        shell: bash
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
 
       - name: Validar secrets de credenciais
         shell: bash
@@ -211,11 +266,7 @@ jobs:
         with:
           tagName: ${{ needs.version.outputs.tag }}
           releaseName: RetroSync v${{ needs.version.outputs.version }}
-          releaseBody: |
-            ${{ needs.version.outputs.changelog }}
-
-            ---
-            Baixe o instalador da sua plataforma nos assets abaixo.
+          releaseBody: ${{ needs.version.outputs.release_body }}
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
