@@ -140,6 +140,28 @@ pub trait LocalStorage: Send + Sync {
 
     /// Copia `src` para `dest`, criando as pastas-pai do destino.
     async fn copy_to(&self, src: &FileLoc, dest: &FileLoc) -> AppResult<()>;
+
+    /// O locador aponta para um diretório válido e acessível? Usado para validar
+    /// a raiz de um emulador antes de registrá-lo, sem que o comando manipule
+    /// caminhos diretamente. No desktop é `Path::is_dir`; no mobile a raiz é uma
+    /// URI SAF (não um caminho de filesystem), então a checagem passa pelo plugin
+    /// nativo — ver BUG-005.
+    async fn is_valid_root(&self, loc: &FileLoc) -> bool;
+
+    /// Existe a subpasta `rel` (separador `/`) sob `root`? Valida os caminhos de
+    /// saves/savestates/config informados manualmente sem vazar `std::fs`/URIs
+    /// SAF para fora desta abstração.
+    async fn subdir_exists(&self, root: &FileLoc, rel: &str) -> bool;
+}
+
+/// `true` se `path` existe e é um diretório (não propaga erro — ausência,
+/// permissão negada ou "não é pasta" viram `false`).
+#[cfg(desktop)]
+async fn path_is_dir(path: &Path) -> bool {
+    tokio::fs::metadata(path)
+        .await
+        .map(|m| m.is_dir())
+        .unwrap_or(false)
 }
 
 /// Implementação desktop: filesystem nativo via `tokio::fs`/`filetime`.
@@ -239,6 +261,24 @@ impl LocalStorage for DesktopStorage {
         tokio::fs::copy(src, dest).await?;
         Ok(())
     }
+
+    async fn is_valid_root(&self, loc: &FileLoc) -> bool {
+        match loc.as_path() {
+            Some(p) => path_is_dir(p).await,
+            None => false,
+        }
+    }
+
+    async fn subdir_exists(&self, root: &FileLoc, rel: &str) -> bool {
+        let Some(base) = root.as_path() else {
+            return false;
+        };
+        let mut path = base.to_path_buf();
+        for part in rel.split('/').filter(|s| !s.is_empty()) {
+            path.push(part);
+        }
+        path_is_dir(&path).await
+    }
 }
 
 #[cfg(test)]
@@ -301,5 +341,34 @@ mod tests {
         let loc = FileLoc::from_path(tmp.path().join("nao_existe.bin"));
         assert!(s.mtime_ms(&loc).await.is_err());
         assert!(!s.exists(&loc).await);
+    }
+
+    #[tokio::test]
+    async fn is_valid_root_distingue_pasta_de_arquivo_e_ausencia() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = DesktopStorage;
+
+        // Pasta existente → válida.
+        assert!(s.is_valid_root(&FileLoc::from_path(tmp.path().to_path_buf())).await);
+        // Arquivo (não é pasta) → inválido.
+        let file = FileLoc::from_path(tmp.path().join("arquivo.bin"));
+        s.write_atomic(&file, b"x", None).await.unwrap();
+        assert!(!s.is_valid_root(&file).await);
+        // Inexistente → inválido.
+        assert!(!s
+            .is_valid_root(&FileLoc::from_path(tmp.path().join("nao_existe")))
+            .await);
+    }
+
+    #[tokio::test]
+    async fn subdir_exists_confere_subpasta_sob_a_raiz() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("PSP/SAVEDATA")).unwrap();
+        let s = DesktopStorage;
+        let root = FileLoc::from_path(tmp.path().to_path_buf());
+
+        assert!(s.subdir_exists(&root, "PSP/SAVEDATA").await);
+        assert!(s.subdir_exists(&root, "PSP").await);
+        assert!(!s.subdir_exists(&root, "PSP/NAOEXISTE").await);
     }
 }

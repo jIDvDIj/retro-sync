@@ -14,15 +14,17 @@ mod files;
 mod folders;
 
 pub use client::DriveClient;
-pub use files::{DeviceTag, DriveFile, RemoteFile};
+pub use files::{BatchUploadOp, DeviceTag, DriveFile, RemoteFile};
 
 pub(crate) const DRIVE_API_BASE: &str = "https://www.googleapis.com/drive/v3";
 pub(crate) const DRIVE_UPLOAD_BASE: &str = "https://www.googleapis.com/upload/drive/v3";
+/// Endpoint de batch: agrupa até 100 sub-requests em um `multipart/mixed`.
+pub(crate) const DRIVE_BATCH_BASE: &str = "https://www.googleapis.com/batch/drive/v3";
 pub(crate) const FOLDER_MIME_TYPE: &str = "application/vnd.google-apps.folder";
 pub(crate) const OCTET_STREAM: &str = "application/octet-stream";
 
 /// Acima disso o upload usa sessão resumable em vez de multipart.
-pub(crate) const SIMPLE_UPLOAD_MAX_BYTES: usize = 5 * 1024 * 1024;
+pub(crate) use crate::constants::DRIVE_SIMPLE_UPLOAD_MAX_BYTES as SIMPLE_UPLOAD_MAX_BYTES;
 
 pub(crate) const FILE_FIELDS: &str = "id,name,mimeType,modifiedTime,size,appProperties";
 pub(crate) const LIST_FIELDS: &str =

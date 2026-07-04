@@ -23,6 +23,10 @@ export const sync = {
     resolveConflict_other: "Resolve conflict ({{count}})",
     removing: "Removing…",
     remove: "Remove",
+    games_one: "▸ {{count}} game",
+    games_other: "▸ {{count}} games",
+    hideGames: "▾ Hide games",
+    noGames: "No synced games yet",
   },
   conflict: {
     title: "Conflict — {{emulator}}",

@@ -17,7 +17,11 @@ os wrappers tipados de `invoke`, em `src/lib/ipc.ts`.
 | `disconnect_google_drive` | — | `AuthStatus` | 3 |
 | `detect_emulator` | `path: string` | `EmulatorProfile \| null` | 4 |
 | `add_emulator` | `path: string` | `EmulatorProfile` | 5 |
+| `add_emulator_manual` | `name, path, savesPaths, statePaths, configPaths` | `EmulatorProfile` | FEAT-003 |
+| `discover_emulators` | — | `DiscoveredEmulator[]` | FEAT-003 |
+| `pick_emulator_folder` | — | `string` (URI SAF) | Android |
 | `list_emulators` | — | `EmulatorProfile[]` | 5 |
+| `list_synced_games` | — | `SyncedGame[]` | FEAT-001 |
 | `remove_emulator` | `name: string` | `void` | 5 |
 | `sync_now` | — | `SyncSummary` | 5 |
 | `get_last_sync` | — | `LastSync \| null` | 7 |
@@ -160,7 +164,8 @@ e no fechamento (`running: false`) de um emulador configurado.
 Todo comando que rejeita devolve este shape (de `error::AppError`):
 ```ts
 { code: "io" | "database" | "network" | "keyring" | "serialization"
-       | "auth" | "emulator_not_detected" | "emulator_exists" | "file_busy" | "other";
+       | "auth" | "emulator_not_detected" | "emulator_exists" | "file_busy"
+       | "drive_not_found" | "other";
   message: string;   // texto completo (prefixo + detalhe), em português — fallback
   detail: string }   // só o detalhe técnico (caminho, nome, msg da lib), sem prefixo
 ```

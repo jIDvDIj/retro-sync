@@ -22,8 +22,11 @@ use super::diff::{self, PlannedOp};
 use super::storage::{FileLoc, LocalStorage};
 use super::{SyncCategory, SyncDirection, SyncProgress, SyncTarget};
 use crate::auth::AuthManager;
-use crate::constants::{DRIVE_MANIFEST_FILE, DRIVE_MAX_CONCURRENT_TRANSFERS};
-use crate::drive::{DeviceTag, DriveClient};
+use crate::constants::{
+    DRIVE_BATCH_MAX_OPS, DRIVE_BATCH_MIN_OPS, DRIVE_MANIFEST_FILE, DRIVE_MAX_CONCURRENT_TRANSFERS,
+    DRIVE_SIMPLE_UPLOAD_MAX_BYTES,
+};
+use crate::drive::{BatchUploadOp, DeviceTag, DriveClient};
 use crate::error::{AppError, AppResult};
 use crate::events::{
     EVT_SYNC_COMPLETED, EVT_SYNC_CONFLICT, EVT_SYNC_ERROR, EVT_SYNC_PROGRESS, EVT_SYNC_STARTED,
@@ -196,6 +199,12 @@ impl SyncEngine {
         trigger: &str,
     ) -> AppResult<SyncSummary> {
         self.sync_filtered(None, direction, trigger).await
+    }
+
+    /// Zera o cache de IDs de pasta do Drive (memória + SQLite). Chamado no
+    /// logout para não reaproveitar IDs de outra conta Google (FEATURE-006).
+    pub async fn clear_folder_cache(&self) {
+        self.drive.clear_folder_cache().await;
     }
 
     /// Sincroniza um único emulador (gatilhos do process watcher).
@@ -419,7 +428,7 @@ impl SyncEngine {
                 continue;
             }
 
-            let folder_id = self
+            let mut folder_id = self
                 .drive
                 .ensure_category_folder(&target.label, *category)
                 .await?;
@@ -430,7 +439,27 @@ impl SyncEngine {
                 category.as_str()
             );
 
-            let remote = self.drive.list_tree(&folder_id).await?;
+            let remote = match self.drive.list_tree(&folder_id).await {
+                Ok(remote) => remote,
+                Err(AppError::DriveObjectNotFound(detail)) => {
+                    // ID de pasta cacheado ficou obsoleto (pasta movida/apagada
+                    // no Drive). Invalida a subárvore e re-resolve — reencontra a
+                    // existente ou recria (FEATURE-006).
+                    tracing::warn!(
+                        emulador = %target.label,
+                        categoria = category.as_str(),
+                        %detail,
+                        "pasta da categoria não encontrada no Drive; invalidando cache e re-resolvendo"
+                    );
+                    self.drive.invalidate_folder_path(&folder_key).await;
+                    folder_id = self
+                        .drive
+                        .ensure_category_folder(&target.label, *category)
+                        .await?;
+                    self.drive.list_tree(&folder_id).await?
+                }
+                Err(err) => return Err(err),
+            };
 
             let local = self.storage.scan(&target.root, bases).await?;
 
@@ -480,6 +509,12 @@ impl SyncEngine {
                 completed: AtomicU32::new(0),
             };
 
+            // FEATURE-004: uploads de arquivos NOVOS e pequenos vão em lote (Batch
+            // API), cortando ~100× as chamadas HTTP no primeiro sync de coleções
+            // grandes. Os demais (downloads, updates, conflitos, arquivos grandes)
+            // e o que o batch não conseguir seguem pelo caminho per-file abaixo.
+            let plan = self.batch_new_uploads(&ctx, plan, &mut summary).await;
+
             let outcomes = stream::iter(plan.into_iter().map(|op| self.execute_op(&ctx, op)))
                 .buffer_unordered(DRIVE_MAX_CONCURRENT_TRANSFERS)
                 .collect::<Vec<_>>()
@@ -513,17 +548,7 @@ impl SyncEngine {
             SyncAction::NoOp => Ok(()),
         };
 
-        let completed = ctx.completed.fetch_add(1, Ordering::Relaxed) + 1;
-        let _ = self.app.emit(
-            EVT_SYNC_PROGRESS,
-            &SyncProgress {
-                emulator: ctx.emulator.clone(),
-                current_file: rel_path.clone(),
-                completed,
-                total: ctx.total,
-                direction: ctx.direction,
-            },
-        );
+        self.emit_progress(ctx, &rel_path);
 
         match result {
             Ok(()) => {
@@ -571,6 +596,173 @@ impl SyncEngine {
                 }
             }
         }
+    }
+
+    /// Emite o evento de progresso e avança o contador de concluídos da categoria.
+    fn emit_progress(&self, ctx: &CategoryCtx, rel_path: &str) {
+        let completed = ctx.completed.fetch_add(1, Ordering::Relaxed) + 1;
+        let _ = self.app.emit(
+            EVT_SYNC_PROGRESS,
+            &SyncProgress {
+                emulator: ctx.emulator.clone(),
+                current_file: rel_path.to_string(),
+                completed,
+                total: ctx.total,
+                direction: ctx.direction,
+            },
+        );
+    }
+
+    /// Pré-passo de batch (FEATURE-004): envia em lote os uploads de arquivos
+    /// novos e pequenos, atualizando manifest/summary/progresso, e devolve o
+    /// plano restante para o caminho per-file. Ops inelegíveis ou que não puderam
+    /// ser preparadas (arquivo em uso, parent irresolvível) voltam ao restante,
+    /// preservando o tratamento de fila/erro individual do `execute_op`.
+    async fn batch_new_uploads(
+        &self,
+        ctx: &CategoryCtx,
+        plan: Vec<PlannedOp>,
+        summary: &mut SyncSummary,
+    ) -> Vec<PlannedOp> {
+        let (eligible, mut rest): (Vec<PlannedOp>, Vec<PlannedOp>) =
+            plan.into_iter().partition(is_batchable);
+
+        // Poucos elegíveis: o overhead de montar o batch não compensa — deixa o
+        // caminho per-file concorrente resolver.
+        if eligible.len() < DRIVE_BATCH_MIN_OPS {
+            rest.extend(eligible);
+            return rest;
+        }
+
+        // Prepara cada op (lê conteúdo, confere mtime estável, resolve parent).
+        let mut prepared: Vec<PreparedBatchOp> = Vec::with_capacity(eligible.len());
+        for op in eligible {
+            match self.prepare_batch_op(ctx, op).await {
+                Ok(item) => prepared.push(item),
+                Err(op) => rest.push(op),
+            }
+        }
+
+        tracing::info!(
+            emulador = %ctx.emulator,
+            categoria = ctx.category.as_str(),
+            arquivos = prepared.len(),
+            "batch upload de arquivos novos"
+        );
+
+        for chunk in prepared.chunks(DRIVE_BATCH_MAX_OPS) {
+            let ops: Vec<BatchUploadOp> = chunk.iter().map(|p| p.batch.clone()).collect();
+            match self.drive.upload_batch(ops).await {
+                Ok(files) if files.len() == chunk.len() => {
+                    for (p, uploaded) in chunk.iter().zip(files) {
+                        let drive_mtime = uploaded.modified_ms();
+                        let recorded = self
+                            .record_synced(
+                                ctx,
+                                &p.rel_path,
+                                uploaded.id,
+                                p.mtime_ms,
+                                drive_mtime,
+                                p.size_bytes,
+                            )
+                            .await;
+                        if recorded.is_ok() {
+                            let (emulator, category, rel) =
+                                (ctx.emulator.clone(), ctx.category, p.rel_path.clone());
+                            let _ = self
+                                .db
+                                .with(move |conn| queue::resolve(conn, &emulator, category, &rel))
+                                .await;
+                            summary.uploaded += 1;
+                        } else {
+                            summary.failed += 1;
+                        }
+                        self.emit_progress(ctx, &p.rel_path);
+                    }
+                }
+                result => {
+                    // Falha do batch (rede/parse/sub-request) ou contagem
+                    // inesperada: devolve o chunk ao per-file, que aplica
+                    // retry/fila por arquivo.
+                    if let Err(err) = result {
+                        tracing::warn!(
+                            emulador = %ctx.emulator,
+                            error = %err,
+                            arquivos = chunk.len(),
+                            "batch falhou; caindo para upload per-file"
+                        );
+                    }
+                    for p in chunk {
+                        rest.push(p.op.clone());
+                    }
+                }
+            }
+        }
+
+        rest
+    }
+
+    /// Prepara uma op elegível para o batch: lê o conteúdo com a mesma proteção
+    /// de mtime estável do `do_upload` e resolve o `parent_id`. `Err(op)` devolve
+    /// a op original para o caminho per-file quando não pôde ser preparada.
+    async fn prepare_batch_op(
+        &self,
+        ctx: &CategoryCtx,
+        op: PlannedOp,
+    ) -> Result<PreparedBatchOp, PlannedOp> {
+        // Clona o locador para não manter `op` emprestado até o move final.
+        let loc = match op.local.as_ref() {
+            Some(local) => local.loc.clone(),
+            None => return Err(op),
+        };
+
+        // Mesma proteção do do_upload: conteúdo estável entre duas leituras de mtime.
+        let read = async {
+            let before = self.storage.mtime_ms(&loc).await?;
+            let content = self.storage.read(&loc).await?;
+            let after = self.storage.mtime_ms(&loc).await?;
+            if before != after {
+                return Err(AppError::FileBusy(op.rel_path.clone()));
+            }
+            Ok::<_, AppError>((content, after))
+        }
+        .await;
+        let (content, mtime) = match read {
+            Ok(v) => v,
+            Err(_) => return Err(op),
+        };
+
+        let (dir_part, file_name) = split_rel_path(&op.rel_path);
+        let parent_id = match dir_part {
+            Some(dir) => {
+                match self
+                    .drive
+                    .ensure_subpath(&ctx.folder_id, &ctx.folder_key, dir)
+                    .await
+                {
+                    Ok(id) => id,
+                    Err(_) => return Err(op),
+                }
+            }
+            None => ctx.folder_id.clone(),
+        };
+
+        let size_bytes = content.len() as i64;
+        let batch = BatchUploadOp {
+            parent_id,
+            name: file_name.to_string(),
+            content,
+            mtime_ms: mtime,
+            device_name: ctx.device.clone(),
+            device_id: ctx.device_id.clone(),
+        };
+        Ok(PreparedBatchOp {
+            rel_path: op.rel_path.clone(),
+            mtime_ms: mtime,
+            size_bytes,
+            op,
+            batch,
+        })
     }
 
     async fn do_upload(&self, ctx: &CategoryCtx, op: &PlannedOp) -> AppResult<()> {
@@ -892,6 +1084,28 @@ impl SyncEngine {
             .with(move |conn| manifest::upsert(conn, &entry))
             .await
     }
+}
+
+/// Op de upload já preparada para o batch: os dados prontos (`batch`) mais o que
+/// o engine precisa para registrar o manifest, e a op original (`op`) para o
+/// fallback per-file caso o batch falhe.
+struct PreparedBatchOp {
+    op: PlannedOp,
+    batch: BatchUploadOp,
+    rel_path: String,
+    mtime_ms: i64,
+    size_bytes: i64,
+}
+
+/// Elegível ao batch: upload de arquivo que ainda não existe no Drive e é
+/// pequeno o suficiente para `multipart` (o batch não suporta resumable).
+fn is_batchable(op: &PlannedOp) -> bool {
+    op.action == SyncAction::Upload
+        && op.remote.is_none()
+        && op
+            .local
+            .as_ref()
+            .is_some_and(|l| l.size_bytes <= DRIVE_SIMPLE_UPLOAD_MAX_BYTES as i64)
 }
 
 /// `"a/b/c.bin"` → `(Some("a/b"), "c.bin")`; `"c.bin"` → `(None, "c.bin")`.

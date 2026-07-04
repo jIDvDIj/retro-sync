@@ -5,10 +5,12 @@
 //! - `queue`: fila de operações pendentes (resiliência offline);
 //! - `emulators`: perfis configurados pelo usuário;
 //! - `settings`: configurações globais (nome do dispositivo, gatilhos, etc.);
-//! - `conflicts`: conflitos pendentes que bloqueiam o sync de um emulador.
+//! - `conflicts`: conflitos pendentes que bloqueiam o sync de um emulador;
+//! - `drive_folders`: cache persistente de IDs de pasta do Drive (FEATURE-006).
 
 pub mod conflicts;
 pub mod db;
+pub mod drive_folders;
 pub mod emulators;
 pub mod manifest;
 pub mod queue;

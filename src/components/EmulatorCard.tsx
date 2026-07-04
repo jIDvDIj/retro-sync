@@ -2,26 +2,37 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useErrorMessage } from "../lib/errors";
-import type { Conflict, EmulatorProfile } from "../types/ipc";
+import type { Conflict, EmulatorProfile, SyncedGame } from "../types/ipc";
 import { ConflictModal } from "./ConflictModal";
+import { GameList } from "./GameList";
 
 interface Props {
   profile: EmulatorProfile;
   running: boolean;
   /** Conflitos pendentes deste emulador (bloqueiam o sync dele). */
   conflicts: Conflict[];
+  /** Jogos sincronizados deste emulador (FEATURE-001). */
+  games: SyncedGame[];
   onRemove: (name: string) => Promise<void>;
   /** Recarrega a lista de conflitos após uma resolução. */
   onConflictResolved: () => void;
 }
 
-/** Card de um emulador configurado: nome, pasta, estado, conflito e remoção. */
-export function EmulatorCard({ profile, running, conflicts, onRemove, onConflictResolved }: Props) {
+/** Card de um emulador configurado: nome, pasta, estado, jogos, conflito e remoção. */
+export function EmulatorCard({
+  profile,
+  running,
+  conflicts,
+  games,
+  onRemove,
+  onConflictResolved,
+}: Props) {
   const { t } = useTranslation();
   const errorMessage = useErrorMessage();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showConflicts, setShowConflicts] = useState(false);
+  const [showGames, setShowGames] = useState(false);
 
   const handleRemove = async () => {
     setBusy(true);
@@ -51,6 +62,16 @@ export function EmulatorCard({ profile, running, conflicts, onRemove, onConflict
       <p className="emulator-path" title={profile.rootPath}>
         {profile.rootPath}
       </p>
+
+      {games.length > 0 ? (
+        <div className="emulator-games">
+          <button className="link games-toggle" onClick={() => setShowGames((v) => !v)}>
+            {showGames ? t("emulator.hideGames") : t("emulator.games", { count: games.length })}
+          </button>
+          {showGames ? <GameList games={games} /> : null}
+        </div>
+      ) : null}
+
       <div className="emulator-foot">
         {hasConflict ? (
           <button onClick={() => setShowConflicts(true)}>

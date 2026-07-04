@@ -91,6 +91,17 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
 );
 ";
 
+/// v6 — cache persistente de IDs de pasta do Drive por caminho lógico
+/// (ex.: "RetroSync/PPSSPP/saves" → fileId). Sobrevive a reinícios para que o
+/// sync de startup não re-resolva toda a cadeia de pastas a cada boot
+/// (FEATURE-006). Invalidada reativamente em `notFound` e zerada no logout.
+const SCHEMA_V6: &str = "
+CREATE TABLE IF NOT EXISTS drive_folders (
+    cache_key TEXT PRIMARY KEY,
+    folder_id TEXT NOT NULL
+);
+";
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -176,6 +187,10 @@ fn migrate(conn: &Connection) -> AppResult<()> {
     if version < 5 {
         conn.execute_batch(SCHEMA_V5)?;
         version = 5;
+    }
+    if version < 6 {
+        conn.execute_batch(SCHEMA_V6)?;
+        version = 6;
     }
     conn.pragma_update(None, "user_version", version)?;
     Ok(())
