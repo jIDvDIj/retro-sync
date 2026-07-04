@@ -141,6 +141,32 @@ jobs (issue #73). Para ele valer como porteiro:
 > com o job — abra o PR primeiro, configure depois. A partir daí, adicionar/remover
 > jobs do CI exige atualizar apenas o `needs` do `ci-passed`, sem mexer no GitHub.
 
+## 10. Reativar o build e os checks Android (desabilitados em 04/07/2026)
+
+Os secrets de assinatura do Android ainda não existem no GitHub, então dois jobs estão
+com `if: false`:
+
+- **`android` no `release.yml`** — a validação de secrets abortava o job a cada push na
+  `main` (era a causa das falhas do workflow Release).
+- **`android-check` no `ci.yml`** — desabilitado junto, por decisão, até o fluxo mobile
+  voltar (o bug original dele — `cargo ndk` sem `working-directory: src-tauri` — já foi
+  corrigido no próprio job).
+
+Passos para reativar:
+
+1. Criar os secrets no GitHub (**Settings → Secrets and variables → Actions**):
+   `ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_PASSWORD`.
+2. Remover o `if: false` do job `android` (`release.yml`) e do `android-check` (`ci.yml`).
+3. Devolver `android-check` à lista `needs` do job `ci-passed` no `ci.yml`.
+
+### Ignores do cargo-audit (revisar periodicamente)
+
+O job `audit` ignora `RUSTSEC-2026-0194` e `RUSTSEC-2026-0195` (`quick-xml` <0.41,
+transitivo via `plist 1.9.0` e `tauri-winrt-notification 0.7.2` — parents exigem <0.41,
+sem correção possível por `cargo update`; o XML processado não é controlado por
+atacante). Quando esses parents atualizarem o `quick-xml`, rode
+`cargo update --manifest-path src-tauri/Cargo.toml` e remova os `--ignore` do `ci.yml`.
+
 ## Itens fora desta rodada
 
 | Item | Motivo | Próximo passo |

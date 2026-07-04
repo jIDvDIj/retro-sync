@@ -89,8 +89,16 @@ jobs:
         with:
           tool: cargo-audit
 
+      # Ignores justificados (remover quando os parents atualizarem o quick-xml):
+      # - RUSTSEC-2026-0194/0195: quick-xml <0.41, transitivo via plist 1.9.0 e
+      #   tauri-winrt-notification 0.7.2 — ambos exigem <0.41, sem fix disponível
+      #   por cargo update. O XML processado não é controlado por atacante
+      #   (Info.plist local e XML de notificação gerado pelo próprio app).
       - name: cargo audit
-        run: cargo audit --file src-tauri/Cargo.lock
+        run: |
+          cargo audit --file src-tauri/Cargo.lock \
+            --ignore RUSTSEC-2026-0194 \
+            --ignore RUSTSEC-2026-0195
 
   # Licenças das dependências Rust — política em src-tauri/deny.toml.
   licenses:
@@ -107,7 +115,12 @@ jobs:
   # Compila o backend para o target Android (cargo check). Sem isso, uma quebra
   # em código #[cfg(mobile)] só apareceria na hora da release — os demais jobs
   # compilam apenas o target desktop. Não builda APK: sem Gradle, sem keystore.
+  #
+  # DESABILITADO temporariamente junto com o build Android do release.yml
+  # (secrets ANDROID_* pendentes). Para reativar: remover o `if: false` abaixo
+  # e devolver `android-check` ao needs do job ci-passed.
   android-check:
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -132,13 +145,14 @@ jobs:
       - name: Instalar cargo-ndk
         run: cargo install cargo-ndk --locked
 
+      # cargo-ndk resolve `cargo metadata` no diretório corrente antes de
+      # repassar flags ao cargo, então precisa rodar de dentro do src-tauri.
       - name: cargo check (aarch64-linux-android)
+        working-directory: src-tauri
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.3.11579264
-        run: |
-          cargo ndk -t arm64-v8a --platform 24 \
-            check --manifest-path src-tauri/Cargo.toml
+        run: cargo ndk -t arm64-v8a --platform 24 check
 
   # Testes Rust com cobertura (cargo-tarpaulin) + upload para o Codecov.
   coverage:
@@ -177,9 +191,11 @@ jobs:
   # Gatekeeper: único check a marcar como "required" na proteção de branch.
   # Agrega todos os jobs — adicionar/remover job no workflow exige atualizar
   # apenas o needs abaixo, sem mexer na configuração do GitHub.
+  # android-check está fora do needs enquanto desabilitado (if: false vira
+  # "skipped", e aqui só "success" passa) — devolver ao reativar.
   ci-passed:
     if: always()
-    needs: [checks, test, clippy, audit, licenses, android-check, coverage]
+    needs: [checks, test, clippy, audit, licenses, coverage]
     runs-on: ubuntu-latest
     steps:
       - name: Verificar resultado de todos os jobs

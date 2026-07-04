@@ -77,7 +77,12 @@ jobs:
             echo "RELNOTES_EOF"
           } >> "$GITHUB_OUTPUT"
 
+  # DESABILITADO até os secrets ANDROID_KEYSTORE_BASE64 / ANDROID_STORE_PASSWORD /
+  # ANDROID_KEY_PASSWORD serem configurados no GitHub (a validação de secrets
+  # abortava este job e derrubava o workflow inteiro a cada push na main).
+  # Para reativar: remover o `if: false` (ver docs/setup-melhorias-scripts.md).
   android:
+    if: false
     needs: version
     runs-on: ubuntu-latest
     steps:
