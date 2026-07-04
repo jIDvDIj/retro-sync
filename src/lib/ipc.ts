@@ -131,6 +131,16 @@ export function pickEmulatorFolder(): Promise<string> {
   return invoke<string>("pick_emulator_folder");
 }
 
+/**
+ * Tenta reconhecer automaticamente o emulador na árvore SAF `tree` (retornada
+ * por {@link pickEmulatorFolder}), testando o mesmo catálogo do desktop via
+ * chamadas ao plugin nativo. `null` quando nenhum emulador é reconhecido —
+ * cai no formulário manual.
+ */
+export function detectEmulatorMobile(tree: string): Promise<EmulatorProfile | null> {
+  return invoke<EmulatorProfile | null>("detect_emulator_mobile", { tree });
+}
+
 /** Conflitos pendentes (ambos os lados mudaram desde o último sync). */
 export function listConflicts(): Promise<Conflict[]> {
   return invoke<Conflict[]>("list_conflicts");
