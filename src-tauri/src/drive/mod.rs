@@ -13,7 +13,9 @@ mod api;
 mod client;
 mod files;
 mod folders;
-#[cfg(test)]
+// Mesmo cfg dos cenários que o consomem (sync::scenarios) — sem eles, o mock
+// viraria dead code no build de teste do Windows.
+#[cfg(all(test, desktop, not(windows)))]
 pub(crate) mod mock;
 
 pub use api::DriveApi;

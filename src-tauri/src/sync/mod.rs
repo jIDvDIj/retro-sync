@@ -10,7 +10,10 @@ mod diff;
 mod engine;
 #[cfg(mobile)]
 pub mod mobile_storage;
-#[cfg(all(test, desktop))]
+// `not(windows)`: o MockRuntime do tauri quebra o exe de teste no Windows
+// (STATUS_ENTRYPOINT_NOT_FOUND — tauri-apps/tauri#13419); os cenários rodam
+// no Linux/macOS, onde a cobertura também é medida.
+#[cfg(all(test, desktop, not(windows)))]
 mod scenarios;
 mod storage;
 
