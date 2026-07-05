@@ -4,6 +4,12 @@ import type { settings as SettingsEn } from "../en/settings";
 export const settings: Localized<typeof SettingsEn> = {
   settings: {
     title: "Configurações",
+    tabs: {
+      general: "Geral",
+      sync: "Sincronização",
+      notifications: "Notificações",
+      backups: "Backups",
+    },
     device: {
       heading: "Dispositivo",
       hint: "Identifica esta máquina nos metadados de sync. Alterá-lo aqui não exige refazer o login.",
@@ -54,7 +60,16 @@ export const settings: Localized<typeof SettingsEn> = {
       heading: "Backups",
       hint: "Cópias que o RetroSync guarda antes de sobrescrever um arquivo local — no primeiro sync de um arquivo que já existe no Drive, ou ao resolver um conflito mantendo a versão do Drive. Nada é apagado.",
       open: "Abrir pasta de backups",
+      history: "Ver histórico",
     },
+  },
+  backupHistory: {
+    title: "Histórico de backups",
+    intro:
+      "Cópias que o RetroSync guardou antes de sobrescrever arquivos locais. Para restaurar uma, abra a pasta de backups e copie o arquivo de volta manualmente.",
+    filterLabel: "Filtrar",
+    filterPlaceholder: "ex.: PPSSPP ou SAVE.bin",
+    empty: "Nenhum backup ainda.",
   },
   addEmulator: {
     button: "Adicionar emulador",

@@ -1,0 +1,140 @@
+/**
+ * Tokens de design do RetroSync — fonte única de cor, espaçamento, raio,
+ * sombra e motion (prefixo --rs-). Nenhum componente hardcoda estes valores.
+ *
+ * Linguagem visual: superfícies sólidas em camadas — cards/painéis opacos, um
+ * tom mais claros que o fundo, distinguidos por cor sólida e sombra. Sem
+ * glassmorphism, sem backdrop-filter, sem rgba translúcido em fundos.
+ *
+ * Tema alterna via data-theme="dark" | "light" na raiz (default: dark).
+ */
+
+:root,
+:root[data-theme="dark"] {
+  /* Cores de marca */
+  --rs-color-brand: #8b74e8;
+  --rs-color-brand-alt: #9e8cd6;
+  --rs-color-accent: #e1a38d;
+  --rs-color-highlight: #ff4f6b;
+
+  /* Cores de status */
+  --rs-color-success: #4ade80;
+  --rs-color-warning: #fbbf24;
+  --rs-color-danger: #ff5050;
+  --rs-color-info: #93c5fd;
+
+  /* Superfícies — todas opacas; camadas distinguidas por cor sólida + sombra */
+  --rs-color-bg: #07070f;
+  --rs-color-surface: #16161f;
+  --rs-color-surface-alt: #1e1e2a;
+  --rs-color-border: #2c2c3a;
+  --rs-color-text: #e8e8ee;
+  --rs-color-text-muted: #9a9aa8;
+
+  /* Tints sólidos para badges/banners (mistura pré-computada com a surface) */
+  --rs-tint-success: #1d3226;
+  --rs-tint-warning: #38301a;
+  --rs-tint-danger: #3a2026;
+  --rs-tint-info: #1f2a3f;
+  --rs-tint-neutral: #23232e;
+  --rs-tint-brand: #2a2440;
+
+  /* Tipografia */
+  --rs-font-family: "Segoe UI", Inter, system-ui, sans-serif;
+  --rs-font-xs: 10.5px;
+  --rs-font-sm: 12px;
+  --rs-font-md: 13.5px;
+  --rs-font-base: 15px;
+  --rs-font-lg: 17px;
+  --rs-font-xl: 20px;
+  --rs-font-2xl: 24px;
+  --rs-font-3xl: 30px;
+  --rs-font-4xl: 38px;
+  --rs-weight-regular: 400;
+  --rs-weight-medium: 500;
+  --rs-weight-semibold: 600;
+  --rs-weight-bold: 700;
+  --rs-weight-black: 800;
+
+  /* Espaçamento — base 4px */
+  --rs-space-0: 0;
+  --rs-space-1: 4px;
+  --rs-space-2: 8px;
+  --rs-space-3: 12px;
+  --rs-space-4: 16px;
+  --rs-space-5: 20px;
+  --rs-space-6: 24px;
+  --rs-space-7: 28px;
+  --rs-space-8: 32px;
+  --rs-space-9: 36px;
+  --rs-space-10: 40px;
+  --rs-space-11: 44px;
+  --rs-space-12: 48px;
+  --rs-space-13: 52px;
+  --rs-space-14: 56px;
+
+  /* Border-radius */
+  --rs-radius-xs: 3px;
+  --rs-radius-sm: 6px;
+  --rs-radius-md: 8px;
+  --rs-radius-lg: 12px;
+  --rs-radius-xl: 16px;
+  --rs-radius-card: 10px;
+  --rs-radius-chip: 999px;
+  --rs-radius-pill: 100px;
+  --rs-radius-full: 100px;
+
+  /* Elevação (sombras) */
+  --rs-elev-0: none;
+  --rs-elev-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --rs-elev-2: 0 2px 6px rgba(0, 0, 0, 0.35);
+  --rs-elev-3: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --rs-elev-4: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --rs-elev-5: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --rs-elev-cover: 0 20px 60px rgba(0, 0, 0, 0.55);
+
+  /* Motion */
+  --rs-motion-fast: 150ms;
+  --rs-motion-med: 220ms;
+  --rs-motion-slow: 360ms;
+  --rs-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --rs-ease-exit: cubic-bezier(0.7, 0, 0.84, 0);
+  --rs-ease-state: ease;
+
+  /* Breakpoint mobile (referência para media queries) */
+  --rs-breakpoint-mobile: 640px;
+}
+
+:root[data-theme="light"] {
+  --rs-color-brand: #553e98;
+  --rs-color-brand-alt: #6b55ad;
+  --rs-color-accent: #b3705a;
+  --rs-color-highlight: #d63754;
+
+  /* Variantes mais escuras para contraste AA sobre superfícies claras */
+  --rs-color-success: #15803d;
+  --rs-color-warning: #b45309;
+  --rs-color-danger: #dc2626;
+  --rs-color-info: #1d4ed8;
+
+  --rs-color-bg: #f5f5fa;
+  --rs-color-surface: #ffffff;
+  --rs-color-surface-alt: #ededf4;
+  --rs-color-border: #d8d8e2;
+  --rs-color-text: #1c1c26;
+  --rs-color-text-muted: #5c5c6b;
+
+  --rs-tint-success: #dcf3e4;
+  --rs-tint-warning: #fbeed3;
+  --rs-tint-danger: #fbdfdf;
+  --rs-tint-info: #dfe8fb;
+  --rs-tint-neutral: #e7e7ef;
+  --rs-tint-brand: #e6e0f5;
+
+  --rs-elev-1: 0 1px 2px rgba(28, 28, 38, 0.1);
+  --rs-elev-2: 0 2px 6px rgba(28, 28, 38, 0.12);
+  --rs-elev-3: 0 4px 12px rgba(28, 28, 38, 0.14);
+  --rs-elev-4: 0 8px 24px rgba(28, 28, 38, 0.16);
+  --rs-elev-5: 0 12px 40px rgba(28, 28, 38, 0.18);
+  --rs-elev-cover: 0 20px 60px rgba(28, 28, 38, 0.25);
+}

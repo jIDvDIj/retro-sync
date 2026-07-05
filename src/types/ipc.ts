@@ -85,7 +85,33 @@ export interface SyncProgress {
   currentFile: string;
   completed: number;
   total: number;
+  /** Bytes transferidos / totais do plano da categoria em andamento. */
+  bytesDone: number;
+  bytesTotal: number;
   direction: SyncDirection;
+}
+
+/** `storage::queue::PendingOp` — arquivo na fila offline (retentado no próximo sync) */
+export interface PendingOp {
+  emulator: string;
+  category: "saves" | "savestates" | "config";
+  relPath: string;
+  direction: "upload" | "download";
+  enqueuedAtMs: number;
+  attempts: number;
+  lastError: string | null;
+}
+
+/** `backups::BackupEntry` — cópia de backup local listada no histórico */
+export interface BackupEntry {
+  emulator: string;
+  /** Execução que gerou o backup (`2025-07-01_10-30-00` ou `conflito-…`). */
+  run: string;
+  category: string;
+  relPath: string;
+  sizeBytes: number;
+  modifiedAtMs: number;
+  absPath: string;
 }
 
 /** `sync::SyncSummary` — retorno de `sync_now` e payload de `sync:completed` */

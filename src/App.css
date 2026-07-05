@@ -278,8 +278,57 @@ button.secondary:hover:not(:disabled) {
   color: #f87171;
 }
 
+/* Sincronizando agora (azul, pulsante) — estado por emulador (#3/#13) */
+.badge-syncing {
+  background-color: var(--rs-tint-info);
+  color: var(--rs-color-info);
+  animation: rs-pulse var(--rs-motion-slow) ease-in-out infinite alternate;
+}
+
+/* Arquivos na fila offline — badge clicável que abre a lista (#10) */
+.badge-pending {
+  background-color: var(--rs-tint-warning);
+  color: var(--rs-color-warning);
+  border: none;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: var(--rs-radius-chip);
+}
+
+.badge-pending:hover {
+  filter: brightness(1.15);
+}
+
 .emulator-card.has-conflict {
   border-color: rgba(248, 113, 113, 0.45);
+}
+
+.emulator-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--rs-space-1);
+}
+
+/* Barra de progresso do sync dentro do card (#5) */
+.emulator-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--rs-space-2);
+  margin: 0 0 var(--rs-space-2);
+}
+
+.emulator-progress progress.sync-bar {
+  flex: 1;
+}
+
+.emulator-progress-pct {
+  font-size: var(--rs-font-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--rs-color-text-muted);
+  min-width: var(--rs-space-9);
+  text-align: right;
 }
 
 /* Jogos sincronizados por emulador (FEATURE-001) */
@@ -407,10 +456,82 @@ button.secondary:hover:not(:disabled) {
 .sync-info {
   font-size: 0.85rem;
   color: #c5c5cf;
+  flex: 1;
+  min-width: 0;
 }
 
 .sync-progress {
   font-variant-numeric: tabular-nums;
+}
+
+/* Progresso ao vivo: arquivo atual, barra em bytes, velocidade e ETA */
+.sync-live {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rs-space-1);
+}
+
+.sync-live .sync-progress {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-bytes {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--rs-font-sm);
+}
+
+/* <progress> nativa com as cores do tema */
+progress.sync-bar {
+  width: 100%;
+  height: var(--rs-space-2);
+  appearance: none;
+  border: none;
+  border-radius: var(--rs-radius-pill);
+  overflow: hidden;
+  background-color: var(--rs-color-surface-alt);
+}
+
+progress.sync-bar::-webkit-progress-bar {
+  background-color: var(--rs-color-surface-alt);
+}
+
+progress.sync-bar::-webkit-progress-value {
+  background-color: var(--rs-color-brand);
+  transition: width var(--rs-motion-fast) var(--rs-ease-state);
+}
+
+progress.sync-bar::-moz-progress-bar {
+  background-color: var(--rs-color-brand);
+}
+
+/* Indicador de sync automático do watcher (pré/pós-jogo) — pulsa (#13) */
+.sync-auto-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--rs-space-2);
+  font-size: var(--rs-font-sm);
+  font-weight: var(--rs-weight-semibold);
+  color: var(--rs-color-info);
+}
+
+.sync-auto-indicator::before {
+  content: "";
+  width: var(--rs-space-2);
+  height: var(--rs-space-2);
+  border-radius: var(--rs-radius-full);
+  background-color: var(--rs-color-info);
+  animation: rs-pulse var(--rs-motion-slow) ease-in-out infinite alternate;
+}
+
+@keyframes rs-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.35;
+  }
 }
 
 .error {
@@ -419,53 +540,9 @@ button.secondary:hover:not(:disabled) {
   margin: 0;
 }
 
-/* Banner de backups do primeiro sync */
-.backup-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  font-size: 0.82rem;
-  color: #fcd34d;
-  background-color: rgba(252, 211, 77, 0.1);
-  border: 1px solid rgba(252, 211, 77, 0.3);
-  border-radius: 8px;
-  padding: 0.6rem 0.8rem;
-}
+/* Banner de backups do primeiro sync: ver ui/NoticeBanner.css */
 
-/* Modal de configurações */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background-color: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 3rem 1rem;
-  z-index: 50;
-  overflow-y: auto;
-}
-
-.modal {
-  background-color: #1f1f26;
-  border: 1px solid #2c2c34;
-  border-radius: 12px;
-  width: 100%;
-  max-width: 520px;
-  padding: 1.25rem 1.5rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-}
-
-.modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
+/* Modal de configurações (shell overlay+painel: ver ui/Modal.css) */
 .settings-section {
   display: flex;
   flex-direction: column;
@@ -651,4 +728,115 @@ button.secondary:hover:not(:disabled) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Abas do modal de configurações (#12) */
+.modal-tabs {
+  display: flex;
+  gap: var(--rs-space-1);
+  border-bottom: 1px solid var(--rs-color-border);
+  flex-wrap: wrap;
+}
+
+.modal-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--rs-radius-xs) var(--rs-radius-xs) 0 0;
+  color: var(--rs-color-text-muted);
+  font-size: var(--rs-font-md);
+  font-weight: var(--rs-weight-semibold);
+  padding: var(--rs-space-2) var(--rs-space-3);
+  min-height: var(--rs-space-10);
+  cursor: pointer;
+  transition: color var(--rs-motion-fast) var(--rs-ease-state);
+}
+
+.modal-tab:hover:not(:disabled) {
+  background-color: var(--rs-color-surface-alt);
+  color: var(--rs-color-text);
+}
+
+.modal-tab.active {
+  color: var(--rs-color-brand);
+  border-bottom-color: var(--rs-color-brand);
+}
+
+/* Lista de arquivos pendentes na fila offline (#4) */
+.pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rs-space-2);
+}
+
+.pending-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rs-space-1);
+  border: 1px solid var(--rs-color-border);
+  border-radius: var(--rs-radius-md);
+  background-color: var(--rs-color-surface-alt);
+  padding: var(--rs-space-2) var(--rs-space-3);
+  font-size: var(--rs-font-sm);
+}
+
+.pending-path {
+  font-weight: var(--rs-weight-semibold);
+  word-break: break-all;
+}
+
+.pending-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--rs-space-3);
+  flex-wrap: wrap;
+  color: var(--rs-color-text-muted);
+}
+
+.pending-error {
+  color: var(--rs-color-danger);
+  word-break: break-word;
+}
+
+/* Histórico de backups (#8a) */
+.backup-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rs-space-2);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.backup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rs-space-3);
+  border: 1px solid var(--rs-color-border);
+  border-radius: var(--rs-radius-md);
+  background-color: var(--rs-color-surface-alt);
+  padding: var(--rs-space-2) var(--rs-space-3);
+  font-size: var(--rs-font-sm);
+}
+
+.backup-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rs-space-1);
+  min-width: 0;
+}
+
+.backup-path {
+  font-weight: var(--rs-weight-semibold);
+  word-break: break-all;
+}
+
+.backup-meta {
+  color: var(--rs-color-text-muted);
+}
+
+.backup-size {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--rs-color-text-muted);
 }

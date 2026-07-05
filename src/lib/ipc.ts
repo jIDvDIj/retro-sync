@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type {
   AuthStatus,
+  BackupEntry,
   Conflict,
   ConflictResolution,
   DiscoveredEmulator,
@@ -14,6 +15,7 @@ import type {
   HealthStatus,
   LastSync,
   NotificationLevel,
+  PendingOp,
   Settings,
   SyncCategories,
   SyncedGame,
@@ -160,6 +162,26 @@ export function resolveConflict(
   keep: ConflictResolution,
 ): Promise<void> {
   return invoke<void>("resolve_conflict", { emulator, category, relPath, keep });
+}
+
+/** Fila offline: arquivos que falharam (rede/arquivo em uso) e serão retentados. */
+export function listPendingOps(): Promise<PendingOp[]> {
+  return invoke<PendingOp[]>("list_pending_ops");
+}
+
+/** IDs de banners informativos já dispensados pelo usuário. */
+export function listDismissedNotices(): Promise<string[]> {
+  return invoke<string[]>("list_dismissed_notices");
+}
+
+/** Dispensa um banner de forma persistente — ele não reaparece. */
+export function dismissNotice(id: string): Promise<void> {
+  return invoke<void>("dismiss_notice", { id });
+}
+
+/** Histórico de backups locais (primeiro sync e resoluções de conflito). */
+export function listBackups(): Promise<BackupEntry[]> {
+  return invoke<BackupEntry[]>("list_backups");
 }
 
 /** Categorias de sync habilitadas para um emulador (default: todas ativas). */

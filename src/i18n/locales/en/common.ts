@@ -2,6 +2,7 @@ export const common = {
   common: {
     close: "Close",
     add: "Add",
+    dismiss: "Dismiss",
   },
   app: {
     checkingConnection: "Checking Google Drive connection…",

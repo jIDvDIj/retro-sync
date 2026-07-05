@@ -5,6 +5,7 @@ export const common: Localized<typeof CommonEn> = {
   common: {
     close: "Fechar",
     add: "Adicionar",
+    dismiss: "Dispensar",
   },
   app: {
     checkingConnection: "verificando conexão com o Google Drive…",
