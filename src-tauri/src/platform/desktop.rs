@@ -106,10 +106,7 @@ fn spawn_sync(app: AppHandle, trigger: &'static str, then_exit: bool) {
     use crate::sync::SyncDirection;
     tauri::async_runtime::spawn(async move {
         let engine = app.state::<AppState>().engine.clone();
-        if let Err(err) = engine
-            .sync_all(SyncDirection::Bidirectional, trigger)
-            .await
-        {
+        if let Err(err) = engine.sync_all(SyncDirection::Bidirectional, trigger).await {
             tracing::warn!(trigger, error = %err, "sync acionado pela bandeja falhou");
         }
         if then_exit {

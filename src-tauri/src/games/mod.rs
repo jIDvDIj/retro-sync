@@ -111,7 +111,11 @@ fn looks_like_serial(s: &str) -> bool {
     if b.len() < 7 || !b[..4].iter().all(u8::is_ascii_alphabetic) {
         return false;
     }
-    let digits = if b.get(4) == Some(&b'-') { &b[5..] } else { &b[4..] };
+    let digits = if b.get(4) == Some(&b'-') {
+        &b[5..]
+    } else {
+        &b[4..]
+    };
     digits.len() >= 3 && digits.iter().all(u8::is_ascii_digit)
 }
 
@@ -119,10 +123,7 @@ fn looks_like_serial(s: &str) -> bool {
 /// maiúsculas) antes de consultar a tabela embutida.
 pub fn resolve_name(serial: &str) -> Option<&'static str> {
     let key = normalize(serial);
-    NAMES
-        .iter()
-        .find(|(k, _)| *k == key)
-        .map(|(_, name)| *name)
+    NAMES.iter().find(|(k, _)| *k == key).map(|(_, name)| *name)
 }
 
 fn normalize(serial: &str) -> String {
@@ -201,15 +202,18 @@ mod tests {
 
     #[test]
     fn resolve_name_normaliza_hifen_e_caixa() {
-        assert_eq!(
-            resolve_name("SCUS-97472"),
-            Some("Shadow of the Colossus")
-        );
+        assert_eq!(resolve_name("SCUS-97472"), Some("Shadow of the Colossus"));
         assert_eq!(resolve_name("scus97472"), Some("Shadow of the Colossus"));
         assert_eq!(resolve_name("ULUS99999"), None);
     }
 
-    fn entry(emulator: &str, category: SyncCategory, rel: &str, size: i64, ts: i64) -> ManifestEntry {
+    fn entry(
+        emulator: &str,
+        category: SyncCategory,
+        rel: &str,
+        size: i64,
+        ts: i64,
+    ) -> ManifestEntry {
         ManifestEntry {
             emulator: emulator.into(),
             category,
@@ -227,7 +231,13 @@ mod tests {
         let entries = vec![
             entry("PPSSPP", SyncCategory::Saves, "ULUS12345/DATA.BIN", 100, 10),
             entry("PPSSPP", SyncCategory::Saves, "ULUS12345/ICON.PNG", 50, 20),
-            entry("PPSSPP", SyncCategory::Savestates, "ULUS12345_1.00_0.ppst", 200, 30),
+            entry(
+                "PPSSPP",
+                SyncCategory::Savestates,
+                "ULUS12345_1.00_0.ppst",
+                200,
+                30,
+            ),
             entry("PPSSPP", SyncCategory::Saves, "UCUS98653/DATA.BIN", 10, 5),
         ];
         let games = aggregate(entries);
@@ -235,7 +245,10 @@ mod tests {
         assert_eq!(games.len(), 2);
         // Ordem estável: UCUS98653 antes de ULUS12345.
         assert_eq!(games[0].serial, "UCUS98653");
-        assert_eq!(games[0].name.as_deref(), Some("God of War: Chains of Olympus"));
+        assert_eq!(
+            games[0].name.as_deref(),
+            Some("God of War: Chains of Olympus")
+        );
 
         let g = &games[1];
         assert_eq!(g.serial, "ULUS12345");
@@ -248,7 +261,13 @@ mod tests {
 
     #[test]
     fn synced_game_serializa_em_camel_case() {
-        let entries = vec![entry("PPSSPP", SyncCategory::Saves, "ULUS12345/DATA.BIN", 100, 10)];
+        let entries = vec![entry(
+            "PPSSPP",
+            SyncCategory::Saves,
+            "ULUS12345/DATA.BIN",
+            100,
+            10,
+        )];
         let game = &aggregate(entries)[0];
         let json = serde_json::to_value(game).unwrap();
         assert_eq!(json["serial"], "ULUS12345");
