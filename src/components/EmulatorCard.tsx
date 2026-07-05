@@ -8,6 +8,9 @@ import { ConflictModal } from "./ConflictModal";
 import { GameList } from "./GameList";
 import { PendingOpsModal } from "./PendingOpsModal";
 import { autoTriggerLabelKey } from "./SyncStatus";
+import { Badge } from "./ui/Badge";
+import { Button } from "./ui/Button";
+import { Card } from "./ui/Card";
 
 interface Props {
   profile: EmulatorProfile;
@@ -77,28 +80,34 @@ export function EmulatorCard({
     : 0;
 
   return (
-    <article className={`emulator-card${hasConflict ? " has-conflict" : ""}`}>
+    <Card
+      as="article"
+      padding="md"
+      tone={hasConflict ? "danger-outline" : "default"}
+      className={`emulator-card${hasConflict ? " has-conflict" : ""}`}
+    >
       <div className="emulator-head">
         <span className="emulator-name">{profile.name}</span>
         <span className="emulator-badges">
           {pendingOps.length > 0 ? (
-            <button className="badge-pending" onClick={() => setShowPending(true)}>
+            <Badge tone="warning" as="button" onClick={() => setShowPending(true)}>
               {t("emulator.pendingBadge", { count: pendingOps.length })}
-            </button>
+            </Badge>
           ) : null}
           {hasConflict ? (
-            <span className="badge badge-conflict">{t("emulator.conflictBadge")}</span>
+            <Badge tone="danger">{t("emulator.conflictBadge")}</Badge>
           ) : cardProgress ? (
-            <span
-              className="badge badge-syncing"
+            <Badge
+              tone="info"
+              className="rs-badge-pulse"
               title={syncingTitleKey ? t(syncingTitleKey) : undefined}
             >
               {t("emulator.syncing")}
-            </span>
+            </Badge>
           ) : (
-            <span className={`badge ${running ? "badge-running" : "badge-idle"}`}>
+            <Badge tone={running ? "success" : "neutral"}>
               {running ? t("emulator.running") : t("emulator.idle")}
-            </span>
+            </Badge>
           )}
         </span>
       </div>
@@ -123,22 +132,27 @@ export function EmulatorCard({
 
       {games.length > 0 ? (
         <div className="emulator-games">
-          <button className="link games-toggle" onClick={() => setShowGames((v) => !v)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="games-toggle"
+            onClick={() => setShowGames((v) => !v)}
+          >
             {showGames ? t("emulator.hideGames") : t("emulator.games", { count: games.length })}
-          </button>
+          </Button>
           {showGames ? <GameList games={games} /> : null}
         </div>
       ) : null}
 
       <div className="emulator-foot">
         {hasConflict ? (
-          <button onClick={() => setShowConflicts(true)}>
+          <Button variant="primary" size="sm" onClick={() => setShowConflicts(true)}>
             {t("emulator.resolveConflict", { count: conflicts.length })}
-          </button>
+          </Button>
         ) : null}
-        <button className="secondary" onClick={handleRemove} disabled={busy}>
+        <Button variant="secondary" size="sm" onClick={handleRemove} disabled={busy}>
           {busy ? t("emulator.removing") : t("emulator.remove")}
-        </button>
+        </Button>
         {error ? <span className="error">{error}</span> : null}
       </div>
 
@@ -158,6 +172,6 @@ export function EmulatorCard({
           onClose={() => setShowPending(false)}
         />
       ) : null}
-    </article>
+    </Card>
   );
 }

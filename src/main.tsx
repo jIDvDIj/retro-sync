@@ -4,8 +4,10 @@ import App from "./App";
 import "./i18n";
 import "./styles/tokens.css";
 
-// Tema padrão; o toggle claro/escuro troca este atributo na raiz.
-document.documentElement.dataset.theme ??= "dark";
+// Aplica a preferência salva (ou dark como padrão) antes do primeiro paint,
+// para não piscar o tema errado; o toggle em useTheme mantém isso em sincronia.
+document.documentElement.dataset.theme =
+  localStorage.getItem("rs-theme") === "light" ? "light" : "dark";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

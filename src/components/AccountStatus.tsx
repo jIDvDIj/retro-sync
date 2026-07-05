@@ -1,5 +1,8 @@
 import { useTranslation } from "react-i18next";
 
+import { Badge } from "./ui/Badge";
+import { Button } from "./ui/Button";
+
 interface Props {
   email: string | null;
   deviceName: string | null;
@@ -20,10 +23,10 @@ export function AccountStatus({ email, deviceName, onDisconnect, error }: Props)
           <span className="dot dot-on" />
           {email ?? t("account.connected")}
         </span>
-        {deviceName ? <span className="device-tag">{deviceName}</span> : null}
-        <button className="secondary" onClick={onDisconnect}>
+        {deviceName ? <Badge tone="brand">{deviceName}</Badge> : null}
+        <Button variant="secondary" size="sm" onClick={onDisconnect}>
           {t("account.disconnect")}
-        </button>
+        </Button>
       </div>
       {error ? <p className="error">{error}</p> : null}
     </div>

@@ -7,6 +7,7 @@ import { EmulatorCard } from "./components/EmulatorCard";
 import { LoginScreen } from "./components/LoginScreen";
 import { SettingsModal } from "./components/SettingsModal";
 import { SyncStatus } from "./components/SyncStatus";
+import { Button } from "./components/ui/Button";
 import { useAuth } from "./hooks/useAuth";
 import { useConflicts } from "./hooks/useConflicts";
 import { useEmulators } from "./hooks/useEmulators";
@@ -14,12 +15,14 @@ import { usePendingOps } from "./hooks/usePendingOps";
 import { useSettings } from "./hooks/useSettings";
 import { useSyncedGames } from "./hooks/useSyncedGames";
 import { useSyncEvents } from "./hooks/useSyncEvents";
+import { useTheme } from "./hooks/useTheme";
 import "./App.css";
 
 function App() {
   const { t } = useTranslation();
   const auth = useAuth();
   const { settings, reload: reloadSettings } = useSettings();
+  const theme = useTheme();
 
   // Enquanto o status de auth não chega, não decidimos qual tela mostrar.
   if (auth.loading) {
@@ -39,24 +42,29 @@ function App() {
           auth.setStatus(status);
           reloadSettings();
         }}
+        theme={theme.theme}
+        onToggleTheme={theme.toggle}
       />
     );
   }
 
-  return <MainScreen auth={auth} settings={settings} reloadSettings={reloadSettings} />;
+  return (
+    <MainScreen auth={auth} settings={settings} reloadSettings={reloadSettings} theme={theme} />
+  );
 }
 
 interface MainScreenProps {
   auth: ReturnType<typeof useAuth>;
   settings: ReturnType<typeof useSettings>["settings"];
   reloadSettings: () => void;
+  theme: ReturnType<typeof useTheme>;
 }
 
 /**
  * Tela principal — só montada quando o usuário está conectado. Os hooks de
  * emuladores/sync/conflitos vivem aqui para não rodar na tela de login.
  */
-function MainScreen({ auth, settings, reloadSettings }: MainScreenProps) {
+function MainScreen({ auth, settings, reloadSettings, theme }: MainScreenProps) {
   const { t } = useTranslation();
   const sync = useSyncEvents();
   const { emulators, loading, error, refresh, remove } = useEmulators();
@@ -76,9 +84,12 @@ function MainScreen({ auth, settings, reloadSettings }: MainScreenProps) {
             onDisconnect={auth.disconnect}
             error={auth.error}
           />
-          <button className="secondary" onClick={() => setShowSettings(true)}>
+          <Button variant="secondary" size="sm" onClick={theme.toggle}>
+            {theme.theme === "dark" ? t("app.switchToLightTheme") : t("app.switchToDarkTheme")}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setShowSettings(true)}>
             {t("app.settings")}
-          </button>
+          </Button>
         </div>
       </header>
 
