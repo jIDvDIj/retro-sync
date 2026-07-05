@@ -25,6 +25,11 @@ pub struct DriveClient {
     /// Cache de IDs de pastas por caminho lógico (ex.: "RetroSync/PPSSPP/saves").
     /// Semente carregada do SQLite no boot; escrito a cada ID novo resolvido.
     pub(crate) folder_cache: RwLock<HashMap<String, String>>,
+    /// Bases da API — sempre o Google real em produção; sobrescritas por
+    /// `with_base_url` nos testes para apontar a um servidor HTTP fake.
+    pub(crate) api_base: String,
+    pub(crate) upload_base: String,
+    pub(crate) batch_base: String,
 }
 
 impl DriveClient {
@@ -38,14 +43,32 @@ impl DriveClient {
                 HashMap::new()
             });
         if !seed.is_empty() {
-            tracing::debug!(pastas = seed.len(), "cache de IDs de pasta do Drive restaurado do SQLite");
+            tracing::debug!(
+                pastas = seed.len(),
+                "cache de IDs de pasta do Drive restaurado do SQLite"
+            );
         }
         Self {
             http,
             auth,
             db,
             folder_cache: RwLock::new(seed),
+            api_base: super::DRIVE_API_BASE.to_string(),
+            upload_base: super::DRIVE_UPLOAD_BASE.to_string(),
+            batch_base: super::DRIVE_BATCH_BASE.to_string(),
         }
+    }
+
+    /// Redireciona as três bases da API para `base` (URI de um servidor de
+    /// teste), preservando os prefixos de path reais (`/drive/v3`,
+    /// `/upload/drive/v3`, `/batch/drive/v3`) para que os mocks casem com o
+    /// mesmo shape de request que o `DriveClient` monta em produção.
+    #[cfg(test)]
+    pub(crate) fn with_base_url(mut self, base: &str) -> Self {
+        self.api_base = format!("{base}/drive/v3");
+        self.upload_base = format!("{base}/upload/drive/v3");
+        self.batch_base = format!("{base}/batch/drive/v3");
+        self
     }
 
     /// Invalida um caminho lógico de pasta e sua subárvore no cache (memória +
@@ -147,4 +170,160 @@ fn backoff_delay(attempt: u32) -> Duration {
     let base = 500u64.saturating_mul(2u64.saturating_pow(attempt.saturating_sub(1)));
     let jitter = rand::thread_rng().gen_range(0..250);
     Duration::from_millis(base + jitter)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::backoff_delay;
+
+    #[test]
+    fn backoff_cresce_exponencialmente_com_jitter_limitado() {
+        // base 500ms·2^(n-1) + jitter [0, 250).
+        for (attempt, base) in [(1u32, 500u64), (2, 1000), (3, 2000), (4, 4000)] {
+            let d = backoff_delay(attempt).as_millis() as u64;
+            assert!(
+                (base..base + 250).contains(&d),
+                "tentativa {attempt}: {d}ms fora de [{base}, {})",
+                base + 250
+            );
+        }
+    }
+}
+
+/// Testes da política de retry (`send_with_retry`) contra um servidor fake:
+/// o primeiro mock (prioridade mais alta) responde uma vez com a falha em
+/// questão e expira; o segundo (fallback) responde 200 — provando que o
+/// `DriveClient` se recupera na tentativa seguinte. Backoff real (jitter
+/// incluso) roda de verdade, então estes testes levam ~0,5–1,5s cada.
+#[cfg(test)]
+mod retry_tests {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use crate::drive::test_support::client_against;
+    use crate::error::AppError;
+
+    #[tokio::test]
+    async fn renova_token_e_recupera_apos_401() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(401))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"ok".to_vec()))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        assert_eq!(client.download("f1").await.unwrap(), b"ok");
+    }
+
+    #[tokio::test]
+    async fn recupera_apos_429_com_backoff() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(429))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"ok".to_vec()))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        assert_eq!(client.download("f1").await.unwrap(), b"ok");
+    }
+
+    #[tokio::test]
+    async fn recupera_apos_403_com_corpo_de_rate_limit() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(
+                ResponseTemplate::new(403).set_body_string(
+                    r#"{"error":{"errors":[{"reason":"userRateLimitExceeded"}]}}"#,
+                ),
+            )
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"ok".to_vec()))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        assert_eq!(client.download("f1").await.unwrap(), b"ok");
+    }
+
+    #[tokio::test]
+    async fn recupera_apos_5xx_com_backoff() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"ok".to_vec()))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        assert_eq!(client.download("f1").await.unwrap(), b"ok");
+    }
+
+    #[tokio::test]
+    async fn esgota_tentativas_e_falha_com_erro_tipado() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        // Sempre 503: as DRIVE_MAX_RETRIES tentativas se esgotam.
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+
+        let err = client.download("f1").await.unwrap_err();
+        assert!(matches!(err, AppError::Other(_)));
+    }
+
+    #[tokio::test]
+    async fn quatrocentos_e_quatro_vira_erro_tipado_sem_retry() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1) // não deve haver retry: exatamente 1 chamada.
+            .mount(&server)
+            .await;
+
+        let err = client.download("f1").await.unwrap_err();
+        assert!(matches!(err, AppError::DriveObjectNotFound(_)));
+    }
 }
