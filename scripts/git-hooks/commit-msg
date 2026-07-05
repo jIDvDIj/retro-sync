@@ -3,7 +3,7 @@
 #   tipo(escopo): descrição   — escopo e "!" (breaking change) opcionais.
 #
 # Instalado em .git/hooks/ por scripts/install-hooks.sh (o diretório .git/
-# não é versionado). Inspirado no script/commit-msg.go do Syncthing.
+# não é versionado).
 
 subject=$(head -n 1 "$1")
 

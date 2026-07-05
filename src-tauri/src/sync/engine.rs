@@ -7,7 +7,7 @@
 //! ao frontend. Falhas de rede/arquivo em uso vão para a fila offline.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -141,6 +141,10 @@ struct CategoryCtx {
     notif: NotificationLevel,
     total: u32,
     completed: AtomicU32,
+    /// Total de bytes do plano e bytes já concluídos — para a UI mostrar
+    /// progresso em bytes, velocidade e ETA (não só contagem de arquivos).
+    bytes_total: u64,
+    bytes_done: AtomicU64,
 }
 
 /// Genérico sobre o runtime do Tauri para ser testável: em produção é o `Wry`
@@ -513,6 +517,8 @@ impl<R: Runtime> SyncEngine<R> {
                 notif,
                 total: plan.len() as u32,
                 completed: AtomicU32::new(0),
+                bytes_total: plan.iter().map(op_bytes).sum(),
+                bytes_done: AtomicU64::new(0),
             };
 
             // FEATURE-004: uploads de arquivos NOVOS e pequenos vão em lote (Batch
@@ -546,6 +552,7 @@ impl<R: Runtime> SyncEngine<R> {
 
     async fn execute_op(&self, ctx: &CategoryCtx, op: PlannedOp) -> OpOutcome {
         let rel_path = op.rel_path.clone();
+        let bytes = op_bytes(&op);
         let result = match op.action {
             SyncAction::Upload => self.do_upload(ctx, &op).await,
             SyncAction::Download => self.do_download(ctx, &op).await,
@@ -554,7 +561,7 @@ impl<R: Runtime> SyncEngine<R> {
             SyncAction::NoOp => Ok(()),
         };
 
-        self.emit_progress(ctx, &rel_path);
+        self.emit_progress(ctx, &rel_path, bytes);
 
         match result {
             Ok(()) => {
@@ -604,9 +611,11 @@ impl<R: Runtime> SyncEngine<R> {
         }
     }
 
-    /// Emite o evento de progresso e avança o contador de concluídos da categoria.
-    fn emit_progress(&self, ctx: &CategoryCtx, rel_path: &str) {
+    /// Emite o evento de progresso e avança os contadores (arquivos e bytes)
+    /// de concluídos da categoria.
+    fn emit_progress(&self, ctx: &CategoryCtx, rel_path: &str, bytes: u64) {
         let completed = ctx.completed.fetch_add(1, Ordering::Relaxed) + 1;
+        let bytes_done = ctx.bytes_done.fetch_add(bytes, Ordering::Relaxed) + bytes;
         let _ = self.app.emit(
             EVT_SYNC_PROGRESS,
             &SyncProgress {
@@ -614,6 +623,8 @@ impl<R: Runtime> SyncEngine<R> {
                 current_file: rel_path.to_string(),
                 completed,
                 total: ctx.total,
+                bytes_done,
+                bytes_total: ctx.bytes_total,
                 direction: ctx.direction,
             },
         );
@@ -683,7 +694,7 @@ impl<R: Runtime> SyncEngine<R> {
                         } else {
                             summary.failed += 1;
                         }
-                        self.emit_progress(ctx, &p.rel_path);
+                        self.emit_progress(ctx, &p.rel_path, p.size_bytes.max(0) as u64);
                     }
                 }
                 result => {
@@ -1101,6 +1112,25 @@ struct PreparedBatchOp {
     rel_path: String,
     mtime_ms: i64,
     size_bytes: i64,
+}
+
+/// Bytes que a op vai transferir — tamanho local para uploads, tamanho
+/// remoto para downloads; conflitos/no-ops não transferem nada.
+fn op_bytes(op: &PlannedOp) -> u64 {
+    match op.action {
+        SyncAction::Upload => op
+            .local
+            .as_ref()
+            .map(|l| l.size_bytes.max(0) as u64)
+            .unwrap_or(0),
+        SyncAction::Download | SyncAction::DownloadWithBackup => op
+            .remote
+            .as_ref()
+            .and_then(|r| r.size.as_deref())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0),
+        SyncAction::Conflict | SyncAction::NoOp => 0,
+    }
 }
 
 /// Elegível ao batch: upload de arquivo que ainda não existe no Drive e é

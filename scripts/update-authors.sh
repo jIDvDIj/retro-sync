@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Gera o arquivo AUTHORS a partir do git log, ordenado por número de commits.
 # Identidades duplicadas são unificadas via .mailmap; bots e trailers de
-# ferramentas são filtrados. Inspirado no script/authors.go do Syncthing.
+# ferramentas são filtrados.
 #
 # Uso: sh scripts/update-authors.sh
 set -eu
