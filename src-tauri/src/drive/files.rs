@@ -624,26 +624,12 @@ mod tests {
 /// o `DriveClient` é redirecionado para `localhost` via `with_base_url`.
 #[cfg(test)]
 mod http_tests {
-    use std::sync::Arc;
-
     use serde_json::json;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    use super::{DeviceTag, DriveClient, SIMPLE_UPLOAD_MAX_BYTES};
-    use crate::auth::AuthManager;
-    use crate::secrets::{MemSecrets, SecretStore};
-    use crate::storage::db::Db;
-
-    /// `DriveClient` autenticado (token seedado, sem OAuth) apontando para o
-    /// servidor fake em vez do Google real.
-    async fn test_client(server: &MockServer) -> DriveClient {
-        let db = Db::open_in_memory().unwrap();
-        let secrets: Arc<dyn SecretStore> = Arc::new(MemSecrets::default());
-        let auth = Arc::new(AuthManager::new(reqwest::Client::new(), secrets));
-        auth.set_test_access_token("tok-teste").await;
-        DriveClient::new(reqwest::Client::new(), auth, db).with_base_url(&server.uri())
-    }
+    use super::{DeviceTag, SIMPLE_UPLOAD_MAX_BYTES};
+    use crate::drive::test_support::client_against as test_client;
 
     #[tokio::test]
     async fn list_tree_percorre_subpastas_recursivamente() {

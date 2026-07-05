@@ -52,6 +52,11 @@ pub struct AuthManager {
     config: Option<OAuthConfig>,
     cached: RwLock<Option<CachedToken>>,
     secrets: Arc<dyn SecretStore>,
+    /// Token "sempre renovável" para testes de retry: quando setado, uma
+    /// invalidação (401) é seguida por uma renovação sem OAuth real — os
+    /// testes de `send_with_retry` não precisam mockar o endpoint do Google.
+    #[cfg(test)]
+    test_fixed_token: RwLock<Option<String>>,
 }
 
 impl AuthManager {
@@ -67,6 +72,8 @@ impl AuthManager {
             config,
             cached: RwLock::new(None),
             secrets,
+            #[cfg(test)]
+            test_fixed_token: RwLock::new(None),
         }
     }
 
@@ -189,6 +196,15 @@ impl AuthManager {
             }
         }
 
+        #[cfg(test)]
+        if let Some(token) = self.test_fixed_token.read().await.clone() {
+            *self.cached.write().await = Some(CachedToken {
+                access_token: token.clone(),
+                expires_at: Instant::now() + Duration::from_secs(3600),
+            });
+            return Ok(token);
+        }
+
         let config = self.config()?;
         let secrets = self.secrets.clone();
         let stored = run_blocking(move || TokenStore::load(&*secrets))
@@ -205,6 +221,7 @@ impl AuthManager {
     /// testes do `DriveClient` precisem mockar também o endpoint de refresh.
     #[cfg(test)]
     pub(crate) async fn set_test_access_token(&self, token: &str) {
+        *self.test_fixed_token.write().await = Some(token.to_string());
         *self.cached.write().await = Some(CachedToken {
             access_token: token.to_string(),
             expires_at: Instant::now() + Duration::from_secs(3600),

@@ -17,6 +17,10 @@ mod folders;
 // viraria dead code no build de teste do Windows.
 #[cfg(all(test, desktop, not(windows)))]
 pub(crate) mod mock;
+// Helper compartilhado pelos testes de HTTP (drive::files, drive::client) —
+// não depende do MockRuntime do tauri, então roda em todas as plataformas.
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use api::DriveApi;
 pub use client::DriveClient;

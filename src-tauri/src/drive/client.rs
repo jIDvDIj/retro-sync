@@ -189,3 +189,141 @@ mod tests {
         }
     }
 }
+
+/// Testes da política de retry (`send_with_retry`) contra um servidor fake:
+/// o primeiro mock (prioridade mais alta) responde uma vez com a falha em
+/// questão e expira; o segundo (fallback) responde 200 — provando que o
+/// `DriveClient` se recupera na tentativa seguinte. Backoff real (jitter
+/// incluso) roda de verdade, então estes testes levam ~0,5–1,5s cada.
+#[cfg(test)]
+mod retry_tests {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use crate::drive::test_support::client_against;
+    use crate::error::AppError;
+
+    #[tokio::test]
+    async fn renova_token_e_recupera_apos_401() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(401))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"ok".to_vec()))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        assert_eq!(client.download("f1").await.unwrap(), b"ok");
+    }
+
+    #[tokio::test]
+    async fn recupera_apos_429_com_backoff() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(429))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"ok".to_vec()))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        assert_eq!(client.download("f1").await.unwrap(), b"ok");
+    }
+
+    #[tokio::test]
+    async fn recupera_apos_403_com_corpo_de_rate_limit() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(
+                ResponseTemplate::new(403).set_body_string(
+                    r#"{"error":{"errors":[{"reason":"userRateLimitExceeded"}]}}"#,
+                ),
+            )
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"ok".to_vec()))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        assert_eq!(client.download("f1").await.unwrap(), b"ok");
+    }
+
+    #[tokio::test]
+    async fn recupera_apos_5xx_com_backoff() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"ok".to_vec()))
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        assert_eq!(client.download("f1").await.unwrap(), b"ok");
+    }
+
+    #[tokio::test]
+    async fn esgota_tentativas_e_falha_com_erro_tipado() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        // Sempre 503: as DRIVE_MAX_RETRIES tentativas se esgotam.
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+
+        let err = client.download("f1").await.unwrap_err();
+        assert!(matches!(err, AppError::Other(_)));
+    }
+
+    #[tokio::test]
+    async fn quatrocentos_e_quatro_vira_erro_tipado_sem_retry() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1) // não deve haver retry: exatamente 1 chamada.
+            .mount(&server)
+            .await;
+
+        let err = client.download("f1").await.unwrap_err();
+        assert!(matches!(err, AppError::DriveObjectNotFound(_)));
+    }
+}
