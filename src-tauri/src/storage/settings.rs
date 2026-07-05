@@ -9,8 +9,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::constants::{
-    SETTING_DEVICE_NAME, SETTING_NOTIFICATION_LEVEL, SETTING_TRIGGER_EMULATOR_START,
-    SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
+    SETTING_DEVICE_NAME, SETTING_DISMISSED_NOTICES, SETTING_NOTIFICATION_LEVEL,
+    SETTING_TRIGGER_EMULATOR_START, SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
 };
 // Consumido apenas pelas funções de autostart (só-desktop).
 #[cfg(desktop)]
@@ -187,6 +187,28 @@ pub fn mark_autostart_initialized(conn: &Connection) -> AppResult<()> {
     set_bool(conn, SETTING_AUTOSTART_INITIALIZED, true)
 }
 
+/// IDs de banners informativos dispensados pelo usuário (array JSON na chave
+/// `dismissed_notices`). Um valor ilegível conta como "nada dispensado".
+pub fn dismissed_notices(conn: &Connection) -> AppResult<Vec<String>> {
+    Ok(get(conn, SETTING_DISMISSED_NOTICES)?
+        .and_then(|value| serde_json::from_str(&value).ok())
+        .unwrap_or_default())
+}
+
+/// Marca um banner como dispensado — ele não volta a ser exibido. Idempotente.
+pub fn dismiss_notice(conn: &Connection, id: &str) -> AppResult<()> {
+    let mut ids = dismissed_notices(conn)?;
+    if !ids.iter().any(|existing| existing == id) {
+        ids.push(id.to_string());
+        set(
+            conn,
+            SETTING_DISMISSED_NOTICES,
+            &serde_json::to_string(&ids)?,
+        )?;
+    }
+    Ok(())
+}
+
 /// Nome do dispositivo isolado (usado pelo engine ao publicar metadados).
 pub fn device_name(conn: &Connection) -> AppResult<Option<String>> {
     get(conn, SETTING_DEVICE_NAME)
@@ -290,6 +312,24 @@ mod tests {
         assert!(!NotificationLevel::ErrorsOnly.notifies_info());
         assert!(!NotificationLevel::None.notifies_errors());
         assert!(!NotificationLevel::None.notifies_info());
+    }
+
+    #[test]
+    fn dismiss_notice_persiste_e_e_idempotente() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert!(dismissed_notices(conn)?.is_empty());
+
+            dismiss_notice(conn, "backup-primeiro-sync")?;
+            dismiss_notice(conn, "backup-primeiro-sync")?;
+            dismiss_notice(conn, "pendencias")?;
+
+            assert_eq!(
+                dismissed_notices(conn)?,
+                vec!["backup-primeiro-sync".to_string(), "pendencias".to_string()]
+            );
+            Ok(())
+        });
     }
 
     #[test]
