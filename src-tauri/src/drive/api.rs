@@ -142,3 +142,60 @@ impl DriveApi for DriveClient {
         DriveClient::clear_folder_cache(self).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::auth::AuthManager;
+    use crate::secrets::MemSecrets;
+    use crate::storage::db::Db;
+    use crate::storage::drive_folders;
+
+    /// Exercita a delegação do trait para o `DriveClient` real pelos caminhos
+    /// que dispensam rede (cache persistido + batch vazio). Uma delegação
+    /// trocada (copy/paste para o método errado) falharia aqui. Os métodos
+    /// restantes (list/find/download/upload_*) exigem HTTP real e ficam para
+    /// os testes atrás da feature `integration-tests`.
+    #[tokio::test]
+    async fn delegacao_para_o_cliente_real_nos_caminhos_sem_rede() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            for (key, id) in [
+                ("RetroSync", "id-root"),
+                ("RetroSync/PPSSPP", "id-emu"),
+                ("RetroSync/PPSSPP/saves", "id-saves"),
+                ("RetroSync/PPSSPP/saves/jogo", "id-jogo"),
+            ] {
+                drive_folders::upsert(conn, key, id)?;
+            }
+            Ok(())
+        });
+        let auth = Arc::new(AuthManager::new(
+            reqwest::Client::new(),
+            Arc::new(MemSecrets::default()),
+        ));
+        let client = DriveClient::new(reqwest::Client::new(), auth, db);
+        let api: &dyn DriveApi = &client;
+
+        assert_eq!(api.ensure_root().await.unwrap(), "id-root");
+        assert_eq!(
+            api.ensure_category_folder("PPSSPP", SyncCategory::Saves)
+                .await
+                .unwrap(),
+            "id-saves"
+        );
+        assert_eq!(
+            api.ensure_subpath("id-saves", "RetroSync/PPSSPP/saves", "jogo")
+                .await
+                .unwrap(),
+            "id-jogo"
+        );
+        assert!(api.upload_batch(Vec::new()).await.unwrap().is_empty());
+
+        api.invalidate_folder_path("RetroSync/PPSSPP").await;
+        api.clear_folder_cache().await;
+        assert!(client.folder_cache.read().await.is_empty());
+    }
+}
