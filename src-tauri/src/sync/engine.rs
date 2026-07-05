@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime, Wry};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::Mutex;
 
@@ -26,7 +26,7 @@ use crate::constants::{
     DRIVE_BATCH_MAX_OPS, DRIVE_BATCH_MIN_OPS, DRIVE_MANIFEST_FILE, DRIVE_MAX_CONCURRENT_TRANSFERS,
     DRIVE_SIMPLE_UPLOAD_MAX_BYTES,
 };
-use crate::drive::{BatchUploadOp, DeviceTag, DriveClient};
+use crate::drive::{BatchUploadOp, DeviceTag, DriveApi};
 use crate::error::{AppError, AppResult};
 use crate::events::{
     EVT_SYNC_COMPLETED, EVT_SYNC_CONFLICT, EVT_SYNC_ERROR, EVT_SYNC_PROGRESS, EVT_SYNC_STARTED,
@@ -143,11 +143,15 @@ struct CategoryCtx {
     completed: AtomicU32,
 }
 
-pub struct SyncEngine {
+/// Genérico sobre o runtime do Tauri para ser testável: em produção é o `Wry`
+/// (default); nos testes de cenário (`sync::scenarios`), o `MockRuntime` do
+/// `tauri::test`. O Drive entra pelo trait [`DriveApi`] — `DriveClient` real
+/// ou `MockDrive` em memória (issue #82).
+pub struct SyncEngine<R: Runtime = Wry> {
     db: Db,
-    drive: Arc<DriveClient>,
+    drive: Arc<dyn DriveApi>,
     auth: Arc<AuthManager>,
-    app: AppHandle,
+    app: AppHandle<R>,
     last_sync: LastSyncStore,
     /// Raiz dos backups locais (`<app_data>/backups`).
     backup_dir: PathBuf,
@@ -160,14 +164,14 @@ pub struct SyncEngine {
     running: Mutex<()>,
 }
 
-impl SyncEngine {
+impl<R: Runtime> SyncEngine<R> {
     // Construtor de injeção: recebe o wiring completo do app montado no setup.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: Db,
-        drive: Arc<DriveClient>,
+        drive: Arc<dyn DriveApi>,
         auth: Arc<AuthManager>,
-        app: AppHandle,
+        app: AppHandle<R>,
         last_sync: LastSyncStore,
         backup_dir: PathBuf,
         storage: Arc<dyn LocalStorage>,

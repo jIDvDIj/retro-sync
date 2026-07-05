@@ -9,10 +9,14 @@
 //! Escopo OAuth: `drive.file` — o app só enxerga o que ele mesmo criou.
 //! Nunca deleta nada no Drive (regra da v1.0).
 
+mod api;
 mod client;
 mod files;
 mod folders;
+#[cfg(test)]
+pub(crate) mod mock;
 
+pub use api::DriveApi;
 pub use client::DriveClient;
 pub use files::{BatchUploadOp, DeviceTag, DriveFile, RemoteFile};
 
