@@ -95,3 +95,48 @@ impl Serialize for AppError {
         s.end()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn payload(err: AppError) -> serde_json::Value {
+        serde_json::to_value(err).unwrap()
+    }
+
+    #[test]
+    fn erro_serializa_como_code_message_detail() {
+        let v = payload(AppError::FileBusy("save.bin".into()));
+        assert_eq!(v["code"], "file_busy");
+        assert_eq!(v["detail"], "save.bin");
+        // message = prefixo localizável + detalhe.
+        assert!(v["message"].as_str().unwrap().contains("arquivo em uso"));
+        assert!(v["message"].as_str().unwrap().contains("save.bin"));
+    }
+
+    #[test]
+    fn codes_sao_estaveis_para_o_frontend() {
+        // O union AppErrorPayload["code"] em src/types/ipc.ts depende destes valores.
+        assert_eq!(payload(AppError::Auth("x".into()))["code"], "auth");
+        assert_eq!(
+            payload(AppError::DriveObjectNotFound("x".into()))["code"],
+            "drive_not_found"
+        );
+        assert_eq!(
+            payload(AppError::EmulatorNotDetected("x".into()))["code"],
+            "emulator_not_detected"
+        );
+        assert_eq!(
+            payload(AppError::EmulatorExists("x".into()))["code"],
+            "emulator_exists"
+        );
+        assert_eq!(payload(AppError::Other("x".into()))["code"], "other");
+    }
+
+    #[test]
+    fn other_usa_o_texto_inteiro_como_message_e_detail() {
+        let v = payload(AppError::Other("falha específica".into()));
+        assert_eq!(v["message"], "falha específica");
+        assert_eq!(v["detail"], "falha específica");
+    }
+}

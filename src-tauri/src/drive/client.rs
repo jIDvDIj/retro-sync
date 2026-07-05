@@ -38,7 +38,10 @@ impl DriveClient {
                 HashMap::new()
             });
         if !seed.is_empty() {
-            tracing::debug!(pastas = seed.len(), "cache de IDs de pasta do Drive restaurado do SQLite");
+            tracing::debug!(
+                pastas = seed.len(),
+                "cache de IDs de pasta do Drive restaurado do SQLite"
+            );
         }
         Self {
             http,
@@ -147,4 +150,22 @@ fn backoff_delay(attempt: u32) -> Duration {
     let base = 500u64.saturating_mul(2u64.saturating_pow(attempt.saturating_sub(1)));
     let jitter = rand::thread_rng().gen_range(0..250);
     Duration::from_millis(base + jitter)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::backoff_delay;
+
+    #[test]
+    fn backoff_cresce_exponencialmente_com_jitter_limitado() {
+        // base 500ms·2^(n-1) + jitter [0, 250).
+        for (attempt, base) in [(1u32, 500u64), (2, 1000), (3, 2000), (4, 4000)] {
+            let d = backoff_delay(attempt).as_millis() as u64;
+            assert!(
+                (base..base + 250).contains(&d),
+                "tentativa {attempt}: {d}ms fora de [{base}, {})",
+                base + 250
+            );
+        }
+    }
 }

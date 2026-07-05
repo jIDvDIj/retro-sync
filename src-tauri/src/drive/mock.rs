@@ -49,6 +49,7 @@ pub struct MockDrive {
     /// Quantos uploads per-file (`upload_new`) foram feitos.
     pub upload_new_calls: AtomicU32,
     fail_next_batch: AtomicBool,
+    fail_downloads: AtomicBool,
 }
 
 impl MockDrive {
@@ -60,6 +61,12 @@ impl MockDrive {
     /// per-file do engine.
     pub fn set_fail_next_batch(&self) {
         self.fail_next_batch.store(true, Ordering::SeqCst);
+    }
+
+    /// Liga/desliga falha em TODOS os downloads — exercita a fila offline
+    /// (`pending_ops`) do engine.
+    pub fn set_fail_downloads(&self, fail: bool) {
+        self.fail_downloads.store(fail, Ordering::SeqCst);
     }
 
     fn folder_id(cache_key: &str) -> String {
@@ -289,6 +296,11 @@ impl DriveApi for MockDrive {
     }
 
     async fn download(&self, file_id: &str) -> AppResult<Vec<u8>> {
+        if self.fail_downloads.load(Ordering::SeqCst) {
+            // FileBusy é um erro retryable para o engine (Network exigiria
+            // construir um reqwest::Error, que não tem construtor público).
+            return Err(AppError::FileBusy(format!("mock: download de {file_id}")));
+        }
         let state = self.state.lock().unwrap();
         state
             .files

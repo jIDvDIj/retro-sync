@@ -4,9 +4,8 @@
 //! Sem rede e sem credenciais; testes com credenciais reais ficam atrás da
 //! feature `integration-tests` (hoje vazia).
 
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use tauri::test::MockRuntime;
 
@@ -16,8 +15,7 @@ use crate::auth::AuthManager;
 use crate::constants::{DRIVE_BATCH_MIN_OPS, DRIVE_MANIFEST_FILE, KEYRING_REFRESH_TOKEN_KEY};
 use crate::drive::mock::MockDrive;
 use crate::emulator::EmulatorProfile;
-use crate::error::AppResult;
-use crate::secrets::SecretStore;
+use crate::secrets::{MemSecrets, SecretStore};
 use crate::storage::db::Db;
 use crate::storage::settings::NotificationLevel;
 use crate::storage::{conflicts, emulators, manifest, settings};
@@ -25,26 +23,6 @@ use crate::storage::{conflicts, emulators, manifest, settings};
 const EMU: &str = "PPSSPP";
 const T: i64 = 1_700_000_000_000;
 const S10: i64 = 10_000; // 10s — bem além da tolerância de ±2s do diff.
-
-/// SecretStore em memória: guarda refresh token e device_id sem keyring.
-#[derive(Default)]
-struct MemSecrets(Mutex<HashMap<String, String>>);
-
-impl SecretStore for MemSecrets {
-    fn set(&self, key: &str, value: &str) -> AppResult<()> {
-        self.0.lock().unwrap().insert(key.into(), value.into());
-        Ok(())
-    }
-
-    fn get(&self, key: &str) -> AppResult<Option<String>> {
-        Ok(self.0.lock().unwrap().get(key).cloned())
-    }
-
-    fn delete(&self, key: &str) -> AppResult<()> {
-        self.0.lock().unwrap().remove(key);
-        Ok(())
-    }
-}
 
 /// Fixture completa: engine pronto para sincronizar um emulador com uma
 /// categoria de saves, contra um Drive falso.
@@ -157,10 +135,15 @@ impl Harness {
     }
 
     async fn sync(&self) -> SyncSummary {
-        self.engine
-            .sync_all(SyncDirection::Bidirectional, "teste")
-            .await
-            .unwrap()
+        self.sync_dir(SyncDirection::Bidirectional).await
+    }
+
+    async fn sync_dir(&self, direction: SyncDirection) -> SyncSummary {
+        self.engine.sync_all(direction, "teste").await.unwrap()
+    }
+
+    async fn pending_ops(&self) -> i64 {
+        self.db.with(crate::storage::queue::count).await.unwrap()
     }
 
     async fn manifest_len(&self) -> usize {
@@ -388,4 +371,108 @@ async fn fallback_per_file_quando_batch_falha() {
             .load(std::sync::atomic::Ordering::SeqCst) as usize,
         DRIVE_BATCH_MIN_OPS + 1
     );
+}
+
+/// Resolver conflito mantendo o Drive: faz backup do local vigente antes de
+/// sobrescrever, baixa a versão remota e desbloqueia o emulador.
+#[tokio::test]
+async fn resolucao_mantendo_drive_baixa_com_backup() {
+    let h = Harness::new().await;
+    h.write_local("save.bin", b"v1", T);
+    h.sync().await;
+
+    h.write_local("save.bin", b"v2-local", T + S10);
+    h.drive.overwrite_as_device(
+        EMU,
+        SyncCategory::Saves,
+        "save.bin",
+        b"v2-drive",
+        T + 2 * S10,
+        "outro-dispositivo",
+    );
+    let conflicted = h.sync().await;
+    assert_eq!(conflicted.conflicts, 1);
+
+    h.engine
+        .resolve_conflict(
+            EMU,
+            SyncCategory::Saves,
+            "save.bin",
+            ConflictResolution::Drive,
+        )
+        .await
+        .unwrap();
+
+    assert!(!h.has_conflict().await);
+    assert_eq!(
+        h.read_local("save.bin"),
+        b"v2-drive",
+        "Drive escolhido vence"
+    );
+    assert_eq!(
+        h.backup_of("save.bin").unwrap(),
+        b"v2-local",
+        "local vigente é preservado em backup antes de sobrescrever"
+    );
+
+    // Convergido: próximo sync não move nada.
+    let after = h.sync().await;
+    assert_eq!(after.uploaded + after.downloaded + after.conflicts, 0);
+}
+
+/// Falha retryable de download vira pendência na fila offline (`pending_ops`),
+/// não erro fatal; o sync seguinte refaz a operação e limpa a pendência.
+#[tokio::test]
+async fn falha_de_download_vira_pendencia_e_proximo_sync_recupera() {
+    let h = Harness::new().await;
+    h.seed_remote("save.bin", b"drive-v1", T, None);
+
+    h.drive.set_fail_downloads(true);
+    let failed = h.sync().await;
+    assert_eq!(failed.queued, 1, "falha retryable vira pendência");
+    assert_eq!(failed.downloaded, 0);
+    assert_eq!(failed.failed, 0, "não é erro fatal");
+    assert_eq!(h.pending_ops().await, 1);
+
+    h.drive.set_fail_downloads(false);
+    let recovered = h.sync().await;
+    assert_eq!(recovered.downloaded, 1);
+    assert_eq!(h.read_local("save.bin"), b"drive-v1");
+    assert_eq!(h.pending_ops().await, 0, "sucesso limpa a pendência");
+}
+
+/// Sync só-upload (`LocalToDrive`, gatilho emulator-stop) não baixa nada;
+/// o arquivo remoto pendente fica para o sync bidirecional seguinte.
+#[tokio::test]
+async fn direcao_local_to_drive_sobe_sem_baixar() {
+    let h = Harness::new().await;
+    h.write_local("local.bin", b"sobe", T);
+    h.seed_remote("remoto.bin", b"nao-desce", T, None);
+
+    let summary = h.sync_dir(SyncDirection::LocalToDrive).await;
+
+    assert_eq!(summary.uploaded, 1);
+    assert_eq!(summary.downloaded, 0);
+    assert_eq!(summary.skipped, 1, "download reprimido conta como skipped");
+    assert!(!h.saves_dir.join("remoto.bin").exists());
+}
+
+/// Sync só-download (`DriveToLocal`, gatilho emulator-start) não sobe nada;
+/// a mudança local pendente fica para o sync bidirecional seguinte.
+#[tokio::test]
+async fn direcao_drive_to_local_baixa_sem_subir() {
+    let h = Harness::new().await;
+    h.write_local("local.bin", b"nao-sobe", T);
+    h.seed_remote("remoto.bin", b"desce", T, None);
+
+    let summary = h.sync_dir(SyncDirection::DriveToLocal).await;
+
+    assert_eq!(summary.downloaded, 1);
+    assert_eq!(summary.uploaded, 0);
+    assert_eq!(summary.skipped, 1, "upload reprimido conta como skipped");
+    assert!(
+        h.remote_content("local.bin").is_none(),
+        "nada foi enviado ao Drive"
+    );
+    assert_eq!(h.read_local("remoto.bin"), b"desce");
 }

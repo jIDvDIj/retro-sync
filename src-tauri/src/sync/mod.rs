@@ -99,3 +99,48 @@ impl SyncTarget {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn categoria_roundtrip_as_str_parse() {
+        for cat in [
+            SyncCategory::Saves,
+            SyncCategory::Savestates,
+            SyncCategory::Config,
+        ] {
+            assert_eq!(SyncCategory::parse(cat.as_str()), Some(cat));
+        }
+        assert_eq!(SyncCategory::parse("outra-coisa"), None);
+    }
+
+    #[test]
+    fn from_profile_mapeia_as_tres_categorias() {
+        let profile = EmulatorProfile {
+            name: "PPSSPP".into(),
+            root_path: PathBuf::from("/raiz"),
+            saves_paths: vec![PathBuf::from("saves")],
+            config_paths: vec![PathBuf::from("cfg"), PathBuf::from("cfg2")],
+            state_paths: vec![],
+        };
+
+        let target = SyncTarget::from_profile(&profile);
+
+        assert_eq!(target.label, "PPSSPP");
+        assert_eq!(target.root, PathBuf::from("/raiz"));
+        assert_eq!(target.categories.len(), 3);
+        let by_cat = |c: SyncCategory| {
+            target
+                .categories
+                .iter()
+                .find(|(cat, _)| *cat == c)
+                .map(|(_, paths)| paths.len())
+                .unwrap()
+        };
+        assert_eq!(by_cat(SyncCategory::Saves), 1);
+        assert_eq!(by_cat(SyncCategory::Config), 2);
+        assert_eq!(by_cat(SyncCategory::Savestates), 0);
+    }
+}

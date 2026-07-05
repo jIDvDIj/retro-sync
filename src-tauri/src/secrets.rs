@@ -43,6 +43,32 @@ impl SecretStore for KeyringStore {
     }
 }
 
+// --- Testes: HashMap em memória ---
+
+/// `SecretStore` em memória para testes: guarda refresh token e device_id num
+/// mapa, sem keyring nem SQLite. Compartilhado pelos testes de `auth`,
+/// `device` e pelos cenários do `SyncEngine`.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct MemSecrets(std::sync::Mutex<std::collections::HashMap<String, String>>);
+
+#[cfg(test)]
+impl SecretStore for MemSecrets {
+    fn set(&self, key: &str, value: &str) -> AppResult<()> {
+        self.0.lock().unwrap().insert(key.into(), value.into());
+        Ok(())
+    }
+
+    fn get(&self, key: &str) -> AppResult<Option<String>> {
+        Ok(self.0.lock().unwrap().get(key).cloned())
+    }
+
+    fn delete(&self, key: &str) -> AppResult<()> {
+        self.0.lock().unwrap().remove(key);
+        Ok(())
+    }
+}
+
 // --- Mobile: tabela `secrets` no SQLite privado do app ---
 
 #[cfg(mobile)]
@@ -76,10 +102,7 @@ impl SecretStore for SqliteSecretStore {
 
     fn delete(&self, key: &str) -> AppResult<()> {
         self.0.with_conn_blocking(|conn| {
-            conn.execute(
-                "DELETE FROM secrets WHERE key = ?1",
-                rusqlite::params![key],
-            )?;
+            conn.execute("DELETE FROM secrets WHERE key = ?1", rusqlite::params![key])?;
             Ok(())
         })
     }

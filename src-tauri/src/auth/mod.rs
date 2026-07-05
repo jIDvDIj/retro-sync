@@ -222,3 +222,90 @@ async fn run_blocking<T: Send + 'static>(
         .await
         .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))?
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::token_store::{StoredAuth, TokenStore};
+    use super::AuthManager;
+    use crate::constants::KEYRING_REFRESH_TOKEN_KEY;
+    use crate::secrets::{MemSecrets, SecretStore};
+
+    fn manager(secrets: &Arc<MemSecrets>) -> AuthManager {
+        AuthManager::new(reqwest::Client::new(), secrets.clone())
+    }
+
+    #[tokio::test]
+    async fn status_desconectado_sem_token_salvo() {
+        let secrets = Arc::new(MemSecrets::default());
+        let status = manager(&secrets).status().await.unwrap();
+        assert!(!status.connected);
+        assert!(status.email.is_none());
+    }
+
+    #[tokio::test]
+    async fn status_conectado_le_email_do_token_salvo() {
+        let secrets = Arc::new(MemSecrets::default());
+        TokenStore::save(
+            &StoredAuth {
+                refresh_token: "tok".into(),
+                email: Some("dev@retrosync".into()),
+            },
+            &*secrets,
+        )
+        .unwrap();
+
+        let status = manager(&secrets).status().await.unwrap();
+        assert!(status.connected);
+        assert_eq!(status.email.as_deref(), Some("dev@retrosync"));
+    }
+
+    #[tokio::test]
+    async fn token_ilegivel_degrada_para_desconectado() {
+        let secrets = Arc::new(MemSecrets::default());
+        secrets
+            .set(KEYRING_REFRESH_TOKEN_KEY, "não é json")
+            .unwrap();
+
+        let status = manager(&secrets).status().await.unwrap();
+        assert!(!status.connected, "token corrompido não pode conectar");
+    }
+
+    #[tokio::test]
+    async fn disconnect_apaga_o_token_persistido() {
+        let secrets = Arc::new(MemSecrets::default());
+        TokenStore::save(
+            &StoredAuth {
+                refresh_token: "tok".into(),
+                email: None,
+            },
+            &*secrets,
+        )
+        .unwrap();
+
+        let m = manager(&secrets);
+        assert!(m.status().await.unwrap().connected);
+
+        let after = m.disconnect().await.unwrap();
+        assert!(!after.connected);
+        assert!(secrets.get(KEYRING_REFRESH_TOKEN_KEY).unwrap().is_none());
+    }
+
+    #[test]
+    fn token_store_roundtrip_persiste_e_limpa() {
+        let secrets = MemSecrets::default();
+        let auth = StoredAuth {
+            refresh_token: "abc".into(),
+            email: Some("x@y".into()),
+        };
+
+        TokenStore::save(&auth, &secrets).unwrap();
+        let loaded = TokenStore::load(&secrets).unwrap().unwrap();
+        assert_eq!(loaded.refresh_token, "abc");
+        assert_eq!(loaded.email.as_deref(), Some("x@y"));
+
+        TokenStore::clear(&secrets).unwrap();
+        assert!(TokenStore::load(&secrets).unwrap().is_none());
+    }
+}

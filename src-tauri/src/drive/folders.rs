@@ -115,3 +115,106 @@ impl DriveClient {
         Ok(response.json::<DriveFile>().await?)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::auth::AuthManager;
+    use crate::drive::DriveClient;
+    use crate::secrets::MemSecrets;
+    use crate::storage::db::Db;
+    use crate::storage::drive_folders;
+
+    /// Cliente sem rede: qualquer ID que os testes precisem deve vir do cache
+    /// persistido em `drive_folders` (carregado no `DriveClient::new`).
+    fn client_with_seed(seed: &[(&str, &str)]) -> DriveClient {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            for (key, id) in seed {
+                drive_folders::upsert(conn, key, id)?;
+            }
+            Ok(())
+        });
+        let auth = Arc::new(AuthManager::new(
+            reqwest::Client::new(),
+            Arc::new(MemSecrets::default()),
+        ));
+        DriveClient::new(reqwest::Client::new(), auth, db)
+    }
+
+    #[tokio::test]
+    async fn ensure_root_resolve_pelo_cache_persistido() {
+        let client = client_with_seed(&[("RetroSync", "id-root")]);
+        assert_eq!(client.ensure_root().await.unwrap(), "id-root");
+    }
+
+    #[tokio::test]
+    async fn ensure_category_folder_resolve_a_cadeia_cacheada() {
+        let client = client_with_seed(&[
+            ("RetroSync", "id-root"),
+            ("RetroSync/PPSSPP", "id-emu"),
+            ("RetroSync/PPSSPP/saves", "id-saves"),
+        ]);
+        let id = client
+            .ensure_category_folder("PPSSPP", crate::sync::SyncCategory::Saves)
+            .await
+            .unwrap();
+        assert_eq!(id, "id-saves");
+    }
+
+    #[tokio::test]
+    async fn ensure_subpath_percorre_segmentos_cacheados() {
+        let client = client_with_seed(&[
+            ("RetroSync/PPSSPP/saves/jogo", "id-jogo"),
+            ("RetroSync/PPSSPP/saves/jogo/slot1", "id-slot1"),
+        ]);
+        let id = client
+            .ensure_subpath("id-saves", "RetroSync/PPSSPP/saves", "jogo/slot1")
+            .await
+            .unwrap();
+        assert_eq!(id, "id-slot1");
+    }
+
+    #[tokio::test]
+    async fn invalidate_folder_path_remove_apenas_a_subarvore() {
+        let client = client_with_seed(&[
+            ("RetroSync", "id-root"),
+            ("RetroSync/PPSSPP", "id-emu"),
+            ("RetroSync/PPSSPP/saves", "id-saves"),
+            ("RetroSync/PCSX2", "id-outro"),
+        ]);
+
+        client.invalidate_folder_path("RetroSync/PPSSPP").await;
+
+        // Memória: subárvore fora, vizinhos ficam.
+        let cache = client.folder_cache.read().await;
+        assert!(!cache.contains_key("RetroSync/PPSSPP"));
+        assert!(!cache.contains_key("RetroSync/PPSSPP/saves"));
+        assert!(cache.contains_key("RetroSync"));
+        assert!(cache.contains_key("RetroSync/PCSX2"));
+        drop(cache);
+
+        // SQLite espelhado: sobrevive a reinício com o mesmo estado.
+        let persisted = client
+            .db
+            .with_conn_blocking(drive_folders::load_all)
+            .unwrap();
+        assert!(!persisted.contains_key("RetroSync/PPSSPP"));
+        assert!(persisted.contains_key("RetroSync/PCSX2"));
+    }
+
+    #[tokio::test]
+    async fn clear_folder_cache_zera_memoria_e_sqlite() {
+        let client = client_with_seed(&[("RetroSync", "id-root"), ("RetroSync/PPSSPP", "id-emu")]);
+
+        client.clear_folder_cache().await;
+
+        assert!(client.folder_cache.read().await.is_empty());
+        let persisted = client
+            .db
+            .with_conn_blocking(drive_folders::load_all)
+            .unwrap();
+        assert!(persisted.is_empty());
+    }
+}
