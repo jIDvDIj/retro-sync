@@ -11,8 +11,8 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::{
-    ms_to_rfc3339, DriveClient, DRIVE_API_BASE, DRIVE_BATCH_BASE, DRIVE_UPLOAD_BASE, FILE_FIELDS,
-    FOLDER_MIME_TYPE, LIST_FIELDS, OCTET_STREAM, SIMPLE_UPLOAD_MAX_BYTES,
+    ms_to_rfc3339, DriveClient, FILE_FIELDS, FOLDER_MIME_TYPE, LIST_FIELDS, OCTET_STREAM,
+    SIMPLE_UPLOAD_MAX_BYTES,
 };
 use crate::constants::{DRIVE_APP_PROP_DEVICE, DRIVE_APP_PROP_DEVICE_ID};
 use crate::error::{AppError, AppResult};
@@ -119,7 +119,7 @@ struct FileList {
 
 impl DriveClient {
     async fn list_children(&self, folder_id: &str) -> AppResult<Vec<DriveFile>> {
-        let url = format!("{DRIVE_API_BASE}/files");
+        let url = format!("{}/files", self.api_base);
         let query = format!("'{folder_id}' in parents and trashed = false");
         let mut out = Vec::new();
         let mut page_token: Option<String> = None;
@@ -179,7 +179,7 @@ impl DriveClient {
         name: &str,
         mime_type: Option<&str>,
     ) -> AppResult<Option<DriveFile>> {
-        let url = format!("{DRIVE_API_BASE}/files");
+        let url = format!("{}/files", self.api_base);
         let mut query = format!("name = '{name}' and '{folder_id}' in parents and trashed = false");
         if let Some(mime) = mime_type {
             query.push_str(&format!(" and mimeType = '{mime}'"));
@@ -208,7 +208,7 @@ impl DriveClient {
     }
 
     pub async fn download(&self, file_id: &str) -> AppResult<Vec<u8>> {
-        let url = format!("{DRIVE_API_BASE}/files/{file_id}");
+        let url = format!("{}/files/{file_id}", self.api_base);
         let response = self
             .send_with_retry("files.download", |token| {
                 self.http
@@ -237,11 +237,11 @@ impl DriveClient {
         });
         with_device(&mut metadata, device);
         if content.len() > SIMPLE_UPLOAD_MAX_BYTES {
-            let url = format!("{DRIVE_UPLOAD_BASE}/files");
+            let url = format!("{}/files", self.upload_base);
             self.upload_resumable(reqwest::Method::POST, &url, &metadata, content)
                 .await
         } else {
-            let url = format!("{DRIVE_UPLOAD_BASE}/files");
+            let url = format!("{}/files", self.upload_base);
             self.upload_multipart(reqwest::Method::POST, &url, &metadata, content)
                 .await
         }
@@ -258,7 +258,7 @@ impl DriveClient {
     ) -> AppResult<DriveFile> {
         let mut metadata = json!({ "modifiedTime": ms_to_rfc3339(mtime_ms) });
         with_device(&mut metadata, device);
-        let url = format!("{DRIVE_UPLOAD_BASE}/files/{file_id}");
+        let url = format!("{}/files/{file_id}", self.upload_base);
         if content.len() > SIMPLE_UPLOAD_MAX_BYTES {
             self.upload_resumable(reqwest::Method::PATCH, &url, &metadata, content)
                 .await
@@ -283,7 +283,7 @@ impl DriveClient {
         let response = self
             .send_with_retry("files.batchUpload", |token| {
                 self.http
-                    .post(DRIVE_BATCH_BASE)
+                    .post(&self.batch_base)
                     .bearer_auth(token)
                     .header(reqwest::header::CONTENT_TYPE, content_type.clone())
                     .body(body.clone())
@@ -537,7 +537,8 @@ mod tests {
 
     #[test]
     fn build_batch_body_gera_partes_por_op() {
-        let (boundary, body) = build_batch_body(&[op("a.bin", b"aaa"), op("b.bin", b"bbb")]).unwrap();
+        let (boundary, body) =
+            build_batch_body(&[op("a.bin", b"aaa"), op("b.bin", b"bbb")]).unwrap();
         let text = String::from_utf8_lossy(&body);
 
         // Duas sub-requests numeradas + fecho do multipart.
@@ -614,5 +615,236 @@ mod tests {
         assert_eq!(parse_response_index("<response-item-3>"), Some(3));
         assert_eq!(parse_response_index(" <item-0> "), Some(0));
         assert_eq!(parse_response_index("<sem-numero-x>"), None);
+    }
+}
+
+/// Testes de HTTP contra um servidor fake (`wiremock`): exercitam os métodos
+/// que só fazem sentido com uma requisição real (list_tree, find_child,
+/// download, upload_new/existing) sem depender do Google nem de credenciais —
+/// o `DriveClient` é redirecionado para `localhost` via `with_base_url`.
+#[cfg(test)]
+mod http_tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use super::{DeviceTag, DriveClient, SIMPLE_UPLOAD_MAX_BYTES};
+    use crate::auth::AuthManager;
+    use crate::secrets::{MemSecrets, SecretStore};
+    use crate::storage::db::Db;
+
+    /// `DriveClient` autenticado (token seedado, sem OAuth) apontando para o
+    /// servidor fake em vez do Google real.
+    async fn test_client(server: &MockServer) -> DriveClient {
+        let db = Db::open_in_memory().unwrap();
+        let secrets: Arc<dyn SecretStore> = Arc::new(MemSecrets::default());
+        let auth = Arc::new(AuthManager::new(reqwest::Client::new(), secrets));
+        auth.set_test_access_token("tok-teste").await;
+        DriveClient::new(reqwest::Client::new(), auth, db).with_base_url(&server.uri())
+    }
+
+    #[tokio::test]
+    async fn list_tree_percorre_subpastas_recursivamente() {
+        let server = MockServer::start().await;
+        let client = test_client(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .and(query_param("q", "'root-id' in parents and trashed = false"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "files": [
+                    {"id": "f1", "name": "save.bin", "mimeType": "application/octet-stream"},
+                    {"id": "sub1", "name": "jogo", "mimeType": "application/vnd.google-apps.folder"},
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .and(query_param("q", "'sub1' in parents and trashed = false"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "files": [
+                    {"id": "f2", "name": "state.bin", "mimeType": "application/octet-stream"},
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let mut rel_paths: Vec<String> = client
+            .list_tree("root-id")
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|f| f.rel_path)
+            .collect();
+        rel_paths.sort();
+
+        assert_eq!(rel_paths, vec!["jogo/state.bin", "save.bin"]);
+    }
+
+    #[tokio::test]
+    async fn find_child_retorna_o_primeiro_resultado() {
+        let server = MockServer::start().await;
+        let client = test_client(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .and(query_param(
+                "q",
+                "name = 'save.bin' and 'folder-1' in parents and trashed = false",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "files": [{"id": "abc", "name": "save.bin", "mimeType": "application/octet-stream"}]
+            })))
+            .mount(&server)
+            .await;
+
+        let found = client.find_child("folder-1", "save.bin").await.unwrap();
+        assert_eq!(found.unwrap().id, "abc");
+    }
+
+    #[tokio::test]
+    async fn find_child_sem_resultado_retorna_none() {
+        let server = MockServer::start().await;
+        let client = test_client(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "files": [] })))
+            .mount(&server)
+            .await;
+
+        assert!(client
+            .find_child("folder-1", "nao-existe.bin")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn download_retorna_os_bytes_do_arquivo() {
+        let server = MockServer::start().await;
+        let client = test_client(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/file-123"))
+            .and(query_param("alt", "media"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"conteudo-binario".to_vec()))
+            .mount(&server)
+            .await;
+
+        assert_eq!(
+            client.download("file-123").await.unwrap(),
+            b"conteudo-binario"
+        );
+    }
+
+    #[tokio::test]
+    async fn upload_new_pequeno_usa_multipart() {
+        let server = MockServer::start().await;
+        let client = test_client(&server).await;
+
+        Mock::given(method("POST"))
+            .and(path("/upload/drive/v3/files"))
+            .and(query_param("uploadType", "multipart"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "new-1",
+                "name": "save.bin",
+                "mimeType": "application/octet-stream",
+            })))
+            .mount(&server)
+            .await;
+
+        let tag = DeviceTag {
+            name: Some("PC Gamer"),
+            id: Some("dev-1"),
+        };
+        let file = client
+            .upload_new(
+                "parent-1",
+                "save.bin",
+                b"dados".to_vec(),
+                1_700_000_000_000,
+                tag,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(file.id, "new-1");
+    }
+
+    #[tokio::test]
+    async fn upload_existing_pequeno_usa_multipart_patch() {
+        let server = MockServer::start().await;
+        let client = test_client(&server).await;
+
+        Mock::given(method("PATCH"))
+            .and(path("/upload/drive/v3/files/file-9"))
+            .and(query_param("uploadType", "multipart"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "file-9",
+                "name": "save.bin",
+                "mimeType": "application/octet-stream",
+            })))
+            .mount(&server)
+            .await;
+
+        let file = client
+            .upload_existing(
+                "file-9",
+                b"novo".to_vec(),
+                1_700_000_000_000,
+                DeviceTag::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(file.id, "file-9");
+    }
+
+    /// Arquivo acima do limite de multipart usa sessão resumable: POST inicia
+    /// (devolve a URL da sessão no header `Location`) e o conteúdo vai num PUT
+    /// separado para essa URL.
+    #[tokio::test]
+    async fn upload_new_grande_usa_sessao_resumable() {
+        let server = MockServer::start().await;
+        let client = test_client(&server).await;
+        let session_url = format!("{}/resumable-session/abc", server.uri());
+
+        Mock::given(method("POST"))
+            .and(path("/upload/drive/v3/files"))
+            .and(query_param("uploadType", "resumable"))
+            .respond_with(
+                ResponseTemplate::new(200).insert_header("Location", session_url.as_str()),
+            )
+            .mount(&server)
+            .await;
+
+        Mock::given(method("PUT"))
+            .and(path("/resumable-session/abc"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "big-1",
+                "name": "save.bin",
+                "mimeType": "application/octet-stream",
+            })))
+            .mount(&server)
+            .await;
+
+        let big_content = vec![0u8; SIMPLE_UPLOAD_MAX_BYTES + 1];
+        let file = client
+            .upload_new(
+                "parent-1",
+                "save.bin",
+                big_content,
+                1_700_000_000_000,
+                DeviceTag::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(file.id, "big-1");
     }
 }

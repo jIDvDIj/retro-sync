@@ -6,7 +6,7 @@
 
 use serde_json::json;
 
-use super::{DriveClient, DriveFile, DRIVE_API_BASE, FILE_FIELDS, FOLDER_MIME_TYPE};
+use super::{DriveClient, DriveFile, FILE_FIELDS, FOLDER_MIME_TYPE};
 use crate::constants::DRIVE_ROOT_FOLDER;
 use crate::error::AppResult;
 use crate::sync::SyncCategory;
@@ -97,7 +97,7 @@ impl DriveClient {
     }
 
     async fn create_folder(&self, parent_id: &str, name: &str) -> AppResult<DriveFile> {
-        let url = format!("{DRIVE_API_BASE}/files");
+        let url = format!("{}/files", self.api_base);
         let metadata = json!({
             "name": name,
             "mimeType": FOLDER_MIME_TYPE,

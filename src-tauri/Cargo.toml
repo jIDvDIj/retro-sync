@@ -82,6 +82,10 @@ winreg = "0.55"
 
 [dev-dependencies]
 tempfile = "3"
+# Servidor HTTP fake para os testes do DriveClient (list_tree, find_child,
+# download, upload_new/existing): exercita o código real de request/parse
+# contra localhost, sem depender do Google nem de credenciais.
+wiremock = "0.6"
 
 # MockRuntime p/ construir AppHandle sem janela nos testes do SyncEngine (issue #82).
 # NÃO-Windows de propósito: a feature `test` do tauri derruba o executável de

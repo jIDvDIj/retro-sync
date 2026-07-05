@@ -25,6 +25,11 @@ pub struct DriveClient {
     /// Cache de IDs de pastas por caminho lógico (ex.: "RetroSync/PPSSPP/saves").
     /// Semente carregada do SQLite no boot; escrito a cada ID novo resolvido.
     pub(crate) folder_cache: RwLock<HashMap<String, String>>,
+    /// Bases da API — sempre o Google real em produção; sobrescritas por
+    /// `with_base_url` nos testes para apontar a um servidor HTTP fake.
+    pub(crate) api_base: String,
+    pub(crate) upload_base: String,
+    pub(crate) batch_base: String,
 }
 
 impl DriveClient {
@@ -48,7 +53,22 @@ impl DriveClient {
             auth,
             db,
             folder_cache: RwLock::new(seed),
+            api_base: super::DRIVE_API_BASE.to_string(),
+            upload_base: super::DRIVE_UPLOAD_BASE.to_string(),
+            batch_base: super::DRIVE_BATCH_BASE.to_string(),
         }
+    }
+
+    /// Redireciona as três bases da API para `base` (URI de um servidor de
+    /// teste), preservando os prefixos de path reais (`/drive/v3`,
+    /// `/upload/drive/v3`, `/batch/drive/v3`) para que os mocks casem com o
+    /// mesmo shape de request que o `DriveClient` monta em produção.
+    #[cfg(test)]
+    pub(crate) fn with_base_url(mut self, base: &str) -> Self {
+        self.api_base = format!("{base}/drive/v3");
+        self.upload_base = format!("{base}/upload/drive/v3");
+        self.batch_base = format!("{base}/batch/drive/v3");
+        self
     }
 
     /// Invalida um caminho lógico de pasta e sua subárvore no cache (memória +

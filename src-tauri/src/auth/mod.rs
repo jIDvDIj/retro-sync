@@ -201,6 +201,16 @@ impl AuthManager {
         Ok(tokens.access_token)
     }
 
+    /// Popula o access token em cache diretamente, sem OAuth — evita que os
+    /// testes do `DriveClient` precisem mockar também o endpoint de refresh.
+    #[cfg(test)]
+    pub(crate) async fn set_test_access_token(&self, token: &str) {
+        *self.cached.write().await = Some(CachedToken {
+            access_token: token.to_string(),
+            expires_at: Instant::now() + Duration::from_secs(3600),
+        });
+    }
+
     /// Descarta o access token em cache (ex.: após um 401 do Drive),
     /// forçando renovação via refresh token na próxima chamada.
     pub async fn invalidate_cached_token(&self) {
