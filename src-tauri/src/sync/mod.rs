@@ -10,6 +10,8 @@ mod diff;
 mod engine;
 #[cfg(mobile)]
 pub mod mobile_storage;
+#[cfg(all(test, desktop))]
+mod scenarios;
 mod storage;
 
 use std::path::PathBuf;
