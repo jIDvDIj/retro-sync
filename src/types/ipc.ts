@@ -185,6 +185,7 @@ export interface AppErrorPayload {
     | "emulator_exists"
     | "file_busy"
     | "drive_not_found"
+    | "insufficient_disk_space"
     | "other";
   message: string;
   /** Detalhe técnico sem o prefixo (caminho, nome, msg da lib). O frontend

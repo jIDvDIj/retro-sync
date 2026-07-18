@@ -859,12 +859,31 @@ impl<R: Runtime> SyncEngine<R> {
             .as_ref()
             .ok_or_else(|| AppError::Other("download planejado sem arquivo remoto".into()))?;
 
-        let content = self.drive.download(&remote.id).await?;
-
         let dest = match op.local.as_ref() {
             Some(local) => local.loc.clone(),
             None => self.storage.join(&ctx.download_base, &op.rel_path),
         };
+
+        // Checa o espaço livre no volume de destino ANTES de baixar (margem de
+        // 10%). Sem medição disponível (mobile/volume desconhecido), segue.
+        let expected_size: u64 = remote
+            .size
+            .as_deref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        if expected_size > 0 {
+            if let Some(available) = self.storage.available_space(&dest).await {
+                let needed = expected_size + expected_size / 10;
+                if available < needed {
+                    return Err(AppError::InsufficientDiskSpace {
+                        needed_mb: needed / (1024 * 1024),
+                        available_mb: available / (1024 * 1024),
+                    });
+                }
+            }
+        }
+
+        let content = self.drive.download(&remote.id).await?;
 
         // mtime local = modifiedTime do Drive, para o diff convergir.
         let drive_mtime = remote.modified_ms();

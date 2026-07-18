@@ -43,6 +43,9 @@ pub enum AppError {
     #[error("objeto não encontrado no Drive: {0}")]
     DriveObjectNotFound(String),
 
+    #[error("espaço em disco insuficiente: necessário {needed_mb} MB, disponível {available_mb} MB")]
+    InsufficientDiskSpace { needed_mb: u64, available_mb: u64 },
+
     #[error("{0}")]
     Other(String),
 }
@@ -61,6 +64,7 @@ impl AppError {
             AppError::EmulatorExists(_) => "emulator_exists",
             AppError::FileBusy(_) => "file_busy",
             AppError::DriveObjectNotFound(_) => "drive_not_found",
+            AppError::InsufficientDiskSpace { .. } => "insufficient_disk_space",
             AppError::Other(_) => "other",
         }
     }
@@ -76,6 +80,10 @@ impl AppError {
             #[cfg(desktop)]
             AppError::Keyring(e) => e.to_string(),
             AppError::Serialization(e) => e.to_string(),
+            AppError::InsufficientDiskSpace {
+                needed_mb,
+                available_mb,
+            } => format!("necessário {needed_mb} MB, disponível {available_mb} MB"),
             AppError::Auth(s)
             | AppError::EmulatorNotDetected(s)
             | AppError::EmulatorExists(s)
@@ -131,6 +139,13 @@ mod tests {
             "emulator_exists"
         );
         assert_eq!(payload(AppError::Other("x".into()))["code"], "other");
+        assert_eq!(
+            payload(AppError::InsufficientDiskSpace {
+                needed_mb: 12,
+                available_mb: 3
+            })["code"],
+            "insufficient_disk_space"
+        );
     }
 
     #[test]

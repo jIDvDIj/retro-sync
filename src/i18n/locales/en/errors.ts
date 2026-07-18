@@ -10,6 +10,7 @@ export const errors = {
     emulator_exists: "An emulator with this name already exists",
     file_busy: "File in use (modified while reading)",
     drive_not_found: "Folder or file not found on Drive",
+    insufficient_disk_space: "Not enough disk space for the download",
     unexpected: "Unexpected error talking to the backend",
   },
 } as const;
