@@ -90,6 +90,17 @@ pub const TRIGGER_FOREGROUND: &str = "foreground";
 pub const TRIGGER_BACKGROUND: &str = "background";
 /// Scan periódico em background (timer com jitter; só-desktop).
 pub const TRIGGER_SCHEDULED: &str = "scheduled";
+/// Mudança de arquivo detectada pelo watcher de filesystem (só-desktop).
+pub const TRIGGER_FILE_CHANGE: &str = "file-change";
+
+/// Debounce do watcher de filesystem: o sync só dispara após este tempo sem
+/// novos eventos nas pastas do emulador (agrupa rajadas de escrita).
+pub const FS_WATCHER_DEBOUNCE_SECS: u64 = 8;
+/// Intervalo de reconciliação das pastas observadas com a lista de emuladores.
+pub const FS_WATCHER_RECONCILE_SECS: u64 = 60;
+/// Janela em que um arquivo recém-baixado pelo próprio sync é ignorado pelo
+/// watcher de filesystem (anti-loop: sync → grava → evento → sync…).
+pub const RECENT_DOWNLOAD_TTL_SECS: u64 = 30;
 
 /// Chaves da tabela `app_settings` (configurações globais do usuário).
 /// Nome amigável deste dispositivo (ex.: "PC Gamer"), definido no login.

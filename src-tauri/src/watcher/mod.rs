@@ -11,6 +11,7 @@
 //! - emulador **abriu** → sync Drive → Local (saves frescos antes do jogo carregar);
 //! - emulador **fechou** → sync Local → Drive (sobe os saves da sessão).
 
+pub mod fs_watcher;
 mod process_watcher;
 
 use std::collections::HashSet;

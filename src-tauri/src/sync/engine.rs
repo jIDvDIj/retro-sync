@@ -171,6 +171,10 @@ pub struct SyncEngine<R: Runtime = Wry> {
     secrets: Arc<dyn crate::secrets::SecretStore>,
     /// Serializa execuções: um sync por vez, os demais aguardam.
     running: Mutex<()>,
+    /// Arquivos gravados por downloads recentes (caminho nativo → instante).
+    /// O watcher de filesystem consulta para não reagir às próprias escritas
+    /// do sync (anti-loop). Entradas expiram após `RECENT_DOWNLOAD_TTL_SECS`.
+    recent_downloads: std::sync::Mutex<std::collections::HashMap<PathBuf, Instant>>,
 }
 
 impl<R: Runtime> SyncEngine<R> {
@@ -197,7 +201,36 @@ impl<R: Runtime> SyncEngine<R> {
             storage,
             secrets,
             running: Mutex::new(()),
+            recent_downloads: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
+    }
+
+    /// Registra que `loc` acabou de ser gravado por um download (anti-loop do
+    /// watcher de filesystem). Também expira entradas antigas de passagem.
+    fn mark_recent_download(&self, loc: &FileLoc) {
+        let Some(path) = loc.as_native_path() else {
+            return;
+        };
+        let ttl = std::time::Duration::from_secs(crate::constants::RECENT_DOWNLOAD_TTL_SECS);
+        if let Ok(mut map) = self.recent_downloads.lock() {
+            let now = Instant::now();
+            map.retain(|_, at| now.duration_since(*at) < ttl);
+            map.insert(path.to_path_buf(), now);
+        }
+    }
+
+    /// O caminho foi gravado por um download nos últimos
+    /// `RECENT_DOWNLOAD_TTL_SECS`? Consultado pelo watcher de filesystem.
+    #[cfg(desktop)]
+    pub fn is_recent_download(&self, path: &Path) -> bool {
+        let ttl = std::time::Duration::from_secs(crate::constants::RECENT_DOWNLOAD_TTL_SECS);
+        self.recent_downloads
+            .lock()
+            .map(|map| {
+                map.get(path)
+                    .is_some_and(|at| Instant::now().duration_since(*at) < ttl)
+            })
+            .unwrap_or(false)
     }
 
     /// Acesso ao armazenamento local — usado pela detecção automática mobile
@@ -1113,6 +1146,7 @@ impl<R: Runtime> SyncEngine<R> {
         self.storage
             .write_atomic(&dest, &content, drive_mtime)
             .await?;
+        self.mark_recent_download(&dest);
 
         self.record_synced(
             ctx,
@@ -1339,6 +1373,7 @@ impl<R: Runtime> SyncEngine<R> {
         self.storage
             .write_atomic(&dest, &content, Some(drive_mtime))
             .await?;
+        self.mark_recent_download(&dest);
 
         self.upsert_resolved_manifest(
             c,

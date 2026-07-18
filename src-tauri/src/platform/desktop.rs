@@ -30,7 +30,8 @@ pub fn setup(
         app.handle().clone(),
         running.clone(),
     );
-    start_scheduled_scan(db.clone(), engine, running);
+    start_scheduled_scan(db.clone(), engine.clone(), running.clone());
+    crate::watcher::fs_watcher::start(db.clone(), engine, running);
     setup_default_autostart(app.handle().clone(), db);
     Ok(())
 }
