@@ -13,6 +13,7 @@ mod secrets;
 mod state;
 mod storage;
 mod sync;
+mod versioning;
 // O process watcher depende de inspecionar processos do SO (`sysinfo`), o que
 // não existe/aplica no mobile — gatilhos automáticos são exclusivos do desktop.
 #[cfg(desktop)]
@@ -236,6 +237,7 @@ pub fn run() {
             commands::set_notification_level,
             commands::set_backup_retention_days,
             commands::set_scan_interval_minutes,
+            commands::set_max_backup_versions,
             commands::get_emulator_categories,
             commands::set_emulator_categories,
             commands::list_conflicts,

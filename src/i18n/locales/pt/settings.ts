@@ -71,6 +71,9 @@ export const settings: Localized<typeof SettingsEn> = {
       retentionHint:
         "Execuções de backup mais antigas são removidas quando o app inicia. 0 mantém para sempre.",
       retentionSaved: "Salvo",
+      versionsLabel: "Versões mantidas por arquivo",
+      versionsHint:
+        "Antes de um download sobrescrever um save local, a versão vigente é arquivada em history/. Versões além deste limite são removidas, das mais antigas.",
     },
   },
   backupHistory: {

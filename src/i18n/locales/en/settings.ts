@@ -67,6 +67,9 @@ export const settings = {
       retentionLabel: "Keep backups for (days)",
       retentionHint: "Older backup runs are removed when the app starts. 0 keeps them forever.",
       retentionSaved: "Saved",
+      versionsLabel: "Versions kept per file",
+      versionsHint:
+        "Before a download overwrites a local save, the current version is archived under history/. Oldest versions beyond this limit are removed.",
     },
   },
   backupHistory: {

@@ -452,6 +452,56 @@ async fn falha_de_download_vira_pendencia_e_proximo_sync_recupera() {
     assert_eq!(h.pending_ops().await, 0, "sucesso limpa a pendência");
 }
 
+/// Download comum (arquivo já sincronizado, Drive mudou) arquiva a versão
+/// local vigente em `history/` antes de sobrescrever (issue #22).
+#[tokio::test]
+async fn download_arquiva_versao_anterior_no_historico() {
+    let h = Harness::new().await;
+    h.write_local("save.bin", b"v1-local", T);
+    h.sync().await; // sobe v1 e ancora o manifest
+
+    // Outro lado publica v2 no Drive; o local ainda tem v1.
+    h.drive.overwrite_as_device(
+        EMU,
+        SyncCategory::Saves,
+        "save.bin",
+        b"v2-drive",
+        T + S10,
+        "dev-B",
+    );
+
+    let summary = h.sync().await;
+
+    assert_eq!(summary.downloaded, 1);
+    assert_eq!(h.read_local("save.bin"), b"v2-drive");
+
+    // A v1 local foi arquivada em <backups>/<emu>/history/... com carimbo.
+    let history = h.backups_dir.join(EMU).join("history");
+    assert!(history.is_dir(), "pasta history criada");
+    let archived = h.backup_of("save.bin");
+    assert!(
+        archived.is_none(),
+        "nome arquivado carrega o carimbo (não é o nome original)"
+    );
+    fn find_versioned(dir: &std::path::Path) -> Option<Vec<u8>> {
+        for entry in std::fs::read_dir(dir).ok()? {
+            let path = entry.ok()?.path();
+            if path.is_dir() {
+                if let Some(found) = find_versioned(&path) {
+                    return Some(found);
+                }
+            } else if path
+                .file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("save~"))
+            {
+                return Some(std::fs::read(path).unwrap());
+            }
+        }
+        None
+    }
+    assert_eq!(find_versioned(&history).unwrap(), b"v1-local");
+}
+
 /// Sync só-upload (`LocalToDrive`, gatilho emulator-stop) não baixa nada;
 /// o arquivo remoto pendente fica para o sync bidirecional seguinte.
 #[tokio::test]

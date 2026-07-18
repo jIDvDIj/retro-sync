@@ -505,6 +505,16 @@ pub async fn set_backup_retention_days(state: State<'_, AppState>, days: u32) ->
         .await
 }
 
+/// Define o máximo de versões arquivadas por arquivo no histórico
+/// pré-download (mínimo 1).
+#[tauri::command]
+pub async fn set_max_backup_versions(state: State<'_, AppState>, versions: u32) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::set_max_backup_versions(conn, versions))
+        .await
+}
+
 /// Define o intervalo do scan periódico em minutos (0 = desativado). O timer
 /// relê o valor a cada ciclo — não precisa reiniciar o app.
 #[tauri::command]

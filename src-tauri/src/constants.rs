@@ -113,6 +113,11 @@ pub const SETTING_SCAN_INTERVAL_MINUTES: &str = "scan_interval_minutes";
 /// Default de fábrica do scan periódico.
 pub const SCAN_INTERVAL_MINUTES_DEFAULT: u32 = 60;
 
+/// Máximo de versões arquivadas por arquivo no histórico (`history/`).
+pub const SETTING_MAX_BACKUP_VERSIONS: &str = "max_backup_versions";
+/// Default de fábrica do máximo de versões por arquivo.
+pub const MAX_BACKUP_VERSIONS_DEFAULT: u32 = 5;
+
 /// IDs de banners informativos que o usuário dispensou (array JSON). Um banner
 /// dispensado não reaparece
 pub const SETTING_DISMISSED_NOTICES: &str = "dismissed_notices";

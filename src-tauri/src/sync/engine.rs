@@ -6,7 +6,7 @@
 //! executa as transferências com concorrência limitada, emitindo progresso
 //! ao frontend. Falhas de rede/arquivo em uso vão para a fila offline.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -36,6 +36,7 @@ use crate::storage::db::Db;
 use crate::storage::manifest::{self, ManifestEntry};
 use crate::storage::settings::{self, NotificationLevel};
 use crate::storage::{emulators, queue};
+use crate::versioning::Versioner;
 
 /// Resultado agregado de um sync. Espelhado em `src/types/ipc.ts`.
 #[derive(Debug, Default, Clone, Serialize)]
@@ -139,6 +140,8 @@ struct CategoryCtx {
     device_id: Option<String>,
     /// Nível de notificação vigente (gating da notificação de conflito).
     notif: NotificationLevel,
+    /// Máximo de versões arquivadas por arquivo no histórico pré-download.
+    max_versions: usize,
     total: u32,
     completed: AtomicU32,
     /// Total de bytes do plano e bytes já concluídos — para a UI mostrar
@@ -159,6 +162,8 @@ pub struct SyncEngine<R: Runtime = Wry> {
     last_sync: LastSyncStore,
     /// Raiz dos backups locais (`<app_data>/backups`).
     backup_dir: PathBuf,
+    /// Histórico de versões pré-download (`<backups>/<emulador>/history/`).
+    versioner: Arc<crate::versioning::FsVersioner>,
     /// Acesso ao armazenamento local de saves (filesystem no desktop; SAF /
     /// bookmarks no mobile, futuramente). Todo o I/O local passa por aqui.
     storage: Arc<dyn LocalStorage>,
@@ -187,6 +192,7 @@ impl<R: Runtime> SyncEngine<R> {
             auth,
             app,
             last_sync,
+            versioner: Arc::new(crate::versioning::FsVersioner::new(backup_dir.clone())),
             backup_dir,
             storage,
             secrets,
@@ -258,6 +264,12 @@ impl<R: Runtime> SyncEngine<R> {
         // se o keyring estiver indisponível — desliga só a detecção de conflito
         // entre dispositivos nesta execução.
         let device_id = crate::device::current(self.secrets.clone()).await;
+        // Máximo de versões arquivadas por arquivo (histórico pré-download).
+        let max_versions =
+            self.db
+                .with(settings::max_backup_versions)
+                .await
+                .unwrap_or(crate::constants::MAX_BACKUP_VERSIONS_DEFAULT) as usize;
 
         let profiles = self.db.with(emulators::list).await?;
         // Por emulador: monta o target e remove as categorias que o usuário
@@ -327,6 +339,7 @@ impl<R: Runtime> SyncEngine<R> {
                     device.as_deref(),
                     device_id.as_deref(),
                     notif,
+                    max_versions,
                 )
                 .await
             {
@@ -422,6 +435,7 @@ impl<R: Runtime> SyncEngine<R> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn sync_target(
         &self,
         target: &SyncTarget,
@@ -430,6 +444,7 @@ impl<R: Runtime> SyncEngine<R> {
         device: Option<&str>,
         device_id: Option<&str>,
         notif: NotificationLevel,
+        max_versions: usize,
     ) -> AppResult<SyncSummary> {
         let mut summary = SyncSummary::default();
 
@@ -556,6 +571,7 @@ impl<R: Runtime> SyncEngine<R> {
                 device: device.map(str::to_string),
                 device_id: device_id.map(str::to_string),
                 notif,
+                max_versions,
                 total: plan.len() as u32,
                 completed: AtomicU32::new(0),
                 bytes_total: plan.iter().map(op_bytes).sum(),
@@ -930,6 +946,44 @@ impl<R: Runtime> SyncEngine<R> {
         self.do_download(ctx, op).await
     }
 
+    /// Arquiva a versão local vigente de `op` no histórico
+    /// (`<backups>/<emulador>/history/...`), mantendo no máximo
+    /// `ctx.max_versions` por arquivo. No-op se o arquivo local não existe ou
+    /// não tem caminho nativo (armazenamento SAF do mobile).
+    async fn archive_previous_version(&self, ctx: &CategoryCtx, op: &PlannedOp) {
+        let Some(src) = op
+            .local
+            .as_ref()
+            .and_then(|l| l.loc.as_native_path())
+            .map(Path::to_path_buf)
+        else {
+            return;
+        };
+
+        let versioner = self.versioner.clone();
+        let (emulator, category, rel_path) = (
+            ctx.emulator.clone(),
+            ctx.category.as_str().to_string(),
+            op.rel_path.clone(),
+        );
+        let max = ctx.max_versions;
+        let archived = tokio::task::spawn_blocking(move || {
+            versioner.archive(&emulator, &category, &rel_path, &src, max)
+        })
+        .await;
+        match archived {
+            Ok(Ok(dest)) => {
+                tracing::debug!(arquivo = %op.rel_path, destino = %dest.display(), "versão anterior arquivada");
+            }
+            Ok(Err(err)) => {
+                tracing::warn!(arquivo = %op.rel_path, error = %err, "falha ao arquivar versão anterior");
+            }
+            Err(err) => {
+                tracing::warn!(arquivo = %op.rel_path, error = %err, "tarefa de arquivamento abortada");
+            }
+        }
+    }
+
     async fn do_download(&self, ctx: &CategoryCtx, op: &PlannedOp) -> AppResult<()> {
         let remote = op
             .remote
@@ -973,6 +1027,14 @@ impl<R: Runtime> SyncEngine<R> {
                     op.rel_path
                 )));
             }
+        }
+
+        // Versionamento: arquiva a versão local vigente ANTES de sobrescrever
+        // (só em downloads comuns — o primeiro sync tem o backup dedicado do
+        // BUG-001). Best-effort: falha de arquivamento não bloqueia o sync,
+        // pois a versão anterior já esteve no Drive em algum momento.
+        if op.action == SyncAction::Download {
+            self.archive_previous_version(ctx, op).await;
         }
 
         // mtime local = modifiedTime do Drive, para o diff convergir.

@@ -9,10 +9,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::constants::{
-    BACKUP_RETENTION_DAYS_DEFAULT, SCAN_INTERVAL_MINUTES_DEFAULT, SETTING_BACKUP_RETENTION_DAYS,
-    SETTING_DEVICE_NAME, SETTING_DISMISSED_NOTICES, SETTING_NOTIFICATION_LEVEL,
-    SETTING_SCAN_INTERVAL_MINUTES, SETTING_TRIGGER_EMULATOR_START, SETTING_TRIGGER_EMULATOR_STOP,
-    SETTING_TRIGGER_STARTUP,
+    BACKUP_RETENTION_DAYS_DEFAULT, MAX_BACKUP_VERSIONS_DEFAULT, SCAN_INTERVAL_MINUTES_DEFAULT,
+    SETTING_BACKUP_RETENTION_DAYS, SETTING_DEVICE_NAME, SETTING_DISMISSED_NOTICES,
+    SETTING_MAX_BACKUP_VERSIONS, SETTING_NOTIFICATION_LEVEL, SETTING_SCAN_INTERVAL_MINUTES,
+    SETTING_TRIGGER_EMULATOR_START, SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
 };
 // Consumido apenas pelas funções de autostart (só-desktop).
 #[cfg(desktop)]
@@ -45,6 +45,14 @@ pub struct Settings {
     /// jitter de ±25% e só dispara quando nenhum emulador está rodando.
     #[serde(default = "default_scan_interval_minutes")]
     pub scan_interval_minutes: u32,
+    /// Máximo de versões arquivadas por arquivo antes de cada download
+    /// sobrescrever o local (mínimo 1).
+    #[serde(default = "default_max_backup_versions")]
+    pub max_backup_versions: u32,
+}
+
+fn default_max_backup_versions() -> u32 {
+    MAX_BACKUP_VERSIONS_DEFAULT
 }
 
 fn default_scan_interval_minutes() -> u32 {
@@ -64,6 +72,7 @@ impl Default for Settings {
             autostart: false,
             backup_retention_days: BACKUP_RETENTION_DAYS_DEFAULT,
             scan_interval_minutes: SCAN_INTERVAL_MINUTES_DEFAULT,
+            max_backup_versions: MAX_BACKUP_VERSIONS_DEFAULT,
         }
     }
 }
@@ -171,7 +180,23 @@ pub fn load(conn: &Connection) -> AppResult<Settings> {
         autostart: false,
         backup_retention_days: backup_retention_days(conn)?,
         scan_interval_minutes: scan_interval_minutes(conn)?,
+        max_backup_versions: max_backup_versions(conn)?,
     })
+}
+
+/// Máximo de versões arquivadas por arquivo (default: 5; mínimo efetivo 1).
+pub fn max_backup_versions(conn: &Connection) -> AppResult<u32> {
+    Ok(get(conn, SETTING_MAX_BACKUP_VERSIONS)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(MAX_BACKUP_VERSIONS_DEFAULT))
+}
+
+pub fn set_max_backup_versions(conn: &Connection, versions: u32) -> AppResult<()> {
+    set(
+        conn,
+        SETTING_MAX_BACKUP_VERSIONS,
+        &versions.max(1).to_string(),
+    )
 }
 
 /// Intervalo do scan periódico em minutos (default: 60; 0 = desativado).
@@ -400,6 +425,20 @@ mod tests {
     }
 
     #[test]
+    fn max_backup_versions_default_roundtrip_e_minimo() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert_eq!(max_backup_versions(conn)?, MAX_BACKUP_VERSIONS_DEFAULT);
+            set_max_backup_versions(conn, 8)?;
+            assert_eq!(max_backup_versions(conn)?, 8);
+            // 0 é rejeitado — mínimo efetivo é 1 versão.
+            set_max_backup_versions(conn, 0)?;
+            assert_eq!(max_backup_versions(conn)?, 1);
+            Ok(())
+        });
+    }
+
+    #[test]
     fn dismiss_notice_persiste_e_e_idempotente() {
         let db = Db::open_in_memory().unwrap();
         db.with_sync(|conn| {
@@ -426,11 +465,13 @@ mod tests {
             autostart: false,
             backup_retention_days: 15,
             scan_interval_minutes: 45,
+            max_backup_versions: 3,
         })
         .unwrap();
         assert_eq!(json["deviceName"], "PC Gamer");
         assert_eq!(json["backupRetentionDays"], 15);
         assert_eq!(json["scanIntervalMinutes"], 45);
+        assert_eq!(json["maxBackupVersions"], 3);
         assert_eq!(json["triggers"]["startup"], true);
         assert_eq!(json["triggers"]["emulatorStart"], true);
         assert_eq!(json["triggers"]["emulatorStop"], true);

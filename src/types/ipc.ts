@@ -39,6 +39,17 @@ export interface Settings {
   backupRetentionDays: number;
   /** Intervalo do scan periódico em minutos (0 = desativado). */
   scanIntervalMinutes: number;
+  /** Máximo de versões arquivadas por arquivo no histórico pré-download. */
+  maxBackupVersions: number;
+}
+
+/** `versioning::FileVersion` — versão arquivada de um arquivo no histórico */
+export interface FileVersion {
+  /** Carimbo `YYYYMMDD-HHMMSS` extraído do nome arquivado. */
+  stamp: string;
+  sizeBytes: number;
+  modifiedAtMs: number;
+  absPath: string;
 }
 
 /** `emulator::EmulatorProfile` — paths serializam como string */

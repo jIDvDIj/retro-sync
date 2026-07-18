@@ -8,6 +8,7 @@ import {
   setAutostart,
   setBackupRetentionDays,
   setDeviceName,
+  setMaxBackupVersions,
   setNotificationLevel,
   setScanIntervalMinutes,
 } from "../lib/ipc";
@@ -66,6 +67,24 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
   const [retentionSaved, setRetentionSaved] = useState(false);
 
   const retentionDirty = retentionDays !== String(settings.backupRetentionDays);
+  const [maxVersions, setMaxVersions] = useState(String(settings.maxBackupVersions));
+  const [versionsSaved, setVersionsSaved] = useState(false);
+  const versionsDirty = maxVersions !== String(settings.maxBackupVersions);
+
+  const saveMaxVersions = async () => {
+    const versions = Number.parseInt(maxVersions, 10);
+    if (Number.isNaN(versions) || versions < 1) return;
+    setBackupError(null);
+    setVersionsSaved(false);
+    try {
+      await setMaxBackupVersions(versions);
+      onSaved();
+      setVersionsSaved(true);
+    } catch (err) {
+      setBackupError(errorMessage(err));
+    }
+  };
+
   const [scanInterval, setScanInterval] = useState(String(settings.scanIntervalMinutes));
   const [scanSaved, setScanSaved] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -334,6 +353,28 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
               {t("settings.device.save")}
             </button>
             {retentionSaved && !retentionDirty ? (
+              <span className="saved-hint">{t("settings.backups.retentionSaved")}</span>
+            ) : null}
+          </div>
+          <label className="field">
+            <span>{t("settings.backups.versionsLabel")}</span>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={maxVersions}
+              onChange={(e) => {
+                setMaxVersions(e.target.value);
+                setVersionsSaved(false);
+              }}
+            />
+          </label>
+          <p className="muted">{t("settings.backups.versionsHint")}</p>
+          <div className="settings-row">
+            <button onClick={saveMaxVersions} disabled={!versionsDirty}>
+              {t("settings.device.save")}
+            </button>
+            {versionsSaved && !versionsDirty ? (
               <span className="saved-hint">{t("settings.backups.retentionSaved")}</span>
             ) : null}
           </div>
