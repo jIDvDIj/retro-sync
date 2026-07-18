@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { currentLocale } from "../i18n";
 import { useErrorMessage } from "../lib/errors";
-import { syncNow } from "../lib/ipc";
+import { retryPendingOp, syncNow } from "../lib/ipc";
 import type { PendingOp } from "../types/ipc";
 import { Modal } from "./ui/Modal";
 
@@ -36,6 +36,20 @@ export function PendingOpsModal({ emulator, ops, onClose }: Props) {
     }
   };
 
+  /** Reativa uma pendência morta (zera tentativas/backoff) e sincroniza. */
+  const retryFile = async (op: PendingOp) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await retryPendingOp(op.emulator, op.category, op.relPath);
+      await syncNow();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Modal title={t("pending.title", { emulator })} onClose={onClose}>
       <p className="muted">{t("pending.intro")}</p>
@@ -53,8 +67,16 @@ export function PendingOpsModal({ emulator, ops, onClose }: Props) {
                 <span>{t(op.direction === "upload" ? "pending.upload" : "pending.download")}</span>
                 <span>{t("pending.attempts", { count: op.attempts })}</span>
                 <span>{new Date(op.enqueuedAtMs).toLocaleString(currentLocale())}</span>
+                {op.nextRetryAtMs === null ? (
+                  <span className="pending-error">{t("pending.dead")}</span>
+                ) : null}
               </span>
               {op.lastError ? <span className="pending-error">{op.lastError}</span> : null}
+              {op.nextRetryAtMs === null ? (
+                <button onClick={() => retryFile(op)} disabled={busy}>
+                  {t("pending.retryFile")}
+                </button>
+              ) : null}
             </div>
           ))}
         </div>

@@ -220,6 +220,8 @@ fn to_drive_file(id: &str, file: &MockFile) -> DriveFile {
         mime_type: super::OCTET_STREAM.to_string(),
         modified_time: chrono::DateTime::from_timestamp_millis(file.mtime_ms),
         size: Some(file.content.len().to_string()),
+        // Mesmo contrato da API real: o Drive calcula e devolve o MD5.
+        md5_checksum: Some(crate::sync::md5_hex(&file.content)),
         app_properties: file.app_properties.clone(),
     }
 }
@@ -366,6 +368,27 @@ impl DriveApi for MockDrive {
             );
         }
         Ok(out)
+    }
+
+    async fn rename_file(
+        &self,
+        file_id: &str,
+        new_name: &str,
+        add_parent: Option<&str>,
+        remove_parent: Option<&str>,
+    ) -> AppResult<DriveFile> {
+        let mut state = self.state.lock().unwrap();
+        let file = state
+            .files
+            .get_mut(file_id)
+            .ok_or_else(|| AppError::DriveObjectNotFound(format!("mock: {file_id}")))?;
+        file.name = new_name.to_string();
+        if let Some(parent) = add_parent {
+            file.parent = parent.to_string();
+        }
+        let _ = remove_parent;
+        let file = file.clone();
+        Ok(to_drive_file(file_id, &file))
     }
 
     async fn invalidate_folder_path(&self, _cache_key: &str) {}

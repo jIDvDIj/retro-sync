@@ -52,6 +52,7 @@ impl Harness {
             saves_paths: vec![PathBuf::from("saves")],
             config_paths: vec![],
             state_paths: vec![],
+            exclude_patterns: vec!["*.tmp".into()],
         };
         db.with(move |conn| emulators::upsert(conn, &profile))
             .await
@@ -435,10 +436,204 @@ async fn falha_de_download_vira_pendencia_e_proximo_sync_recupera() {
     assert_eq!(h.pending_ops().await, 1);
 
     h.drive.set_fail_downloads(false);
+
+    // Backoff: com a janela de retentativa ainda no futuro, o sync pula o
+    // arquivo em vez de retentar imediatamente.
+    let deferred = h.sync().await;
+    assert_eq!(deferred.downloaded, 0, "backoff adia a retentativa");
+    assert_eq!(h.pending_ops().await, 1);
+
+    // Janela vencida (simulada zerando o backoff): o sync seguinte recupera.
+    h.db.with(|conn| crate::storage::queue::retry_now(conn, EMU, SyncCategory::Saves, "save.bin"))
+        .await
+        .unwrap();
     let recovered = h.sync().await;
     assert_eq!(recovered.downloaded, 1);
     assert_eq!(h.read_local("save.bin"), b"drive-v1");
     assert_eq!(h.pending_ops().await, 0, "sucesso limpa a pendência");
+}
+
+/// Download comum (arquivo já sincronizado, Drive mudou) arquiva a versão
+/// local vigente em `history/` antes de sobrescrever (issue #22).
+#[tokio::test]
+async fn download_arquiva_versao_anterior_no_historico() {
+    let h = Harness::new().await;
+    h.write_local("save.bin", b"v1-local", T);
+    h.sync().await; // sobe v1 e ancora o manifest
+
+    // Outro lado publica v2 no Drive; o local ainda tem v1.
+    h.drive.overwrite_as_device(
+        EMU,
+        SyncCategory::Saves,
+        "save.bin",
+        b"v2-drive",
+        T + S10,
+        "dev-B",
+    );
+
+    let summary = h.sync().await;
+
+    assert_eq!(summary.downloaded, 1);
+    assert_eq!(h.read_local("save.bin"), b"v2-drive");
+
+    // A v1 local foi arquivada em <backups>/<emu>/history/... com carimbo.
+    let history = h.backups_dir.join(EMU).join("history");
+    assert!(history.is_dir(), "pasta history criada");
+    let archived = h.backup_of("save.bin");
+    assert!(
+        archived.is_none(),
+        "nome arquivado carrega o carimbo (não é o nome original)"
+    );
+    fn find_versioned(dir: &std::path::Path) -> Option<Vec<u8>> {
+        for entry in std::fs::read_dir(dir).ok()? {
+            let path = entry.ok()?.path();
+            if path.is_dir() {
+                if let Some(found) = find_versioned(&path) {
+                    return Some(found);
+                }
+            } else if path
+                .file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("save~"))
+            {
+                return Some(std::fs::read(path).unwrap());
+            }
+        }
+        None
+    }
+    assert_eq!(find_versioned(&history).unwrap(), b"v1-local");
+}
+
+/// Arquivos que casam com os padrões de exclusão do emulador ficam fora do
+/// sync nas duas direções (issue #9). O Harness configura `*.tmp` no perfil.
+#[tokio::test]
+async fn padroes_de_exclusao_ignoram_arquivos_nas_duas_direcoes() {
+    let h = Harness::new().await;
+    h.write_local("save.bin", b"sobe", T);
+    h.write_local("lixo.tmp", b"nao-sobe", T);
+    h.seed_remote("outro.tmp", b"nao-desce", T, None);
+
+    let summary = h.sync().await;
+
+    assert_eq!(summary.uploaded, 1, "só o save.bin sobe");
+    assert_eq!(summary.downloaded, 0, "o .tmp remoto não desce");
+    assert!(h.remote_content("lixo.tmp").is_none());
+    assert!(!h.saves_dir.join("outro.tmp").exists());
+}
+
+/// Renomear um arquivo local vira um rename no Drive (issue #12): sem novo
+/// upload, sem zumbi do nome antigo, manifest reancorado no nome novo.
+#[tokio::test]
+async fn renomeacao_local_vira_rename_no_drive_sem_retransferir() {
+    let h = Harness::new().await;
+    h.write_local("antigo.bin", b"conteudo-unico", T);
+    h.sync().await; // sobe e ancora
+    let uploads_before = h
+        .drive
+        .upload_new_calls
+        .load(std::sync::atomic::Ordering::SeqCst);
+
+    // Usuário renomeia localmente (mesmo conteúdo, nome novo).
+    std::fs::rename(h.saves_dir.join("antigo.bin"), h.saves_dir.join("novo.bin")).unwrap();
+
+    let summary = h.sync().await;
+
+    assert_eq!(summary.renamed, 1, "rename detectado por hash");
+    assert_eq!(summary.uploaded, 0, "nada retransferido");
+    assert_eq!(summary.downloaded, 0, "órfão não é re-baixado");
+    assert_eq!(
+        h.drive
+            .upload_new_calls
+            .load(std::sync::atomic::Ordering::SeqCst),
+        uploads_before,
+        "nenhum upload novo"
+    );
+    assert!(
+        h.remote_content("novo.bin").is_some(),
+        "Drive tem o nome novo"
+    );
+    assert!(
+        h.remote_content("antigo.bin").is_none(),
+        "sem zumbi do nome antigo"
+    );
+
+    // Convergido: sync seguinte não move nada.
+    let after = h.sync().await;
+    assert_eq!(after.uploaded + after.downloaded + after.renamed, 0);
+}
+
+/// Conflito gera a cópia padronizada do lado local em `conflicts/`
+/// (`nome.retrosync-conflict-<carimbo>-<device>.ext`) e grava o caminho no
+/// registro do conflito (issue #10).
+#[tokio::test]
+async fn conflito_gera_copia_padronizada_do_lado_local() {
+    let h = Harness::new().await;
+    h.write_local("save.bin", b"v1", T);
+    h.sync().await;
+
+    // Ambos os lados mudam desde a âncora → conflito.
+    h.write_local("save.bin", b"v2-local", T + S10);
+    h.drive.overwrite_as_device(
+        EMU,
+        SyncCategory::Saves,
+        "save.bin",
+        b"v2-drive",
+        T + 2 * S10,
+        "dev-B",
+    );
+
+    let summary = h.sync().await;
+    assert_eq!(summary.conflicts, 1);
+
+    let conflicts = h.db.with(conflicts::list_all).await.unwrap();
+    let backup_path = conflicts[0]
+        .backup_path
+        .clone()
+        .expect("cópia de conflito registrada");
+    assert!(backup_path.contains(".retrosync-conflict-"));
+    assert!(backup_path.contains(&h.device_id), "device id no nome");
+    assert_eq!(
+        std::fs::read(&backup_path).unwrap(),
+        b"v2-local",
+        "cópia preserva o lado local"
+    );
+}
+
+/// Renomeação que também muda de subpasta move o arquivo no Drive
+/// (addParents/removeParents), sem retransferir (issue #12).
+#[tokio::test]
+async fn renomeacao_entre_subpastas_move_no_drive() {
+    let h = Harness::new().await;
+    h.write_local("GAME01/save.bin", b"conteudo-movido", T);
+    h.sync().await;
+
+    std::fs::create_dir_all(h.saves_dir.join("GAME02")).unwrap();
+    std::fs::rename(
+        h.saves_dir.join("GAME01/save.bin"),
+        h.saves_dir.join("GAME02/save.bin"),
+    )
+    .unwrap();
+    std::fs::remove_dir(h.saves_dir.join("GAME01")).unwrap();
+
+    let summary = h.sync().await;
+
+    assert_eq!(summary.renamed, 1);
+    assert_eq!(summary.uploaded, 0);
+    assert!(h.remote_content("GAME02/save.bin").is_some());
+    assert!(h.remote_content("GAME01/save.bin").is_none());
+}
+
+/// O rastro de downloads recentes (anti-loop do watcher de filesystem) marca
+/// os arquivos gravados pelo próprio sync e expira apenas por TTL.
+#[tokio::test]
+async fn download_marca_arquivo_no_rastro_anti_loop() {
+    let h = Harness::new().await;
+    h.seed_remote("save.bin", b"drive-v1", T, None);
+
+    h.sync().await;
+
+    let written = h.saves_dir.join("save.bin");
+    assert!(h.engine.is_recent_download(&written));
+    assert!(!h.engine.is_recent_download(&h.saves_dir.join("outro.bin")));
 }
 
 /// Sync só-upload (`LocalToDrive`, gatilho emulator-stop) não baixa nada;

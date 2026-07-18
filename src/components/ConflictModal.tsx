@@ -4,8 +4,9 @@ import { useTranslation } from "react-i18next";
 import { currentLocale } from "../i18n";
 import { useErrorMessage } from "../lib/errors";
 import { formatBytes } from "../lib/format";
-import { resolveConflict } from "../lib/ipc";
+import { resolveConflict, revealBackupPath } from "../lib/ipc";
 import type { Conflict, ConflictResolution } from "../types/ipc";
+import { usePlatform } from "../hooks/usePlatform";
 import { Modal } from "./ui/Modal";
 
 interface Props {
@@ -24,8 +25,18 @@ function formatDate(ms: number): string {
 export function ConflictModal({ emulator, conflicts, onClose, onResolved }: Props) {
   const { t } = useTranslation();
   const errorMessage = useErrorMessage();
+  const { isMobile } = usePlatform();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const showCopy = async (path: string) => {
+    setError(null);
+    try {
+      await revealBackupPath(path);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  };
 
   const resolve = async (c: Conflict, keep: ConflictResolution) => {
     setBusy(c.relPath);
@@ -49,6 +60,11 @@ export function ConflictModal({ emulator, conflicts, onClose, onResolved }: Prop
           <div className="conflict-path">
             {c.category} · {c.relPath}
           </div>
+          {!isMobile && c.backupPath ? (
+            <button className="secondary" onClick={() => void showCopy(c.backupPath as string)}>
+              {t("conflict.openCopy")}
+            </button>
+          ) : null}
           <div className="conflict-sides">
             <div className="conflict-side">
               <div className="conflict-side-title">

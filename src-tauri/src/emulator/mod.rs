@@ -27,6 +27,11 @@ pub struct EmulatorProfile {
     pub config_paths: Vec<PathBuf>,
     /// Pastas de savestates, relativas a `root_path`.
     pub state_paths: Vec<PathBuf>,
+    /// Padrões glob (`*.tmp`, `cache/**`) de arquivos a IGNORAR no sync,
+    /// casados contra o `rel_path` de cada arquivo. Defaults por emulador vêm
+    /// do `profiles.toml`; o usuário edita nas configurações.
+    #[serde(default)]
+    pub exclude_patterns: Vec<String>,
 }
 
 /// Sugestão da descoberta automática — espelhado em `src/types/ipc.ts`
@@ -128,6 +133,7 @@ pub fn build_manual_profile(
         saves_paths,
         config_paths,
         state_paths,
+        exclude_patterns: Vec::new(),
     })
 }
 

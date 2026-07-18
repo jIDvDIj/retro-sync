@@ -29,6 +29,20 @@ pub use storage::{FileLoc, LocalStorage};
 use crate::constants::{DRIVE_CONFIG_FOLDER, DRIVE_SAVES_FOLDER, DRIVE_STATES_FOLDER};
 use crate::emulator::EmulatorProfile;
 
+/// SHA-256 (hex) de um conteúdo em memória — identidade de conteúdo usada no
+/// pré-filtro de mtime do diff (coluna `file_hash` do manifest).
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// MD5 (hex) de um conteúdo em memória — comparável ao `md5Checksum` que a API
+/// do Drive devolve (verificação de integridade pós-transferência).
+pub(crate) fn md5_hex(bytes: &[u8]) -> String {
+    use md5::{Digest, Md5};
+    format!("{:x}", Md5::digest(bytes))
+}
+
 /// Direção de uma operação de sync. Espelhado em `src/types/ipc.ts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SyncDirection {
@@ -88,6 +102,8 @@ pub struct SyncTarget {
     pub label: String,
     pub root: PathBuf,
     pub categories: Vec<(SyncCategory, Vec<PathBuf>)>,
+    /// Padrões glob de arquivos a ignorar no sync (herdados do perfil).
+    pub exclude_patterns: Vec<String>,
 }
 
 impl SyncTarget {
@@ -100,8 +116,35 @@ impl SyncTarget {
                 (SyncCategory::Savestates, profile.state_paths.clone()),
                 (SyncCategory::Config, profile.config_paths.clone()),
             ],
+            exclude_patterns: profile.exclude_patterns.clone(),
         }
     }
+}
+
+/// Compila os padrões de exclusão do emulador num `GlobSet` (uma vez por sync,
+/// não por arquivo). Padrões inválidos são ignorados com warning — um glob
+/// quebrado nunca derruba o sync. `None` = nada a excluir.
+pub(crate) fn build_exclude_set(patterns: &[String]) -> Option<globset::GlobSet> {
+    if patterns.is_empty() {
+        return None;
+    }
+    let mut builder = globset::GlobSetBuilder::new();
+    let mut any = false;
+    for pattern in patterns {
+        match globset::Glob::new(pattern) {
+            Ok(glob) => {
+                builder.add(glob);
+                any = true;
+            }
+            Err(err) => {
+                tracing::warn!(padrao = %pattern, error = %err, "padrão de exclusão inválido; ignorado");
+            }
+        }
+    }
+    if !any {
+        return None;
+    }
+    builder.build().ok()
 }
 
 #[cfg(test)]
@@ -128,6 +171,7 @@ mod tests {
             saves_paths: vec![PathBuf::from("saves")],
             config_paths: vec![PathBuf::from("cfg"), PathBuf::from("cfg2")],
             state_paths: vec![],
+            exclude_patterns: vec!["*.tmp".into()],
         };
 
         let target = SyncTarget::from_profile(&profile);

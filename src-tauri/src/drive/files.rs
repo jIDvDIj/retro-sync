@@ -30,6 +30,10 @@ pub struct DriveFile {
     #[serde(default)]
     #[allow(dead_code)]
     pub size: Option<String>,
+    /// MD5 (hex) do conteúdo, calculado pelo próprio Drive. Usado na verificação
+    /// de integridade pós-download e na detecção de renomeação por conteúdo.
+    #[serde(default)]
+    pub md5_checksum: Option<String>,
     /// Propriedades privadas do app (ex.: `device` = quem publicou a versão).
     #[serde(default)]
     pub app_properties: HashMap<String, String>,
@@ -217,7 +221,10 @@ impl DriveClient {
                     .query(&[("alt", "media")])
             })
             .await?;
-        Ok(response.bytes().await?.to_vec())
+        let content = response.bytes().await?.to_vec();
+        // Compromete a janela de banda para os próximos downloads (fase 1).
+        self.throttle_download(content.len()).await;
+        Ok(content)
     }
 
     /// Cria um arquivo novo em `parent_id` preservando o mtime original e
@@ -268,6 +275,38 @@ impl DriveClient {
         }
     }
 
+    /// Renomeia (e opcionalmente move de pasta) um arquivo existente via
+    /// `files.update`, sem reenviar conteúdo. Usado pela detecção de
+    /// renomeação por hash — evita Upload novo + zumbi do nome antigo.
+    pub async fn rename_file(
+        &self,
+        file_id: &str,
+        new_name: &str,
+        add_parent: Option<&str>,
+        remove_parent: Option<&str>,
+    ) -> AppResult<DriveFile> {
+        let url = format!("{}/files/{file_id}", self.api_base);
+        let body = json!({ "name": new_name });
+        let response = self
+            .send_with_retry("files.rename", |token| {
+                let mut request = self
+                    .http
+                    .patch(&url)
+                    .bearer_auth(token)
+                    .query(&[("fields", FILE_FIELDS)])
+                    .json(&body);
+                if let Some(parent) = add_parent {
+                    request = request.query(&[("addParents", parent)]);
+                }
+                if let Some(parent) = remove_parent {
+                    request = request.query(&[("removeParents", parent)]);
+                }
+                request
+            })
+            .await?;
+        Ok(response.json::<DriveFile>().await?)
+    }
+
     /// Envia até `DRIVE_BATCH_MAX_OPS` arquivos novos e pequenos em um único
     /// request `multipart/mixed`, reduzindo ~100× o número de chamadas HTTP no
     /// primeiro sync de coleções grandes (FEATURE-004). Retorna os `DriveFile` na
@@ -277,6 +316,9 @@ impl DriveClient {
         if ops.is_empty() {
             return Ok(Vec::new());
         }
+        // Limite de banda: o batch inteiro conta como uma transferência única.
+        let total_bytes: usize = ops.iter().map(|op| op.content.len()).sum();
+        self.throttle_upload(total_bytes).await;
         let (boundary, body) = build_batch_body(&ops)?;
         let content_type = format!("multipart/mixed; boundary={boundary}");
 
@@ -318,6 +360,8 @@ impl DriveClient {
         metadata: &serde_json::Value,
         content: Vec<u8>,
     ) -> AppResult<DriveFile> {
+        // Limite de banda de upload (fase 1): reserva a janela antes de enviar.
+        self.throttle_upload(content.len()).await;
         let (boundary, body) = build_multipart_related(metadata, &content)?;
         let content_type = format!("multipart/related; boundary={boundary}");
 
@@ -344,6 +388,8 @@ impl DriveClient {
         metadata: &serde_json::Value,
         content: Vec<u8>,
     ) -> AppResult<DriveFile> {
+        // Limite de banda de upload (fase 1): reserva a janela antes de enviar.
+        self.throttle_upload(content.len()).await;
         let initiate = self
             .send_with_retry("files.upload.initiate", |token| {
                 self.http
@@ -708,6 +754,58 @@ mod http_tests {
             .await
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn rename_file_atualiza_nome_sem_reenviar_conteudo() {
+        let server = MockServer::start().await;
+        let client = test_client(&server).await;
+
+        Mock::given(method("PATCH"))
+            .and(path("/drive/v3/files/file-1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "file-1", "name": "novo.bin", "mimeType": "application/octet-stream"
+            })))
+            .mount(&server)
+            .await;
+
+        let renamed = client
+            .rename_file("file-1", "novo.bin", None, None)
+            .await
+            .unwrap();
+        assert_eq!(renamed.name, "novo.bin");
+
+        // O corpo enviado carrega só o nome novo — nada de conteúdo.
+        let requests = server.received_requests().await.unwrap();
+        let body = String::from_utf8_lossy(&requests[0].body);
+        assert!(body.contains("\"name\":\"novo.bin\""));
+    }
+
+    #[tokio::test]
+    async fn rename_file_com_mudanca_de_pasta_envia_parents() {
+        let server = MockServer::start().await;
+        let client = test_client(&server).await;
+
+        Mock::given(method("PATCH"))
+            .and(path("/drive/v3/files/file-2"))
+            .and(query_param("addParents", "pasta-nova"))
+            .and(query_param("removeParents", "pasta-antiga"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "file-2", "name": "save.bin", "mimeType": "application/octet-stream"
+            })))
+            .mount(&server)
+            .await;
+
+        let renamed = client
+            .rename_file(
+                "file-2",
+                "save.bin",
+                Some("pasta-nova"),
+                Some("pasta-antiga"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(renamed.id, "file-2");
     }
 
     #[tokio::test]

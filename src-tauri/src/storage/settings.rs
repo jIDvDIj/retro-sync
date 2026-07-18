@@ -9,8 +9,11 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::constants::{
-    SETTING_DEVICE_NAME, SETTING_DISMISSED_NOTICES, SETTING_NOTIFICATION_LEVEL,
-    SETTING_TRIGGER_EMULATOR_START, SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
+    BACKUP_RETENTION_DAYS_DEFAULT, MAX_BACKUP_VERSIONS_DEFAULT, SCAN_INTERVAL_MINUTES_DEFAULT,
+    SETTING_BACKUP_RETENTION_DAYS, SETTING_DEVICE_NAME, SETTING_DISMISSED_NOTICES,
+    SETTING_DOWNLOAD_KBPS, SETTING_MAX_BACKUP_VERSIONS, SETTING_NOTIFICATION_LEVEL,
+    SETTING_SCAN_INTERVAL_MINUTES, SETTING_TRIGGER_EMULATOR_START, SETTING_TRIGGER_EMULATOR_STOP,
+    SETTING_TRIGGER_STARTUP, SETTING_UPLOAD_KBPS,
 };
 // Consumido apenas pelas funções de autostart (só-desktop).
 #[cfg(desktop)]
@@ -18,7 +21,7 @@ use crate::constants::SETTING_AUTOSTART_INITIALIZED;
 use crate::error::AppResult;
 
 /// Configurações globais. Espelhado em `src/types/ipc.ts` (`Settings`).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// Nome amigável deste dispositivo (ex.: "PC Gamer"). `None` até o usuário
@@ -35,6 +38,52 @@ pub struct Settings {
     /// comando.
     #[serde(default)]
     pub autostart: bool,
+    /// Dias de retenção dos backups locais (0 = manter para sempre). A limpeza
+    /// roda no startup do app.
+    #[serde(default = "default_backup_retention_days")]
+    pub backup_retention_days: u32,
+    /// Intervalo do scan periódico em minutos (0 = desativado). O timer aplica
+    /// jitter de ±25% e só dispara quando nenhum emulador está rodando.
+    #[serde(default = "default_scan_interval_minutes")]
+    pub scan_interval_minutes: u32,
+    /// Máximo de versões arquivadas por arquivo antes de cada download
+    /// sobrescrever o local (mínimo 1).
+    #[serde(default = "default_max_backup_versions")]
+    pub max_backup_versions: u32,
+    /// Limite de upload em KB/s (0 = ilimitado).
+    #[serde(default)]
+    pub upload_kbps: u32,
+    /// Limite de download em KB/s (0 = ilimitado).
+    #[serde(default)]
+    pub download_kbps: u32,
+}
+
+fn default_max_backup_versions() -> u32 {
+    MAX_BACKUP_VERSIONS_DEFAULT
+}
+
+fn default_scan_interval_minutes() -> u32 {
+    SCAN_INTERVAL_MINUTES_DEFAULT
+}
+
+fn default_backup_retention_days() -> u32 {
+    BACKUP_RETENTION_DAYS_DEFAULT
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            device_name: None,
+            triggers: TriggerSettings::default(),
+            notification_level: NotificationLevel::default(),
+            autostart: false,
+            backup_retention_days: BACKUP_RETENTION_DAYS_DEFAULT,
+            scan_interval_minutes: SCAN_INTERVAL_MINUTES_DEFAULT,
+            max_backup_versions: MAX_BACKUP_VERSIONS_DEFAULT,
+            upload_kbps: 0,
+            download_kbps: 0,
+        }
+    }
 }
 
 /// Nível de notificações nativas. Espelhado em `src/types/ipc.ts`.
@@ -138,7 +187,68 @@ pub fn load(conn: &Connection) -> AppResult<Settings> {
         // Estado do SO, não do banco: o comando `get_settings` injeta o valor
         // real lido pelo plugin de autostart.
         autostart: false,
+        backup_retention_days: backup_retention_days(conn)?,
+        scan_interval_minutes: scan_interval_minutes(conn)?,
+        max_backup_versions: max_backup_versions(conn)?,
+        upload_kbps: upload_kbps(conn)?,
+        download_kbps: download_kbps(conn)?,
     })
+}
+
+/// Limite de upload em KB/s (default: 0 = ilimitado).
+pub fn upload_kbps(conn: &Connection) -> AppResult<u32> {
+    Ok(get(conn, SETTING_UPLOAD_KBPS)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0))
+}
+
+/// Limite de download em KB/s (default: 0 = ilimitado).
+pub fn download_kbps(conn: &Connection) -> AppResult<u32> {
+    Ok(get(conn, SETTING_DOWNLOAD_KBPS)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0))
+}
+
+pub fn set_bandwidth_limits(conn: &Connection, upload: u32, download: u32) -> AppResult<()> {
+    set(conn, SETTING_UPLOAD_KBPS, &upload.to_string())?;
+    set(conn, SETTING_DOWNLOAD_KBPS, &download.to_string())
+}
+
+/// Máximo de versões arquivadas por arquivo (default: 5; mínimo efetivo 1).
+pub fn max_backup_versions(conn: &Connection) -> AppResult<u32> {
+    Ok(get(conn, SETTING_MAX_BACKUP_VERSIONS)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(MAX_BACKUP_VERSIONS_DEFAULT))
+}
+
+pub fn set_max_backup_versions(conn: &Connection, versions: u32) -> AppResult<()> {
+    set(
+        conn,
+        SETTING_MAX_BACKUP_VERSIONS,
+        &versions.max(1).to_string(),
+    )
+}
+
+/// Intervalo do scan periódico em minutos (default: 60; 0 = desativado).
+pub fn scan_interval_minutes(conn: &Connection) -> AppResult<u32> {
+    Ok(get(conn, SETTING_SCAN_INTERVAL_MINUTES)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(SCAN_INTERVAL_MINUTES_DEFAULT))
+}
+
+pub fn set_scan_interval_minutes(conn: &Connection, minutes: u32) -> AppResult<()> {
+    set(conn, SETTING_SCAN_INTERVAL_MINUTES, &minutes.to_string())
+}
+
+/// Dias de retenção dos backups locais (default: 30; 0 = manter para sempre).
+pub fn backup_retention_days(conn: &Connection) -> AppResult<u32> {
+    Ok(get(conn, SETTING_BACKUP_RETENTION_DAYS)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(BACKUP_RETENTION_DAYS_DEFAULT))
+}
+
+pub fn set_backup_retention_days(conn: &Connection, days: u32) -> AppResult<()> {
+    set(conn, SETTING_BACKUP_RETENTION_DAYS, &days.to_string())
 }
 
 /// Nível de notificações (default: `All`).
@@ -315,6 +425,65 @@ mod tests {
     }
 
     #[test]
+    fn backup_retention_days_default_e_roundtrip() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert_eq!(backup_retention_days(conn)?, BACKUP_RETENTION_DAYS_DEFAULT);
+            set_backup_retention_days(conn, 7)?;
+            assert_eq!(backup_retention_days(conn)?, 7);
+            assert_eq!(load(conn)?.backup_retention_days, 7);
+            // 0 = manter para sempre (limpeza desativada).
+            set_backup_retention_days(conn, 0)?;
+            assert_eq!(backup_retention_days(conn)?, 0);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn scan_interval_minutes_default_e_roundtrip() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert_eq!(scan_interval_minutes(conn)?, SCAN_INTERVAL_MINUTES_DEFAULT);
+            set_scan_interval_minutes(conn, 15)?;
+            assert_eq!(scan_interval_minutes(conn)?, 15);
+            assert_eq!(load(conn)?.scan_interval_minutes, 15);
+            // 0 = scan periódico desativado.
+            set_scan_interval_minutes(conn, 0)?;
+            assert_eq!(scan_interval_minutes(conn)?, 0);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn max_backup_versions_default_roundtrip_e_minimo() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert_eq!(max_backup_versions(conn)?, MAX_BACKUP_VERSIONS_DEFAULT);
+            set_max_backup_versions(conn, 8)?;
+            assert_eq!(max_backup_versions(conn)?, 8);
+            // 0 é rejeitado — mínimo efetivo é 1 versão.
+            set_max_backup_versions(conn, 0)?;
+            assert_eq!(max_backup_versions(conn)?, 1);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn limites_de_banda_default_e_roundtrip() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert_eq!(upload_kbps(conn)?, 0);
+            assert_eq!(download_kbps(conn)?, 0);
+            set_bandwidth_limits(conn, 512, 1024)?;
+            assert_eq!(upload_kbps(conn)?, 512);
+            assert_eq!(download_kbps(conn)?, 1024);
+            assert_eq!(load(conn)?.upload_kbps, 512);
+            assert_eq!(load(conn)?.download_kbps, 1024);
+            Ok(())
+        });
+    }
+
+    #[test]
     fn dismiss_notice_persiste_e_e_idempotente() {
         let db = Db::open_in_memory().unwrap();
         db.with_sync(|conn| {
@@ -339,9 +508,19 @@ mod tests {
             triggers: TriggerSettings::default(),
             notification_level: NotificationLevel::ErrorsOnly,
             autostart: false,
+            backup_retention_days: 15,
+            scan_interval_minutes: 45,
+            max_backup_versions: 3,
+            upload_kbps: 256,
+            download_kbps: 0,
         })
         .unwrap();
         assert_eq!(json["deviceName"], "PC Gamer");
+        assert_eq!(json["backupRetentionDays"], 15);
+        assert_eq!(json["scanIntervalMinutes"], 45);
+        assert_eq!(json["maxBackupVersions"], 3);
+        assert_eq!(json["uploadKbps"], 256);
+        assert_eq!(json["downloadKbps"], 0);
         assert_eq!(json["triggers"]["startup"], true);
         assert_eq!(json["triggers"]["emulatorStart"], true);
         assert_eq!(json["triggers"]["emulatorStop"], true);

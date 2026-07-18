@@ -35,6 +35,41 @@ export interface Settings {
   notificationLevel: NotificationLevel;
   /** Início automático com o sistema. Lido do SO, não do banco. */
   autostart: boolean;
+  /** Dias de retenção dos backups locais (0 = manter para sempre). */
+  backupRetentionDays: number;
+  /** Intervalo do scan periódico em minutos (0 = desativado). */
+  scanIntervalMinutes: number;
+  /** Máximo de versões arquivadas por arquivo no histórico pré-download. */
+  maxBackupVersions: number;
+  /** Limite de upload em KB/s (0 = ilimitado). */
+  uploadKbps: number;
+  /** Limite de download em KB/s (0 = ilimitado). */
+  downloadKbps: number;
+}
+
+/** `storage::stats::EmulatorStats` — contadores acumulados por emulador */
+export interface EmulatorStats {
+  emulator: string;
+  totalUploads: number;
+  totalDownloads: number;
+  totalBytesUp: number;
+  totalBytesDown: number;
+  totalConflicts: number;
+  /** Fim do último sync que tocou o emulador; `null` = nunca sincronizou. */
+  lastSyncAtMs: number | null;
+  /** Último arquivo transferido (rel_path). */
+  lastFile: string | null;
+  /** Início do último scan local. */
+  lastScanAtMs: number | null;
+}
+
+/** `versioning::FileVersion` — versão arquivada de um arquivo no histórico */
+export interface FileVersion {
+  /** Carimbo `YYYYMMDD-HHMMSS` extraído do nome arquivado. */
+  stamp: string;
+  sizeBytes: number;
+  modifiedAtMs: number;
+  absPath: string;
 }
 
 /** `emulator::EmulatorProfile` — paths serializam como string */
@@ -44,6 +79,8 @@ export interface EmulatorProfile {
   savesPaths: string[];
   configPaths: string[];
   statePaths: string[];
+  /** Padrões glob de arquivos ignorados no sync (ex.: `*.tmp`, `cache/**`). */
+  excludePatterns: string[];
 }
 
 /** `emulator::DiscoverySource` — origem do reconhecimento na descoberta */
@@ -100,6 +137,9 @@ export interface PendingOp {
   enqueuedAtMs: number;
   attempts: number;
   lastError: string | null;
+  /** A partir de quando pode ser retentado; `null` = morta (esgotou as
+   * tentativas — só volta pela ação "tentar novamente"). */
+  nextRetryAtMs: number | null;
 }
 
 /** `backups::BackupEntry` — cópia de backup local listada no histórico */
@@ -125,6 +165,8 @@ export interface SyncSummary {
   backedUp: number;
   /** Conflitos detectados neste sync (ambos os lados mudaram). */
   conflicts: number;
+  /** Renomeações detectadas por hash e aplicadas no Drive sem retransferir. */
+  renamed: number;
   durationMs: number;
 }
 
@@ -142,6 +184,9 @@ export interface Conflict {
   driveFileId: string;
   localAbsPath: string;
   detectedAtMs: number;
+  /** Cópia padronizada do lado local (`…retrosync-conflict-<carimbo>-<device>…`),
+   * para inspeção manual. `null` quando a cópia não pôde ser criada. */
+  backupPath: string | null;
 }
 
 /** `sync::ConflictResolution` — qual versão manter ao resolver um conflito */
@@ -185,6 +230,8 @@ export interface AppErrorPayload {
     | "emulator_exists"
     | "file_busy"
     | "drive_not_found"
+    | "insufficient_disk_space"
+    | "integrity"
     | "other";
   message: string;
   /** Detalhe técnico sem o prefixo (caminho, nome, msg da lib). O frontend

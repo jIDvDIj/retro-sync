@@ -102,6 +102,43 @@ CREATE TABLE IF NOT EXISTS drive_folders (
 );
 ";
 
+/// v7 — hash SHA-256 do conteúdo no último sync. Pré-filtro de mtime: só é
+/// recalculado quando o mtime diverge; hash igual = conteúdo intacto (emulador
+/// tocou o mtime sem alterar o save) e o upload é dispensado.
+const SCHEMA_V7: &str = "
+ALTER TABLE sync_manifest ADD COLUMN file_hash TEXT;
+";
+
+/// v8 — backoff exponencial na fila offline. `next_retry_at_ms` diz a partir de
+/// quando a pendência pode ser retentada (0 = imediatamente); `NULL` marca a
+/// pendência como morta após esgotar as tentativas — só o usuário reativa.
+const SCHEMA_V8: &str = "
+ALTER TABLE pending_ops ADD COLUMN next_retry_at_ms INTEGER DEFAULT 0;
+";
+
+/// v9 — caminho da cópia padronizada do lado local do conflito
+/// (`<nome>.retrosync-conflict-<carimbo>-<device>.<ext>`), para o usuário
+/// inspecionar os dois lados antes de decidir. `NULL` quando a cópia falhou.
+const SCHEMA_V9: &str = "
+ALTER TABLE sync_conflicts ADD COLUMN backup_path TEXT;
+";
+
+/// v10 — estatísticas acumuladas por emulador (contadores desde a instalação
+/// e carimbos do último sync/scan). Ver `storage::stats`.
+const SCHEMA_V10: &str = "
+CREATE TABLE IF NOT EXISTS emulator_stats (
+    emulator         TEXT PRIMARY KEY,
+    total_uploads    INTEGER NOT NULL DEFAULT 0,
+    total_downloads  INTEGER NOT NULL DEFAULT 0,
+    total_bytes_up   INTEGER NOT NULL DEFAULT 0,
+    total_bytes_down INTEGER NOT NULL DEFAULT 0,
+    total_conflicts  INTEGER NOT NULL DEFAULT 0,
+    last_sync_at_ms  INTEGER,
+    last_file        TEXT,
+    last_scan_at_ms  INTEGER
+);
+";
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -191,6 +228,22 @@ fn migrate(conn: &Connection) -> AppResult<()> {
     if version < 6 {
         conn.execute_batch(SCHEMA_V6)?;
         version = 6;
+    }
+    if version < 7 {
+        conn.execute_batch(SCHEMA_V7)?;
+        version = 7;
+    }
+    if version < 8 {
+        conn.execute_batch(SCHEMA_V8)?;
+        version = 8;
+    }
+    if version < 9 {
+        conn.execute_batch(SCHEMA_V9)?;
+        version = 9;
+    }
+    if version < 10 {
+        conn.execute_batch(SCHEMA_V10)?;
+        version = 10;
     }
     conn.pragma_update(None, "user_version", version)?;
     Ok(())

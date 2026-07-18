@@ -11,8 +11,10 @@
 //! - emulador **abriu** → sync Drive → Local (saves frescos antes do jogo carregar);
 //! - emulador **fechou** → sync Local → Drive (sobe os saves da sessão).
 
+pub mod fs_watcher;
 mod process_watcher;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,8 +25,8 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 
 use crate::constants::{
-    TRIGGER_EMULATOR_START, TRIGGER_EMULATOR_STOP, WATCHER_POLL_INTERVAL_SECS,
-    WATCHER_STOP_DEBOUNCE_TICKS,
+    EMULATOR_STOP_SETTLE_MS, TRIGGER_EMULATOR_START, TRIGGER_EMULATOR_STOP,
+    WATCHER_POLL_INTERVAL_SECS, WATCHER_STOP_DEBOUNCE_TICKS,
 };
 use crate::emulator;
 use crate::events::EVT_EMULATOR_STATUS;
@@ -50,11 +52,16 @@ struct EmulatorStatusEvent {
     running: bool,
 }
 
+/// Conjunto dos emuladores atualmente em execução, alimentado pelo watcher e
+/// consultado por quem só deve agir com tudo parado (scan periódico, watcher
+/// de filesystem). `std::sync::Mutex`: locks curtos, sem `await` no meio.
+pub type RunningEmulators = Arc<std::sync::Mutex<HashSet<String>>>;
+
 /// Sobe o produtor e o consumidor do watcher. Chamado uma vez no `setup`.
-pub fn start(db: Db, engine: Arc<SyncEngine>, app: AppHandle) {
+pub fn start(db: Db, engine: Arc<SyncEngine>, app: AppHandle, running: RunningEmulators) {
     let (tx, rx) = mpsc::channel::<WatcherEvent>(32);
     spawn_poll_loop(db.clone(), tx);
-    spawn_consumer(rx, engine, app, db);
+    spawn_consumer(rx, engine, app, db, running);
 }
 
 fn spawn_poll_loop(db: Db, tx: mpsc::Sender<WatcherEvent>) {
@@ -126,6 +133,7 @@ fn spawn_consumer(
     engine: Arc<SyncEngine>,
     app: AppHandle,
     db: Db,
+    running_set: RunningEmulators,
 ) {
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
@@ -143,6 +151,16 @@ fn spawn_consumer(
                     TRIGGER_EMULATOR_STOP,
                 ),
             };
+
+            // Mantém o conjunto compartilhado em dia — consultado pelo scan
+            // periódico para não sincronizar com um jogo aberto.
+            if let Ok(mut set) = running_set.lock() {
+                if running {
+                    set.insert(name.clone());
+                } else {
+                    set.remove(&name);
+                }
+            }
 
             // O status sempre é emitido (a UI mostra "em execução"); só o sync
             // automático respeita o gatilho desativado pelo usuário.
@@ -181,6 +199,12 @@ fn spawn_consumer(
             if !enabled {
                 tracing::info!(emulador = %name, trigger, "gatilho desativado; sync automático ignorado");
                 continue;
+            }
+
+            // Settle delay: o processo já saiu, mas o SO pode ainda estar
+            // liberando os arquivos da sessão — espera antes de escanear.
+            if !running {
+                tokio::time::sleep(Duration::from_millis(EMULATOR_STOP_SETTLE_MS)).await;
             }
 
             if let Err(err) = engine.sync_emulator(&name, direction, trigger).await {

@@ -50,6 +50,11 @@ pub const WATCHER_POLL_INTERVAL_SECS: u64 = 2;
 /// de 2s, são ~4s de ausência confirmada antes do sync Local → Drive.
 pub const WATCHER_STOP_DEBOUNCE_TICKS: u32 = 2;
 
+/// Espera após confirmar o encerramento do emulador antes de disparar o sync
+/// Local → Drive. Dá tempo ao SO de terminar o flush dos buffers de escrita —
+/// sem isso o scan pode capturar um save parcialmente gravado.
+pub const EMULATOR_STOP_SETTLE_MS: u64 = 3_000;
+
 /// Máximo de tentativas (com backoff exponencial) por chamada à API do Drive.
 pub const DRIVE_MAX_RETRIES: u32 = 3;
 
@@ -83,6 +88,19 @@ pub const TRIGGER_EMULATOR_STOP: &str = "emulator-stop";
 /// Gatilhos exclusivos do mobile (substituem watcher e startup/shutdown).
 pub const TRIGGER_FOREGROUND: &str = "foreground";
 pub const TRIGGER_BACKGROUND: &str = "background";
+/// Scan periódico em background (timer com jitter; só-desktop).
+pub const TRIGGER_SCHEDULED: &str = "scheduled";
+/// Mudança de arquivo detectada pelo watcher de filesystem (só-desktop).
+pub const TRIGGER_FILE_CHANGE: &str = "file-change";
+
+/// Debounce do watcher de filesystem: o sync só dispara após este tempo sem
+/// novos eventos nas pastas do emulador (agrupa rajadas de escrita).
+pub const FS_WATCHER_DEBOUNCE_SECS: u64 = 8;
+/// Intervalo de reconciliação das pastas observadas com a lista de emuladores.
+pub const FS_WATCHER_RECONCILE_SECS: u64 = 60;
+/// Janela em que um arquivo recém-baixado pelo próprio sync é ignorado pelo
+/// watcher de filesystem (anti-loop: sync → grava → evento → sync…).
+pub const RECENT_DOWNLOAD_TTL_SECS: u64 = 30;
 
 /// Chaves da tabela `app_settings` (configurações globais do usuário).
 /// Nome amigável deste dispositivo (ex.: "PC Gamer"), definido no login.
@@ -95,6 +113,30 @@ pub const SETTING_TRIGGER_EMULATOR_STOP: &str = "trigger_emulator_stop";
 
 /// Nível de notificações nativas: all | errors_only | none (default: all).
 pub const SETTING_NOTIFICATION_LEVEL: &str = "notification_level";
+
+/// Dias de retenção dos backups locais (0 = manter para sempre).
+pub const SETTING_BACKUP_RETENTION_DAYS: &str = "backup_retention_days";
+/// Default de fábrica da retenção de backups.
+pub const BACKUP_RETENTION_DAYS_DEFAULT: u32 = 30;
+
+/// Intervalo do scan periódico em minutos (0 = desativado).
+pub const SETTING_SCAN_INTERVAL_MINUTES: &str = "scan_interval_minutes";
+/// Default de fábrica do scan periódico.
+pub const SCAN_INTERVAL_MINUTES_DEFAULT: u32 = 60;
+
+/// Máximo de versões arquivadas por arquivo no histórico (`history/`).
+pub const SETTING_MAX_BACKUP_VERSIONS: &str = "max_backup_versions";
+/// Default de fábrica do máximo de versões por arquivo.
+pub const MAX_BACKUP_VERSIONS_DEFAULT: u32 = 5;
+
+/// Limites de banda das transferências com o Drive, em KB/s (0 = ilimitado).
+pub const SETTING_UPLOAD_KBPS: &str = "upload_kbps";
+pub const SETTING_DOWNLOAD_KBPS: &str = "download_kbps";
+
+/// Subpasta (por emulador) das cópias padronizadas de conflito.
+pub const CONFLICT_COPIES_DIR: &str = "conflicts";
+/// Máximo de cópias de conflito mantidas por arquivo (as mais antigas caem).
+pub const MAX_CONFLICT_COPIES: usize = 3;
 
 /// IDs de banners informativos que o usuário dispensou (array JSON). Um banner
 /// dispensado não reaparece

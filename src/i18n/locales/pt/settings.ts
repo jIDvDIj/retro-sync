@@ -22,6 +22,19 @@ export const settings: Localized<typeof SettingsEn> = {
       hint: "Muda o idioma da interface do app.",
       label: "Idioma da interface",
     },
+    bandwidth: {
+      heading: "Limites de banda",
+      hint: "Limita a taxa média de transferência com o Drive. 0 = ilimitado.",
+      uploadLabel: "Upload (KB/s)",
+      downloadLabel: "Download (KB/s)",
+      saved: "Salvo",
+    },
+    scan: {
+      heading: "Scan periódico",
+      hint: "Roda um sync completo em background neste intervalo (com um pouco de aleatoriedade), capturando mudanças que os gatilhos perderam. Nunca roda com um emulador aberto. 0 desativa.",
+      label: "Intervalo (minutos)",
+      saved: "Salvo",
+    },
     autoSync: {
       heading: "Sincronização automática",
       hint: "Mesmo com tudo desligado, o botão “Sincronizar agora” continua disponível.",
@@ -47,6 +60,10 @@ export const settings: Localized<typeof SettingsEn> = {
       saves: "Saves",
       savestates: "Savestates",
       config: "Config",
+      excludeLabel: "Padrões a ignorar (separados por vírgula)",
+      excludePlaceholder: "ex.: *.tmp, cache/**",
+      excludeSave: "Salvar padrões",
+      excludeSaved: "Salvo",
     },
     triggers: {
       startupLabel: "Ao abrir o RetroSync",
@@ -61,12 +78,22 @@ export const settings: Localized<typeof SettingsEn> = {
       hint: "Cópias que o RetroSync guarda antes de sobrescrever um arquivo local — no primeiro sync de um arquivo que já existe no Drive, ou ao resolver um conflito mantendo a versão do Drive. Nada é apagado.",
       open: "Abrir pasta de backups",
       history: "Ver histórico",
+      retentionLabel: "Manter backups por (dias)",
+      retentionHint:
+        "Execuções de backup mais antigas são removidas quando o app inicia. 0 mantém para sempre.",
+      retentionSaved: "Salvo",
+      versionsLabel: "Versões mantidas por arquivo",
+      versionsHint:
+        "Antes de um download sobrescrever um save local, a versão vigente é arquivada em history/. Versões além deste limite são removidas, das mais antigas.",
     },
   },
   backupHistory: {
     title: "Histórico de backups",
     intro:
-      "Cópias que o RetroSync guardou antes de sobrescrever arquivos locais. Para restaurar uma, abra a pasta de backups e copie o arquivo de volta manualmente.",
+      "Cópias que o RetroSync guardou antes de sobrescrever arquivos locais. Entradas versionadas (history) podem ser restauradas aqui mesmo — o arquivo atual é arquivado antes.",
+    restore: "Restaurar",
+    restoring: "Restaurando…",
+    restored: "Restaurado",
     filterLabel: "Filtrar",
     filterPlaceholder: "ex.: PPSSPP ou SAVE.bin",
     empty: "Nenhum backup ainda.",

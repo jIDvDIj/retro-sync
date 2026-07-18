@@ -32,6 +32,7 @@ export const sync = {
     games_other: "▸ {{count}} games",
     hideGames: "▾ Hide games",
     noGames: "No synced games yet",
+    statsLine: "Last sync {{when}} · ↑{{up}} · ↓{{down}}",
   },
   pending: {
     title: "Pending files — {{emulator}}",
@@ -44,6 +45,8 @@ export const sync = {
     attempts_other: "{{count}} attempts",
     retryNow: "Retry now",
     retrying: "Syncing…",
+    dead: "gave up after too many attempts",
+    retryFile: "Retry this file",
   },
   conflict: {
     title: "Conflict — {{emulator}}",
@@ -53,5 +56,6 @@ export const sync = {
     drive: "Drive",
     keepLocal: "Keep local",
     keepDrive: "Keep Drive's",
+    openCopy: "Show local copy in folder",
   },
 } as const;

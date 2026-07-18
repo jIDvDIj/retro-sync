@@ -10,6 +10,7 @@ import { openBackupFolder, syncNow } from "../lib/ipc";
 import { useTransferRate } from "../hooks/useTransferRate";
 import type { SyncState } from "../hooks/useSyncEvents";
 import type { SyncProgress, SyncSummary } from "../types/ipc";
+import { Button } from "./ui/Button";
 import { NoticeBanner } from "./ui/NoticeBanner";
 
 interface Props {
@@ -111,9 +112,9 @@ export function SyncStatus({ state }: Props) {
   return (
     <section className="sync-status">
       <div className="sync-row">
-        <button onClick={handleSync} disabled={syncing}>
+        <Button variant="primary" onClick={handleSync} disabled={syncing}>
           {syncing ? t("sync.syncing") : t("sync.syncNow")}
-        </button>
+        </Button>
         <div className="sync-info">
           {syncing && state.progress ? (
             <LiveProgress progress={state.progress} trigger={state.trigger} />
@@ -130,9 +131,9 @@ export function SyncStatus({ state }: Props) {
       {backedUp > 0 && state.lastSync ? (
         <NoticeBanner id={`backup-run-${state.lastSync.atMs}`} tone="warning">
           <span>{t("sync.backupBanner", { count: backedUp })}</span>
-          <button className="secondary" onClick={handleOpenBackups}>
+          <Button variant="secondary" size="sm" onClick={handleOpenBackups}>
             {t("sync.openBackupFolder")}
-          </button>
+          </Button>
         </NoticeBanner>
       ) : null}
       {actionError ? <p className="error">{actionError}</p> : null}

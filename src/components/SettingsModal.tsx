@@ -3,7 +3,16 @@ import { useTranslation } from "react-i18next";
 
 import { SUPPORTED_LANGUAGES, changeLanguage, type LanguageCode } from "../i18n";
 import { useErrorMessage } from "../lib/errors";
-import { openBackupFolder, setAutostart, setDeviceName, setNotificationLevel } from "../lib/ipc";
+import {
+  openBackupFolder,
+  setAutostart,
+  setBackupRetentionDays,
+  setDeviceName,
+  setBandwidthLimits,
+  setMaxBackupVersions,
+  setNotificationLevel,
+  setScanIntervalMinutes,
+} from "../lib/ipc";
 import type { EmulatorProfile, NotificationLevel, Settings } from "../types/ipc";
 import { usePlatform } from "../hooks/usePlatform";
 import { BackupHistoryModal } from "./BackupHistoryModal";
@@ -55,6 +64,81 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
   const [autostartError, setAutostartError] = useState<string | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [showBackupHistory, setShowBackupHistory] = useState(false);
+  const [retentionDays, setRetentionDays] = useState(String(settings.backupRetentionDays));
+  const [retentionSaved, setRetentionSaved] = useState(false);
+
+  const retentionDirty = retentionDays !== String(settings.backupRetentionDays);
+  const [maxVersions, setMaxVersions] = useState(String(settings.maxBackupVersions));
+  const [versionsSaved, setVersionsSaved] = useState(false);
+  const versionsDirty = maxVersions !== String(settings.maxBackupVersions);
+
+  const saveMaxVersions = async () => {
+    const versions = Number.parseInt(maxVersions, 10);
+    if (Number.isNaN(versions) || versions < 1) return;
+    setBackupError(null);
+    setVersionsSaved(false);
+    try {
+      await setMaxBackupVersions(versions);
+      onSaved();
+      setVersionsSaved(true);
+    } catch (err) {
+      setBackupError(errorMessage(err));
+    }
+  };
+
+  const [scanInterval, setScanInterval] = useState(String(settings.scanIntervalMinutes));
+  const [scanSaved, setScanSaved] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const scanDirty = scanInterval !== String(settings.scanIntervalMinutes);
+
+  const [uploadKbps, setUploadKbps] = useState(String(settings.uploadKbps));
+  const [downloadKbps, setDownloadKbps] = useState(String(settings.downloadKbps));
+  const [bandwidthSaved, setBandwidthSaved] = useState(false);
+  const bandwidthDirty =
+    uploadKbps !== String(settings.uploadKbps) || downloadKbps !== String(settings.downloadKbps);
+
+  const saveBandwidth = async () => {
+    const up = Number.parseInt(uploadKbps, 10);
+    const down = Number.parseInt(downloadKbps, 10);
+    if (Number.isNaN(up) || Number.isNaN(down) || up < 0 || down < 0) return;
+    setScanError(null);
+    setBandwidthSaved(false);
+    try {
+      await setBandwidthLimits(up, down);
+      onSaved();
+      setBandwidthSaved(true);
+    } catch (err) {
+      setScanError(errorMessage(err));
+    }
+  };
+
+  const saveScanInterval = async () => {
+    const minutes = Number.parseInt(scanInterval, 10);
+    if (Number.isNaN(minutes) || minutes < 0) return;
+    setScanError(null);
+    setScanSaved(false);
+    try {
+      await setScanIntervalMinutes(minutes);
+      onSaved();
+      setScanSaved(true);
+    } catch (err) {
+      setScanError(errorMessage(err));
+    }
+  };
+
+  const saveRetention = async () => {
+    const days = Number.parseInt(retentionDays, 10);
+    if (Number.isNaN(days) || days < 0) return;
+    setBackupError(null);
+    setRetentionSaved(false);
+    try {
+      await setBackupRetentionDays(days);
+      onSaved();
+      setRetentionSaved(true);
+    } catch (err) {
+      setBackupError(errorMessage(err));
+    }
+  };
 
   const openBackups = async () => {
     setBackupError(null);
@@ -205,6 +289,72 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
             <p className="muted">{t("settings.categories.hint")}</p>
             <CategorySettings emulators={emulators} />
           </section>
+
+          <section className="settings-section">
+            <h3>{t("settings.bandwidth.heading")}</h3>
+            <p className="muted">{t("settings.bandwidth.hint")}</p>
+            <label className="field">
+              <span>{t("settings.bandwidth.uploadLabel")}</span>
+              <input
+                type="number"
+                min={0}
+                value={uploadKbps}
+                onChange={(e) => {
+                  setUploadKbps(e.target.value);
+                  setBandwidthSaved(false);
+                }}
+              />
+            </label>
+            <label className="field">
+              <span>{t("settings.bandwidth.downloadLabel")}</span>
+              <input
+                type="number"
+                min={0}
+                value={downloadKbps}
+                onChange={(e) => {
+                  setDownloadKbps(e.target.value);
+                  setBandwidthSaved(false);
+                }}
+              />
+            </label>
+            <div className="settings-row">
+              <button onClick={saveBandwidth} disabled={!bandwidthDirty}>
+                {t("settings.device.save")}
+              </button>
+              {bandwidthSaved && !bandwidthDirty ? (
+                <span className="saved-hint">{t("settings.bandwidth.saved")}</span>
+              ) : null}
+            </div>
+          </section>
+
+          {!isMobile ? (
+            <section className="settings-section">
+              <h3>{t("settings.scan.heading")}</h3>
+              <p className="muted">{t("settings.scan.hint")}</p>
+              <label className="field">
+                <span>{t("settings.scan.label")}</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={scanInterval}
+                  onChange={(e) => {
+                    setScanInterval(e.target.value);
+                    setScanSaved(false);
+                  }}
+                />
+              </label>
+              <div className="settings-row">
+                <button onClick={saveScanInterval} disabled={!scanDirty}>
+                  {t("settings.device.save")}
+                </button>
+                {scanSaved && !scanDirty ? (
+                  <span className="saved-hint">{t("settings.scan.saved")}</span>
+                ) : null}
+              </div>
+              {scanError ? <p className="error">{scanError}</p> : null}
+            </section>
+          ) : null}
         </>
       ) : null}
 
@@ -241,6 +391,50 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
               <button className="secondary" onClick={openBackups}>
                 {t("settings.backups.open")}
               </button>
+            ) : null}
+          </div>
+          <label className="field">
+            <span>{t("settings.backups.retentionLabel")}</span>
+            <input
+              type="number"
+              min={0}
+              max={3650}
+              value={retentionDays}
+              onChange={(e) => {
+                setRetentionDays(e.target.value);
+                setRetentionSaved(false);
+              }}
+            />
+          </label>
+          <p className="muted">{t("settings.backups.retentionHint")}</p>
+          <div className="settings-row">
+            <button onClick={saveRetention} disabled={!retentionDirty}>
+              {t("settings.device.save")}
+            </button>
+            {retentionSaved && !retentionDirty ? (
+              <span className="saved-hint">{t("settings.backups.retentionSaved")}</span>
+            ) : null}
+          </div>
+          <label className="field">
+            <span>{t("settings.backups.versionsLabel")}</span>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={maxVersions}
+              onChange={(e) => {
+                setMaxVersions(e.target.value);
+                setVersionsSaved(false);
+              }}
+            />
+          </label>
+          <p className="muted">{t("settings.backups.versionsHint")}</p>
+          <div className="settings-row">
+            <button onClick={saveMaxVersions} disabled={!versionsDirty}>
+              {t("settings.device.save")}
+            </button>
+            {versionsSaved && !versionsDirty ? (
+              <span className="saved-hint">{t("settings.backups.retentionSaved")}</span>
             ) : null}
           </div>
           {backupError ? <p className="error">{backupError}</p> : null}

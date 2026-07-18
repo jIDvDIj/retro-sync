@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
 
+import { formatBytes } from "../lib/format";
 import type { SyncedGame } from "../types/ipc";
+import { Badge } from "./ui/Badge";
 
 /** Chaves i18n dos rótulos de categoria (reaproveitadas das configurações). */
 const CATEGORY_LABEL = {
@@ -8,14 +10,6 @@ const CATEGORY_LABEL = {
   savestates: "settings.categories.savestates",
   config: "settings.categories.config",
 } as const;
-
-/** Tamanho legível a partir de bytes (B / KB / MB). */
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${Math.round(kb)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
-}
 
 /**
  * Lista de jogos sincronizados de um emulador: nome legível (ou serial), as
@@ -37,12 +31,12 @@ export function GameList({ games }: { games: SyncedGame[] }) {
           </span>
           <span className="game-cats">
             {game.categories.map((category) => (
-              <span key={category} className="badge badge-cat">
+              <Badge key={category} tone="neutral" className="badge-cat">
                 {t(CATEGORY_LABEL[category])}
-              </span>
+              </Badge>
             ))}
           </span>
-          <span className="game-size muted">{formatSize(game.sizeBytes)}</span>
+          <span className="game-size muted">{formatBytes(game.sizeBytes)}</span>
         </li>
       ))}
     </ul>
