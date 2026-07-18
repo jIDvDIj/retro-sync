@@ -351,9 +351,32 @@ pub async fn remove_emulator(state: State<'_, AppState>, name: String) -> AppRes
             emulators::remove_categories(conn, &name)?;
             conflicts::remove_for_emulator(conn, &name)?;
             manifest::remove_for_emulator(conn, &name)?;
+            crate::storage::stats::remove_for_emulator(conn, &name)?;
             queue::remove_for_emulator(conn, &name)
         })
         .await
+}
+
+/// Estatísticas acumuladas de um emulador (uploads, downloads, bytes,
+/// conflitos, últimos sync/scan). `None` = nunca houve atividade.
+#[tauri::command]
+pub async fn get_emulator_stats(
+    state: State<'_, AppState>,
+    name: String,
+) -> AppResult<Option<crate::storage::stats::EmulatorStats>> {
+    state
+        .db
+        .with(move |conn| crate::storage::stats::get(conn, &name))
+        .await
+}
+
+/// Estatísticas acumuladas de todos os emuladores com atividade — a UI carrega
+/// uma vez e distribui pelos cards.
+#[tauri::command]
+pub async fn list_emulator_stats(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::storage::stats::EmulatorStats>> {
+    state.db.with(crate::storage::stats::list_all).await
 }
 
 /// Conflitos pendentes (ambos os lados mudaram). A UI exibe o botão de resolver

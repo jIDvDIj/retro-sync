@@ -32,6 +32,7 @@ export const sync = {
     games_other: "▸ {{count}} games",
     hideGames: "▾ Hide games",
     noGames: "No synced games yet",
+    statsLine: "Last sync {{when}} · ↑{{up}} · ↓{{down}}",
   },
   pending: {
     title: "Pending files — {{emulator}}",

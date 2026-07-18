@@ -12,6 +12,7 @@ import type {
   ConflictResolution,
   DiscoveredEmulator,
   EmulatorProfile,
+  EmulatorStats,
   HealthStatus,
   LastSync,
   NotificationLevel,
@@ -84,6 +85,16 @@ export function discoverEmulators(): Promise<DiscoveredEmulator[]> {
 /** Jogos sincronizados (agregados do manifest), com nome legível quando conhecido. */
 export function listSyncedGames(): Promise<SyncedGame[]> {
   return invoke<SyncedGame[]>("list_synced_games");
+}
+
+/** Estatísticas acumuladas de um emulador; `null` = nunca houve atividade. */
+export function getEmulatorStats(name: string): Promise<EmulatorStats | null> {
+  return invoke<EmulatorStats | null>("get_emulator_stats", { name });
+}
+
+/** Estatísticas acumuladas de todos os emuladores com atividade. */
+export function listEmulatorStats(): Promise<EmulatorStats[]> {
+  return invoke<EmulatorStats[]>("list_emulator_stats");
 }
 
 /** Remove da sincronização; nada é apagado no Drive nem no disco. */

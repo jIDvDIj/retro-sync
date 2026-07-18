@@ -228,6 +228,8 @@ pub fn run() {
             commands::discover_emulators,
             commands::list_emulators,
             commands::list_synced_games,
+            commands::get_emulator_stats,
+            commands::list_emulator_stats,
             commands::remove_emulator,
             commands::sync_now,
             commands::get_last_sync,

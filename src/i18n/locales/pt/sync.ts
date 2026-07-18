@@ -37,6 +37,7 @@ export const sync: Localized<typeof SyncEn> = {
     games_other: "▸ {{count}} jogos",
     hideGames: "▾ Ocultar jogos",
     noGames: "nenhum jogo sincronizado ainda",
+    statsLine: "Último sync {{when}} · ↑{{up}} · ↓{{down}}",
   },
   pending: {
     title: "Arquivos pendentes — {{emulator}}",

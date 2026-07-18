@@ -123,6 +123,22 @@ const SCHEMA_V9: &str = "
 ALTER TABLE sync_conflicts ADD COLUMN backup_path TEXT;
 ";
 
+/// v10 — estatísticas acumuladas por emulador (contadores desde a instalação
+/// e carimbos do último sync/scan). Ver `storage::stats`.
+const SCHEMA_V10: &str = "
+CREATE TABLE IF NOT EXISTS emulator_stats (
+    emulator         TEXT PRIMARY KEY,
+    total_uploads    INTEGER NOT NULL DEFAULT 0,
+    total_downloads  INTEGER NOT NULL DEFAULT 0,
+    total_bytes_up   INTEGER NOT NULL DEFAULT 0,
+    total_bytes_down INTEGER NOT NULL DEFAULT 0,
+    total_conflicts  INTEGER NOT NULL DEFAULT 0,
+    last_sync_at_ms  INTEGER,
+    last_file        TEXT,
+    last_scan_at_ms  INTEGER
+);
+";
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -224,6 +240,10 @@ fn migrate(conn: &Connection) -> AppResult<()> {
     if version < 9 {
         conn.execute_batch(SCHEMA_V9)?;
         version = 9;
+    }
+    if version < 10 {
+        conn.execute_batch(SCHEMA_V10)?;
+        version = 10;
     }
     conn.pragma_update(None, "user_version", version)?;
     Ok(())

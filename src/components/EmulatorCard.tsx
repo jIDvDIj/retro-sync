@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { currentLocale } from "../i18n";
+import { useEmulatorStats } from "../hooks/useEmulatorStats";
 import { useErrorMessage } from "../lib/errors";
 import { formatBytes } from "../lib/format";
 import type { Conflict, EmulatorProfile, PendingOp, SyncedGame, SyncProgress } from "../types/ipc";
@@ -53,6 +55,7 @@ export function EmulatorCard({
   const [showConflicts, setShowConflicts] = useState(false);
   const [showPending, setShowPending] = useState(false);
   const [showGames, setShowGames] = useState(false);
+  const stats = useEmulatorStats(profile.name);
 
   const handleRemove = async () => {
     setBusy(true);
@@ -114,6 +117,16 @@ export function EmulatorCard({
       <p className="emulator-path" title={profile.rootPath}>
         {profile.rootPath}
       </p>
+
+      {stats?.lastSyncAtMs ? (
+        <p className="muted emulator-stats" title={stats.lastFile ?? undefined}>
+          {t("emulator.statsLine", {
+            when: new Date(stats.lastSyncAtMs).toLocaleString(currentLocale()),
+            up: stats.totalUploads,
+            down: stats.totalDownloads,
+          })}
+        </p>
+      ) : null}
 
       {cardProgress ? (
         <div className="emulator-progress">

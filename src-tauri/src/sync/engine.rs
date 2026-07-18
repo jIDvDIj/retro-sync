@@ -35,7 +35,7 @@ use crate::storage::conflicts::{self, Conflict};
 use crate::storage::db::Db;
 use crate::storage::manifest::{self, ManifestEntry};
 use crate::storage::settings::{self, NotificationLevel};
-use crate::storage::{emulators, queue};
+use crate::storage::{emulators, queue, stats};
 use crate::versioning::Versioner;
 
 /// Resultado agregado de um sync. Espelhado em `src/types/ipc.ts`.
@@ -343,7 +343,15 @@ impl<R: Runtime> SyncEngine<R> {
                 )
                 .await
             {
-                Ok(partial) => summary.merge(&partial),
+                Ok(partial) => {
+                    summary.merge(&partial);
+                    let (emulator, at) =
+                        (target.label.clone(), chrono::Utc::now().timestamp_millis());
+                    let _ = self
+                        .db
+                        .with(move |conn| stats::touch_last_sync(conn, &emulator, at))
+                        .await;
+                }
                 Err(err) => {
                     summary.failed += 1;
                     tracing::error!(emulador = %target.label, error = %err, "sync do emulador falhou");
@@ -447,6 +455,13 @@ impl<R: Runtime> SyncEngine<R> {
         max_versions: usize,
     ) -> AppResult<SyncSummary> {
         let mut summary = SyncSummary::default();
+
+        // Carimbo do início do scan deste emulador (estatísticas).
+        let (emulator, now_ms) = (target.label.clone(), chrono::Utc::now().timestamp_millis());
+        let _ = self
+            .db
+            .with(move |conn| stats::touch_last_scan(conn, &emulator, now_ms))
+            .await;
 
         // Padrões de exclusão do emulador, compilados uma vez por sync.
         let exclude = super::build_exclude_set(&target.exclude_patterns);
@@ -674,13 +689,38 @@ impl<R: Runtime> SyncEngine<R> {
                 // Conflito não é transferência: não limpa a pendência (o
                 // emulador fica bloqueado até a resolução).
                 if matches!(op.action, SyncAction::Conflict) {
+                    let emulator = ctx.emulator.clone();
+                    let _ = self
+                        .db
+                        .with(move |conn| stats::record_conflict(conn, &emulator))
+                        .await;
                     return OpOutcome::Conflicted;
                 }
-                let (emulator, category, rel) = (ctx.emulator.clone(), ctx.category, rel_path);
+                let (emulator, category, rel) =
+                    (ctx.emulator.clone(), ctx.category, rel_path.clone());
                 let _ = self
                     .db
                     .with(move |conn| queue::resolve(conn, &emulator, category, &rel))
                     .await;
+
+                // Estatísticas acumuladas do emulador (best-effort).
+                let (emulator, rel, bytes_i64, is_upload) = (
+                    ctx.emulator.clone(),
+                    rel_path,
+                    bytes as i64,
+                    matches!(op.action, SyncAction::Upload),
+                );
+                let _ = self
+                    .db
+                    .with(move |conn| {
+                        if is_upload {
+                            stats::record_upload(conn, &emulator, bytes_i64, &rel)
+                        } else {
+                            stats::record_download(conn, &emulator, bytes_i64, &rel)
+                        }
+                    })
+                    .await;
+
                 match op.action {
                     SyncAction::Upload => OpOutcome::Uploaded,
                     SyncAction::DownloadWithBackup => OpOutcome::DownloadedWithBackup,
@@ -799,6 +839,14 @@ impl<R: Runtime> SyncEngine<R> {
                             let _ = self
                                 .db
                                 .with(move |conn| queue::resolve(conn, &emulator, category, &rel))
+                                .await;
+                            let (emulator, rel, bytes) =
+                                (ctx.emulator.clone(), p.rel_path.clone(), p.size_bytes);
+                            let _ = self
+                                .db
+                                .with(move |conn| {
+                                    stats::record_upload(conn, &emulator, bytes, &rel)
+                                })
                                 .await;
                             summary.uploaded += 1;
                         } else {

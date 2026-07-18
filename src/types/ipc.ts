@@ -43,6 +43,22 @@ export interface Settings {
   maxBackupVersions: number;
 }
 
+/** `storage::stats::EmulatorStats` — contadores acumulados por emulador */
+export interface EmulatorStats {
+  emulator: string;
+  totalUploads: number;
+  totalDownloads: number;
+  totalBytesUp: number;
+  totalBytesDown: number;
+  totalConflicts: number;
+  /** Fim do último sync que tocou o emulador; `null` = nunca sincronizou. */
+  lastSyncAtMs: number | null;
+  /** Último arquivo transferido (rel_path). */
+  lastFile: string | null;
+  /** Início do último scan local. */
+  lastScanAtMs: number | null;
+}
+
 /** `versioning::FileVersion` — versão arquivada de um arquivo no histórico */
 export interface FileVersion {
   /** Carimbo `YYYYMMDD-HHMMSS` extraído do nome arquivado. */
