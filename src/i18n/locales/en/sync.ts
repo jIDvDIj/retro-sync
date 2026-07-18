@@ -44,6 +44,8 @@ export const sync = {
     attempts_other: "{{count}} attempts",
     retryNow: "Retry now",
     retrying: "Syncing…",
+    dead: "gave up after too many attempts",
+    retryFile: "Retry this file",
   },
   conflict: {
     title: "Conflict — {{emulator}}",

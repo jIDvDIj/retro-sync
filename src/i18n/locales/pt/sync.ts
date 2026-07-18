@@ -49,6 +49,8 @@ export const sync: Localized<typeof SyncEn> = {
     attempts_other: "{{count}} tentativas",
     retryNow: "Tentar novamente agora",
     retrying: "Sincronizando…",
+    dead: "desistiu após muitas tentativas",
+    retryFile: "Retentar este arquivo",
   },
   conflict: {
     title: "Conflito — {{emulator}}",

@@ -100,6 +100,9 @@ export interface PendingOp {
   enqueuedAtMs: number;
   attempts: number;
   lastError: string | null;
+  /** A partir de quando pode ser retentado; `null` = morta (esgotou as
+   * tentativas — só volta pela ação "tentar novamente"). */
+  nextRetryAtMs: number | null;
 }
 
 /** `backups::BackupEntry` — cópia de backup local listada no histórico */

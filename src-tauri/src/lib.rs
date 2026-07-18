@@ -213,6 +213,7 @@ pub fn run() {
             commands::list_conflicts,
             commands::resolve_conflict,
             commands::list_pending_ops,
+            commands::retry_pending_op,
             commands::list_dismissed_notices,
             commands::dismiss_notice,
             commands::list_backups,

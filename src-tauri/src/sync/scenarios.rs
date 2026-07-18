@@ -435,6 +435,17 @@ async fn falha_de_download_vira_pendencia_e_proximo_sync_recupera() {
     assert_eq!(h.pending_ops().await, 1);
 
     h.drive.set_fail_downloads(false);
+
+    // Backoff: com a janela de retentativa ainda no futuro, o sync pula o
+    // arquivo em vez de retentar imediatamente.
+    let deferred = h.sync().await;
+    assert_eq!(deferred.downloaded, 0, "backoff adia a retentativa");
+    assert_eq!(h.pending_ops().await, 1);
+
+    // Janela vencida (simulada zerando o backoff): o sync seguinte recupera.
+    h.db.with(|conn| crate::storage::queue::retry_now(conn, EMU, SyncCategory::Saves, "save.bin"))
+        .await
+        .unwrap();
     let recovered = h.sync().await;
     assert_eq!(recovered.downloaded, 1);
     assert_eq!(h.read_local("save.bin"), b"drive-v1");

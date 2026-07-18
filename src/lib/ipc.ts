@@ -169,6 +169,15 @@ export function listPendingOps(): Promise<PendingOp[]> {
   return invoke<PendingOp[]>("list_pending_ops");
 }
 
+/** Zera tentativas/backoff de uma pendência (inclusive mortas) para retentar já. */
+export function retryPendingOp(
+  emulator: string,
+  category: PendingOp["category"],
+  relPath: string,
+): Promise<void> {
+  return invoke<void>("retry_pending_op", { emulator, category, relPath });
+}
+
 /** IDs de banners informativos já dispensados pelo usuário. */
 export function listDismissedNotices(): Promise<string[]> {
   return invoke<string[]>("list_dismissed_notices");

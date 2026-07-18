@@ -542,6 +542,22 @@ pub async fn list_pending_ops(state: State<'_, AppState>) -> AppResult<Vec<queue
     state.db.with(queue::list_all).await
 }
 
+/// Ação "tentar novamente" da fila offline: zera as tentativas e o backoff de
+/// um arquivo (inclusive pendências mortas), liberando a retentativa no próximo
+/// sync.
+#[tauri::command]
+pub async fn retry_pending_op(
+    state: State<'_, AppState>,
+    emulator: String,
+    category: SyncCategory,
+    rel_path: String,
+) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| queue::retry_now(conn, &emulator, category, &rel_path))
+        .await
+}
+
 /// IDs de banners informativos que o usuário dispensou (não reaparecem).
 #[tauri::command]
 pub async fn list_dismissed_notices(state: State<'_, AppState>) -> AppResult<Vec<String>> {

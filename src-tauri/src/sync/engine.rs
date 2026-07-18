@@ -484,7 +484,7 @@ impl<R: Runtime> SyncEngine<R> {
             let local = self.hash_touched_files(local, &manifest_entries).await;
 
             let CategoryPlan {
-                ops: plan,
+                ops: mut plan,
                 skipped,
                 mtime_refreshes,
             } = diff::build_plan(local, remote, manifest_entries, direction, device_id);
@@ -497,6 +497,30 @@ impl<R: Runtime> SyncEngine<R> {
                     .db
                     .with(move |conn| manifest::upsert(conn, &entry))
                     .await;
+            }
+
+            // Backoff da fila offline: pendências cuja janela de retentativa
+            // ainda não venceu (ou mortas) são puladas neste ciclo.
+            let (emulator, cat) = (target.label.clone(), *category);
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let deferred = self
+                .db
+                .with(move |conn| queue::deferred_rel_paths(conn, &emulator, cat, now_ms))
+                .await
+                .unwrap_or_default();
+            if !deferred.is_empty() {
+                let before = plan.len();
+                plan.retain(|op| !deferred.contains(&op.rel_path));
+                let skipped_by_backoff = (before - plan.len()) as u32;
+                if skipped_by_backoff > 0 {
+                    tracing::info!(
+                        emulador = %target.label,
+                        categoria = category.as_str(),
+                        arquivos = skipped_by_backoff,
+                        "pendências em backoff puladas neste ciclo"
+                    );
+                    summary.skipped += skipped_by_backoff;
+                }
             }
 
             if plan.is_empty() {

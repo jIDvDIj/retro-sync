@@ -109,6 +109,13 @@ const SCHEMA_V7: &str = "
 ALTER TABLE sync_manifest ADD COLUMN file_hash TEXT;
 ";
 
+/// v8 — backoff exponencial na fila offline. `next_retry_at_ms` diz a partir de
+/// quando a pendência pode ser retentada (0 = imediatamente); `NULL` marca a
+/// pendência como morta após esgotar as tentativas — só o usuário reativa.
+const SCHEMA_V8: &str = "
+ALTER TABLE pending_ops ADD COLUMN next_retry_at_ms INTEGER DEFAULT 0;
+";
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -202,6 +209,10 @@ fn migrate(conn: &Connection) -> AppResult<()> {
     if version < 7 {
         conn.execute_batch(SCHEMA_V7)?;
         version = 7;
+    }
+    if version < 8 {
+        conn.execute_batch(SCHEMA_V8)?;
+        version = 8;
     }
     conn.pragma_update(None, "user_version", version)?;
     Ok(())
