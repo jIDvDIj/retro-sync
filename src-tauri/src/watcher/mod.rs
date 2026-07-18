@@ -23,8 +23,8 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 
 use crate::constants::{
-    TRIGGER_EMULATOR_START, TRIGGER_EMULATOR_STOP, WATCHER_POLL_INTERVAL_SECS,
-    WATCHER_STOP_DEBOUNCE_TICKS,
+    EMULATOR_STOP_SETTLE_MS, TRIGGER_EMULATOR_START, TRIGGER_EMULATOR_STOP,
+    WATCHER_POLL_INTERVAL_SECS, WATCHER_STOP_DEBOUNCE_TICKS,
 };
 use crate::emulator;
 use crate::events::EVT_EMULATOR_STATUS;
@@ -181,6 +181,12 @@ fn spawn_consumer(
             if !enabled {
                 tracing::info!(emulador = %name, trigger, "gatilho desativado; sync automático ignorado");
                 continue;
+            }
+
+            // Settle delay: o processo já saiu, mas o SO pode ainda estar
+            // liberando os arquivos da sessão — espera antes de escanear.
+            if !running {
+                tokio::time::sleep(Duration::from_millis(EMULATOR_STOP_SETTLE_MS)).await;
             }
 
             if let Err(err) = engine.sync_emulator(&name, direction, trigger).await {

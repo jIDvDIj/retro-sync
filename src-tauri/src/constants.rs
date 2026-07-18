@@ -50,6 +50,11 @@ pub const WATCHER_POLL_INTERVAL_SECS: u64 = 2;
 /// de 2s, são ~4s de ausência confirmada antes do sync Local → Drive.
 pub const WATCHER_STOP_DEBOUNCE_TICKS: u32 = 2;
 
+/// Espera após confirmar o encerramento do emulador antes de disparar o sync
+/// Local → Drive. Dá tempo ao SO de terminar o flush dos buffers de escrita —
+/// sem isso o scan pode capturar um save parcialmente gravado.
+pub const EMULATOR_STOP_SETTLE_MS: u64 = 3_000;
+
 /// Máximo de tentativas (com backoff exponencial) por chamada à API do Drive.
 pub const DRIVE_MAX_RETRIES: u32 = 3;
 
