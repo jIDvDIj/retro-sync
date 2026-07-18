@@ -52,6 +52,7 @@ impl Harness {
             saves_paths: vec![PathBuf::from("saves")],
             config_paths: vec![],
             state_paths: vec![],
+            exclude_patterns: vec!["*.tmp".into()],
         };
         db.with(move |conn| emulators::upsert(conn, &profile))
             .await
@@ -500,6 +501,23 @@ async fn download_arquiva_versao_anterior_no_historico() {
         None
     }
     assert_eq!(find_versioned(&history).unwrap(), b"v1-local");
+}
+
+/// Arquivos que casam com os padrões de exclusão do emulador ficam fora do
+/// sync nas duas direções (issue #9). O Harness configura `*.tmp` no perfil.
+#[tokio::test]
+async fn padroes_de_exclusao_ignoram_arquivos_nas_duas_direcoes() {
+    let h = Harness::new().await;
+    h.write_local("save.bin", b"sobe", T);
+    h.write_local("lixo.tmp", b"nao-sobe", T);
+    h.seed_remote("outro.tmp", b"nao-desce", T, None);
+
+    let summary = h.sync().await;
+
+    assert_eq!(summary.uploaded, 1, "só o save.bin sobe");
+    assert_eq!(summary.downloaded, 0, "o .tmp remoto não desce");
+    assert!(h.remote_content("lixo.tmp").is_none());
+    assert!(!h.saves_dir.join("outro.tmp").exists());
 }
 
 /// Sync só-upload (`LocalToDrive`, gatilho emulator-stop) não baixa nada;

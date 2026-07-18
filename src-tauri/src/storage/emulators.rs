@@ -121,6 +121,26 @@ pub fn upsert_resetting_on_path_change(
     Ok(path_changed)
 }
 
+/// Atualiza somente os padrões de exclusão do perfil persistido. Não mexe no
+/// estado de sync — excluir um arquivo não invalida as âncoras dos demais.
+pub fn set_exclude_patterns(conn: &Connection, name: &str, patterns: &[String]) -> AppResult<()> {
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT profile_json FROM emulators WHERE name = ?1",
+            params![name],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(json) = json else {
+        return Err(crate::error::AppError::Other(format!(
+            "emulador não encontrado: {name}"
+        )));
+    };
+    let mut profile: EmulatorProfile = serde_json::from_str(&json)?;
+    profile.exclude_patterns = patterns.to_vec();
+    upsert(conn, &profile)
+}
+
 /// `true` se já existe um emulador registrado com este nome (auto ou manual).
 pub fn exists(conn: &Connection, name: &str) -> AppResult<bool> {
     let count: i64 = conn.query_row(
@@ -162,6 +182,7 @@ mod tests {
             saves_paths: vec![PathBuf::from("PSP/SAVEDATA")],
             config_paths: vec![PathBuf::from("PSP/SYSTEM")],
             state_paths: vec![PathBuf::from("PSP/PPSSPP_STATE")],
+            exclude_patterns: vec![],
         }
     }
 
@@ -278,6 +299,32 @@ mod tests {
             upsert(conn, &sample_profile())?;
             assert!(exists(conn, "PPSSPP")?);
             assert!(!exists(conn, "PCSX2")?);
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn set_exclude_patterns_atualiza_o_perfil_persistido() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            upsert(conn, &sample_profile())?;
+
+            set_exclude_patterns(conn, "PPSSPP", &["*.tmp".into(), "cache/**".into()])?;
+
+            let profiles = list(conn)?;
+            assert_eq!(
+                profiles[0].exclude_patterns,
+                vec!["*.tmp".to_string(), "cache/**".to_string()]
+            );
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn set_exclude_patterns_em_emulador_inexistente_e_erro() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert!(set_exclude_patterns(conn, "Nada", &[]).is_err());
             Ok(())
         });
     }

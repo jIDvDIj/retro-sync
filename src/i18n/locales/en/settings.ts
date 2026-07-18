@@ -50,6 +50,10 @@ export const settings = {
       saves: "Saves",
       savestates: "Savestates",
       config: "Config",
+      excludeLabel: "Ignore patterns (comma-separated)",
+      excludePlaceholder: "e.g. *.tmp, cache/**",
+      excludeSave: "Save patterns",
+      excludeSaved: "Saved",
     },
     triggers: {
       startupLabel: "When RetroSync opens",

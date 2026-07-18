@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useErrorMessage } from "../lib/errors";
-import { getEmulatorCategories, setEmulatorCategories } from "../lib/ipc";
+import { getEmulatorCategories, setEmulatorCategories, setExcludePatterns } from "../lib/ipc";
 import type { EmulatorProfile, SyncCategories } from "../types/ipc";
 
 interface Props {
@@ -35,6 +35,26 @@ export function CategorySettings({ emulators }: Props) {
       active = false;
     };
   }, [emulators, errorMessage]);
+
+  // Texto editável dos padrões de exclusão, por emulador (separados por vírgula).
+  const [patterns, setPatterns] = useState<Record<string, string>>(() =>
+    Object.fromEntries(emulators.map((e) => [e.name, e.excludePatterns.join(", ")])),
+  );
+  const [savedPatterns, setSavedPatterns] = useState<Record<string, boolean>>({});
+
+  const savePatterns = async (name: string) => {
+    const list = (patterns[name] ?? "")
+      .split(",")
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    setError(null);
+    try {
+      await setExcludePatterns(name, list);
+      setSavedPatterns((prev) => ({ ...prev, [name]: true }));
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  };
 
   const toggle = async (name: string, key: keyof SyncCategories) => {
     const current = cats[name];
@@ -73,6 +93,26 @@ export function CategorySettings({ emulators }: Props) {
                   {t(labelKey)}
                 </label>
               ))}
+            </div>
+            <label className="field">
+              <span>{t("settings.categories.excludeLabel")}</span>
+              <input
+                type="text"
+                value={patterns[e.name] ?? ""}
+                placeholder={t("settings.categories.excludePlaceholder")}
+                onChange={(ev) => {
+                  setPatterns((prev) => ({ ...prev, [e.name]: ev.target.value }));
+                  setSavedPatterns((prev) => ({ ...prev, [e.name]: false }));
+                }}
+              />
+            </label>
+            <div className="settings-row">
+              <button className="secondary" onClick={() => savePatterns(e.name)}>
+                {t("settings.categories.excludeSave")}
+              </button>
+              {savedPatterns[e.name] ? (
+                <span className="saved-hint">{t("settings.categories.excludeSaved")}</span>
+              ) : null}
             </div>
           </div>
         );

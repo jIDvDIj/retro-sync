@@ -59,6 +59,8 @@ export interface EmulatorProfile {
   savesPaths: string[];
   configPaths: string[];
   statePaths: string[];
+  /** Padrões glob de arquivos ignorados no sync (ex.: `*.tmp`, `cache/**`). */
+  excludePatterns: string[];
 }
 
 /** `emulator::DiscoverySource` — origem do reconhecimento na descoberta */

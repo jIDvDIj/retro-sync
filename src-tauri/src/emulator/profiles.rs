@@ -39,6 +39,9 @@ struct ProfileSpec {
     states: Vec<String>,
     /// Pastas de configuração, relativas à base.
     config: Vec<String>,
+    /// Padrões glob de arquivos a ignorar no sync (defaults do emulador).
+    #[serde(default)]
+    exclude: Vec<String>,
     /// Locais padrão de dados por SO (Sinal A da descoberta).
     #[serde(default)]
     data_dirs: DataDirs,
@@ -172,6 +175,7 @@ where
         saves_paths: join_vec(&spec.saves),
         config_paths: join_vec(&spec.config),
         state_paths: join_vec(&spec.states),
+        exclude_patterns: spec.exclude.clone(),
     })
 }
 
@@ -414,6 +418,7 @@ fn try_match(root: &Path, spec: &ProfileSpec) -> Option<EmulatorProfile> {
         saves_paths: join(&spec.saves),
         config_paths: join(&spec.config),
         state_paths: join(&spec.states),
+        exclude_patterns: spec.exclude.clone(),
     })
 }
 

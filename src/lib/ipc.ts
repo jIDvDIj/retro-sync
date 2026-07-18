@@ -217,3 +217,11 @@ export function getEmulatorCategories(name: string): Promise<SyncCategories> {
 export function setEmulatorCategories(name: string, categories: SyncCategories): Promise<void> {
   return invoke<void>("set_emulator_categories", { name, categories });
 }
+
+/**
+ * Define os padrões glob de exclusão de um emulador (arquivos que casam ficam
+ * fora do sync nas duas direções). Rejeita padrões glob inválidos.
+ */
+export function setExcludePatterns(name: string, patterns: string[]): Promise<void> {
+  return invoke<void>("set_exclude_patterns", { name, patterns });
+}

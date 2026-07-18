@@ -448,6 +448,9 @@ impl<R: Runtime> SyncEngine<R> {
     ) -> AppResult<SyncSummary> {
         let mut summary = SyncSummary::default();
 
+        // Padrões de exclusão do emulador, compilados uma vez por sync.
+        let exclude = super::build_exclude_set(&target.exclude_patterns);
+
         for (category, bases) in &target.categories {
             if bases.is_empty() {
                 continue;
@@ -486,7 +489,25 @@ impl<R: Runtime> SyncEngine<R> {
                 Err(err) => return Err(err),
             };
 
-            let local = self.storage.scan(&target.root, bases).await?;
+            let mut local = self.storage.scan(&target.root, bases).await?;
+
+            // Exclusões: arquivos que casam com os padrões do emulador ficam
+            // fora do sync nas duas direções (nem sobem nem descem).
+            let mut remote = remote;
+            if let Some(set) = &exclude {
+                let before = local.len() + remote.len();
+                local.retain(|f| !set.is_match(&f.rel_path));
+                remote.retain(|f| !set.is_match(&f.rel_path));
+                let excluded = before - (local.len() + remote.len());
+                if excluded > 0 {
+                    tracing::debug!(
+                        emulador = %target.label,
+                        categoria = category.as_str(),
+                        arquivos = excluded,
+                        "arquivos ignorados pelos padrões de exclusão"
+                    );
+                }
+            }
 
             let (emulator, cat) = (target.label.clone(), *category);
             let manifest_entries = self

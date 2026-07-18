@@ -102,6 +102,8 @@ pub struct SyncTarget {
     pub label: String,
     pub root: PathBuf,
     pub categories: Vec<(SyncCategory, Vec<PathBuf>)>,
+    /// Padrões glob de arquivos a ignorar no sync (herdados do perfil).
+    pub exclude_patterns: Vec<String>,
 }
 
 impl SyncTarget {
@@ -114,8 +116,35 @@ impl SyncTarget {
                 (SyncCategory::Savestates, profile.state_paths.clone()),
                 (SyncCategory::Config, profile.config_paths.clone()),
             ],
+            exclude_patterns: profile.exclude_patterns.clone(),
         }
     }
+}
+
+/// Compila os padrões de exclusão do emulador num `GlobSet` (uma vez por sync,
+/// não por arquivo). Padrões inválidos são ignorados com warning — um glob
+/// quebrado nunca derruba o sync. `None` = nada a excluir.
+pub(crate) fn build_exclude_set(patterns: &[String]) -> Option<globset::GlobSet> {
+    if patterns.is_empty() {
+        return None;
+    }
+    let mut builder = globset::GlobSetBuilder::new();
+    let mut any = false;
+    for pattern in patterns {
+        match globset::Glob::new(pattern) {
+            Ok(glob) => {
+                builder.add(glob);
+                any = true;
+            }
+            Err(err) => {
+                tracing::warn!(padrao = %pattern, error = %err, "padrão de exclusão inválido; ignorado");
+            }
+        }
+    }
+    if !any {
+        return None;
+    }
+    builder.build().ok()
 }
 
 #[cfg(test)]
@@ -142,6 +171,7 @@ mod tests {
             saves_paths: vec![PathBuf::from("saves")],
             config_paths: vec![PathBuf::from("cfg"), PathBuf::from("cfg2")],
             state_paths: vec![],
+            exclude_patterns: vec!["*.tmp".into()],
         };
 
         let target = SyncTarget::from_profile(&profile);

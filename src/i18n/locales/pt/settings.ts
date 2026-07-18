@@ -53,6 +53,10 @@ export const settings: Localized<typeof SettingsEn> = {
       saves: "Saves",
       savestates: "Savestates",
       config: "Config",
+      excludeLabel: "Padrões a ignorar (separados por vírgula)",
+      excludePlaceholder: "ex.: *.tmp, cache/**",
+      excludeSave: "Salvar padrões",
+      excludeSaved: "Salvo",
     },
     triggers: {
       startupLabel: "Ao abrir o RetroSync",

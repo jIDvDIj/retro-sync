@@ -404,6 +404,29 @@ pub async fn set_emulator_categories(
         .await
 }
 
+/// Define os padrões glob de exclusão de um emulador (arquivos que casam ficam
+/// fora do sync nas duas direções). Valida cada padrão antes de gravar.
+#[tauri::command]
+pub async fn set_exclude_patterns(
+    state: State<'_, AppState>,
+    name: String,
+    patterns: Vec<String>,
+) -> AppResult<()> {
+    let patterns: Vec<String> = patterns
+        .into_iter()
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    for pattern in &patterns {
+        globset::Glob::new(pattern)
+            .map_err(|e| AppError::Other(format!("padrão inválido \"{pattern}\": {e}")))?;
+    }
+    state
+        .db
+        .with(move |conn| emulators::set_exclude_patterns(conn, &name, &patterns))
+        .await
+}
+
 /// Sync manual (botão da UI / menu da tray). Bidirecional.
 #[tauri::command]
 pub async fn sync_now(state: State<'_, AppState>) -> AppResult<SyncSummary> {

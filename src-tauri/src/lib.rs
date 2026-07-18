@@ -240,6 +240,7 @@ pub fn run() {
             commands::set_max_backup_versions,
             commands::get_emulator_categories,
             commands::set_emulator_categories,
+            commands::set_exclude_patterns,
             commands::list_conflicts,
             commands::resolve_conflict,
             commands::list_pending_ops,
