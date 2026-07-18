@@ -3,7 +3,13 @@ import { useTranslation } from "react-i18next";
 
 import { SUPPORTED_LANGUAGES, changeLanguage, type LanguageCode } from "../i18n";
 import { useErrorMessage } from "../lib/errors";
-import { openBackupFolder, setAutostart, setDeviceName, setNotificationLevel } from "../lib/ipc";
+import {
+  openBackupFolder,
+  setAutostart,
+  setBackupRetentionDays,
+  setDeviceName,
+  setNotificationLevel,
+} from "../lib/ipc";
 import type { EmulatorProfile, NotificationLevel, Settings } from "../types/ipc";
 import { usePlatform } from "../hooks/usePlatform";
 import { BackupHistoryModal } from "./BackupHistoryModal";
@@ -55,6 +61,24 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
   const [autostartError, setAutostartError] = useState<string | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [showBackupHistory, setShowBackupHistory] = useState(false);
+  const [retentionDays, setRetentionDays] = useState(String(settings.backupRetentionDays));
+  const [retentionSaved, setRetentionSaved] = useState(false);
+
+  const retentionDirty = retentionDays !== String(settings.backupRetentionDays);
+
+  const saveRetention = async () => {
+    const days = Number.parseInt(retentionDays, 10);
+    if (Number.isNaN(days) || days < 0) return;
+    setBackupError(null);
+    setRetentionSaved(false);
+    try {
+      await setBackupRetentionDays(days);
+      onSaved();
+      setRetentionSaved(true);
+    } catch (err) {
+      setBackupError(errorMessage(err));
+    }
+  };
 
   const openBackups = async () => {
     setBackupError(null);
@@ -241,6 +265,28 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
               <button className="secondary" onClick={openBackups}>
                 {t("settings.backups.open")}
               </button>
+            ) : null}
+          </div>
+          <label className="field">
+            <span>{t("settings.backups.retentionLabel")}</span>
+            <input
+              type="number"
+              min={0}
+              max={3650}
+              value={retentionDays}
+              onChange={(e) => {
+                setRetentionDays(e.target.value);
+                setRetentionSaved(false);
+              }}
+            />
+          </label>
+          <p className="muted">{t("settings.backups.retentionHint")}</p>
+          <div className="settings-row">
+            <button onClick={saveRetention} disabled={!retentionDirty}>
+              {t("settings.device.save")}
+            </button>
+            {retentionSaved && !retentionDirty ? (
+              <span className="saved-hint">{t("settings.backups.retentionSaved")}</span>
             ) : null}
           </div>
           {backupError ? <p className="error">{backupError}</p> : null}

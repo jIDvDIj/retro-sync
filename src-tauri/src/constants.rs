@@ -101,6 +101,11 @@ pub const SETTING_TRIGGER_EMULATOR_STOP: &str = "trigger_emulator_stop";
 /// Nível de notificações nativas: all | errors_only | none (default: all).
 pub const SETTING_NOTIFICATION_LEVEL: &str = "notification_level";
 
+/// Dias de retenção dos backups locais (0 = manter para sempre).
+pub const SETTING_BACKUP_RETENTION_DAYS: &str = "backup_retention_days";
+/// Default de fábrica da retenção de backups.
+pub const BACKUP_RETENTION_DAYS_DEFAULT: u32 = 30;
+
 /// IDs de banners informativos que o usuário dispensou (array JSON). Um banner
 /// dispensado não reaparece
 pub const SETTING_DISMISSED_NOTICES: &str = "dismissed_notices";

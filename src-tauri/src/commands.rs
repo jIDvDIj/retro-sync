@@ -495,6 +495,16 @@ pub async fn set_triggers(state: State<'_, AppState>, triggers: TriggerSettings)
         .await
 }
 
+/// Define a retenção dos backups locais em dias (0 = manter para sempre).
+/// A limpeza roda no próximo startup do app.
+#[tauri::command]
+pub async fn set_backup_retention_days(state: State<'_, AppState>, days: u32) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::set_backup_retention_days(conn, days))
+        .await
+}
+
 /// Define o nível de notificações nativas (all | errors_only | none).
 #[tauri::command]
 pub async fn set_notification_level(

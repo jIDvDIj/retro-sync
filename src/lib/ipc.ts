@@ -121,6 +121,11 @@ export function setNotificationLevel(level: NotificationLevel): Promise<void> {
   return invoke<void>("set_notification_level", { level });
 }
 
+/** Retenção dos backups locais em dias (0 = manter para sempre). */
+export function setBackupRetentionDays(days: number): Promise<void> {
+  return invoke<void>("set_backup_retention_days", { days });
+}
+
 /** Liga/desliga o início automático do RetroSync junto com o sistema. */
 export function setAutostart(enabled: boolean): Promise<void> {
   return invoke<void>("set_autostart", { enabled });

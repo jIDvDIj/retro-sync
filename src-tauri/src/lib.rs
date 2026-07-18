@@ -161,6 +161,32 @@ pub fn run() {
                 });
             }
 
+            // Retenção de backups: remove no startup as execuções de backup mais
+            // antigas que o limite configurado (default 30 dias; 0 desativa).
+            let retention_db = db.clone();
+            let backups_root = data_dir.join(constants::LOCAL_BACKUP_DIR);
+            tauri::async_runtime::spawn(async move {
+                let days = retention_db
+                    .with(storage::settings::backup_retention_days)
+                    .await
+                    .unwrap_or(constants::BACKUP_RETENTION_DAYS_DEFAULT);
+                let result =
+                    tokio::task::spawn_blocking(move || backups::prune_old(&backups_root, days))
+                        .await;
+                match result {
+                    Ok(Ok(0)) => {}
+                    Ok(Ok(removed)) => {
+                        tracing::info!(
+                            removidas = removed,
+                            dias = days,
+                            "retenção de backups aplicada"
+                        )
+                    }
+                    Ok(Err(err)) => tracing::warn!(error = %err, "falha na retenção de backups"),
+                    Err(err) => tracing::warn!(error = %err, "tarefa de retenção abortada"),
+                }
+            });
+
             // Gatilho "ao iniciar o RetroSync": sync bidirecional em background,
             // se o usuário não tiver desativado o gatilho `startup`. Vale para
             // desktop e mobile (no mobile é o sync ao abrir o app).
@@ -208,6 +234,7 @@ pub fn run() {
             commands::set_device_name,
             commands::set_triggers,
             commands::set_notification_level,
+            commands::set_backup_retention_days,
             commands::get_emulator_categories,
             commands::set_emulator_categories,
             commands::list_conflicts,

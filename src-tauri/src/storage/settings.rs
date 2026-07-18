@@ -9,8 +9,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::constants::{
-    SETTING_DEVICE_NAME, SETTING_DISMISSED_NOTICES, SETTING_NOTIFICATION_LEVEL,
-    SETTING_TRIGGER_EMULATOR_START, SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
+    BACKUP_RETENTION_DAYS_DEFAULT, SETTING_BACKUP_RETENTION_DAYS, SETTING_DEVICE_NAME,
+    SETTING_DISMISSED_NOTICES, SETTING_NOTIFICATION_LEVEL, SETTING_TRIGGER_EMULATOR_START,
+    SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
 };
 // Consumido apenas pelas funções de autostart (só-desktop).
 #[cfg(desktop)]
@@ -18,7 +19,7 @@ use crate::constants::SETTING_AUTOSTART_INITIALIZED;
 use crate::error::AppResult;
 
 /// Configurações globais. Espelhado em `src/types/ipc.ts` (`Settings`).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// Nome amigável deste dispositivo (ex.: "PC Gamer"). `None` até o usuário
@@ -35,6 +36,26 @@ pub struct Settings {
     /// comando.
     #[serde(default)]
     pub autostart: bool,
+    /// Dias de retenção dos backups locais (0 = manter para sempre). A limpeza
+    /// roda no startup do app.
+    #[serde(default = "default_backup_retention_days")]
+    pub backup_retention_days: u32,
+}
+
+fn default_backup_retention_days() -> u32 {
+    BACKUP_RETENTION_DAYS_DEFAULT
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            device_name: None,
+            triggers: TriggerSettings::default(),
+            notification_level: NotificationLevel::default(),
+            autostart: false,
+            backup_retention_days: BACKUP_RETENTION_DAYS_DEFAULT,
+        }
+    }
 }
 
 /// Nível de notificações nativas. Espelhado em `src/types/ipc.ts`.
@@ -138,7 +159,19 @@ pub fn load(conn: &Connection) -> AppResult<Settings> {
         // Estado do SO, não do banco: o comando `get_settings` injeta o valor
         // real lido pelo plugin de autostart.
         autostart: false,
+        backup_retention_days: backup_retention_days(conn)?,
     })
+}
+
+/// Dias de retenção dos backups locais (default: 30; 0 = manter para sempre).
+pub fn backup_retention_days(conn: &Connection) -> AppResult<u32> {
+    Ok(get(conn, SETTING_BACKUP_RETENTION_DAYS)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(BACKUP_RETENTION_DAYS_DEFAULT))
+}
+
+pub fn set_backup_retention_days(conn: &Connection, days: u32) -> AppResult<()> {
+    set(conn, SETTING_BACKUP_RETENTION_DAYS, &days.to_string())
 }
 
 /// Nível de notificações (default: `All`).
@@ -315,6 +348,21 @@ mod tests {
     }
 
     #[test]
+    fn backup_retention_days_default_e_roundtrip() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert_eq!(backup_retention_days(conn)?, BACKUP_RETENTION_DAYS_DEFAULT);
+            set_backup_retention_days(conn, 7)?;
+            assert_eq!(backup_retention_days(conn)?, 7);
+            assert_eq!(load(conn)?.backup_retention_days, 7);
+            // 0 = manter para sempre (limpeza desativada).
+            set_backup_retention_days(conn, 0)?;
+            assert_eq!(backup_retention_days(conn)?, 0);
+            Ok(())
+        });
+    }
+
+    #[test]
     fn dismiss_notice_persiste_e_e_idempotente() {
         let db = Db::open_in_memory().unwrap();
         db.with_sync(|conn| {
@@ -339,9 +387,11 @@ mod tests {
             triggers: TriggerSettings::default(),
             notification_level: NotificationLevel::ErrorsOnly,
             autostart: false,
+            backup_retention_days: 15,
         })
         .unwrap();
         assert_eq!(json["deviceName"], "PC Gamer");
+        assert_eq!(json["backupRetentionDays"], 15);
         assert_eq!(json["triggers"]["startup"], true);
         assert_eq!(json["triggers"]["emulatorStart"], true);
         assert_eq!(json["triggers"]["emulatorStop"], true);

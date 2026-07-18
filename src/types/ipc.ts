@@ -35,6 +35,8 @@ export interface Settings {
   notificationLevel: NotificationLevel;
   /** Início automático com o sistema. Lido do SO, não do banco. */
   autostart: boolean;
+  /** Dias de retenção dos backups locais (0 = manter para sempre). */
+  backupRetentionDays: number;
 }
 
 /** `emulator::EmulatorProfile` — paths serializam como string */

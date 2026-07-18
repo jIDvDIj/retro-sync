@@ -58,6 +58,9 @@ export const settings = {
       hint: "Copies RetroSync keeps before overwriting a local file — on the first sync of a file that already exists on Drive, or when resolving a conflict by keeping Drive's version. Nothing is deleted.",
       open: "Open backups folder",
       history: "View history",
+      retentionLabel: "Keep backups for (days)",
+      retentionHint: "Older backup runs are removed when the app starts. 0 keeps them forever.",
+      retentionSaved: "Saved",
     },
   },
   backupHistory: {

@@ -61,6 +61,10 @@ export const settings: Localized<typeof SettingsEn> = {
       hint: "Cópias que o RetroSync guarda antes de sobrescrever um arquivo local — no primeiro sync de um arquivo que já existe no Drive, ou ao resolver um conflito mantendo a versão do Drive. Nada é apagado.",
       open: "Abrir pasta de backups",
       history: "Ver histórico",
+      retentionLabel: "Manter backups por (dias)",
+      retentionHint:
+        "Execuções de backup mais antigas são removidas quando o app inicia. 0 mantém para sempre.",
+      retentionSaved: "Salvo",
     },
   },
   backupHistory: {

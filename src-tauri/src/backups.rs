@@ -58,6 +58,49 @@ pub fn list(dir: &Path) -> AppResult<Vec<BackupEntry>> {
     Ok(out)
 }
 
+/// Remove execuções de backup (`<emulador>/<execução>/`) cujo conteúdo inteiro
+/// é mais antigo que `retention_days`. `0` desativa a limpeza. Uma execução só
+/// é removida quando o arquivo MAIS RECENTE dela já passou do limite — nunca
+/// apaga nada parcialmente. Retorna quantas execuções foram removidas.
+pub fn prune_old(dir: &Path, retention_days: u32) -> AppResult<u32> {
+    if retention_days == 0 {
+        return Ok(0);
+    }
+    let cutoff_ms =
+        chrono::Utc::now().timestamp_millis() - i64::from(retention_days) * 24 * 60 * 60 * 1000;
+
+    let mut removed = 0u32;
+    for emulator in subdirs(dir) {
+        let emu_dir = dir.join(&emulator);
+        for run in subdirs(&emu_dir) {
+            let run_dir = emu_dir.join(&run);
+            match newest_file_mtime_ms(&run_dir) {
+                // Execução inteira além da retenção → remove.
+                Some(newest) if newest < cutoff_ms => {
+                    removed += u32::from(std::fs::remove_dir_all(&run_dir).is_ok());
+                }
+                // Execução vazia (só pastas): remove sem contar.
+                None => {
+                    let _ = std::fs::remove_dir_all(&run_dir);
+                }
+                _ => {}
+            }
+        }
+        // Emulador sem mais nenhuma execução: limpa a casca vazia.
+        if subdirs(&emu_dir).is_empty() {
+            let _ = std::fs::remove_dir(&emu_dir);
+        }
+    }
+    Ok(removed)
+}
+
+/// mtime (ms) do arquivo mais recente sob `dir`, recursivo. `None` sem arquivos.
+fn newest_file_mtime_ms(dir: &Path) -> Option<i64> {
+    let mut files = Vec::new();
+    collect_files(dir, dir, &mut files).ok()?;
+    files.iter().map(|(_, _, mtime, _)| *mtime).max()
+}
+
 /// Nomes das subpastas diretas de `dir` (vazio se `dir` não existe).
 fn subdirs(dir: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -156,6 +199,45 @@ mod tests {
         assert_eq!(ini.emulator, "PCSX2");
         assert_eq!(ini.run, "conflito-2025-07-02_09-00-00");
         assert_eq!(ini.category, "config");
+    }
+
+    /// Grava um arquivo de backup com mtime `days_ago` dias atrás.
+    fn seed_run(root: &Path, emulator: &str, run: &str, days_ago: i64) {
+        let base = root.join(emulator).join(run).join("saves");
+        std::fs::create_dir_all(&base).unwrap();
+        let file = base.join("save.bin");
+        std::fs::write(&file, b"x").unwrap();
+        let mtime_ms = chrono::Utc::now().timestamp_millis() - days_ago * 24 * 60 * 60 * 1000;
+        let ft = filetime::FileTime::from_unix_time(
+            mtime_ms / 1000,
+            ((mtime_ms % 1000) * 1_000_000) as u32,
+        );
+        filetime::set_file_mtime(&file, ft).unwrap();
+    }
+
+    #[test]
+    fn prune_old_remove_execucoes_antigas_e_preserva_recentes() {
+        let tmp = tempfile::tempdir().unwrap();
+        seed_run(tmp.path(), "PPSSPP", "2025-01-01_10-00-00", 60);
+        seed_run(tmp.path(), "PPSSPP", "2025-07-01_10-00-00", 1);
+        seed_run(tmp.path(), "PCSX2", "conflito-2025-01-02_09-00-00", 45);
+
+        let removed = prune_old(tmp.path(), 30).unwrap();
+
+        assert_eq!(removed, 2);
+        let rest = list(tmp.path()).unwrap();
+        assert_eq!(rest.len(), 1);
+        assert_eq!(rest[0].run, "2025-07-01_10-00-00");
+        // A casca do emulador sem execuções também some.
+        assert!(!tmp.path().join("PCSX2").exists());
+    }
+
+    #[test]
+    fn prune_old_zero_desativa_a_limpeza() {
+        let tmp = tempfile::tempdir().unwrap();
+        seed_run(tmp.path(), "PPSSPP", "2020-01-01_10-00-00", 2000);
+        assert_eq!(prune_old(tmp.path(), 0).unwrap(), 0);
+        assert_eq!(list(tmp.path()).unwrap().len(), 1);
     }
 
     #[test]
