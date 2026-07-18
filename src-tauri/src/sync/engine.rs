@@ -17,8 +17,8 @@ use tauri::{AppHandle, Emitter, Runtime, Wry};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::Mutex;
 
-use super::conflict::SyncAction;
-use super::diff::{self, PlannedOp};
+use super::conflict::{SyncAction, TIMESTAMP_TOLERANCE_MS};
+use super::diff::{self, CategoryPlan, LocalFile, PlannedOp};
 use super::storage::{FileLoc, LocalStorage};
 use super::{SyncCategory, SyncDirection, SyncProgress, SyncTarget};
 use crate::auth::AuthManager;
@@ -479,9 +479,26 @@ impl<R: Runtime> SyncEngine<R> {
                 .with(move |conn| manifest::list_for_category(conn, &emulator, cat))
                 .await?;
 
-            let (plan, skipped) =
-                diff::build_plan(local, remote, manifest_entries, direction, device_id);
+            // Pré-filtro de mtime: calcula o SHA-256 apenas dos arquivos cujo
+            // mtime divergiu da âncora do manifest — nunca sem essa divergência.
+            let local = self.hash_touched_files(local, &manifest_entries).await;
+
+            let CategoryPlan {
+                ops: plan,
+                skipped,
+                mtime_refreshes,
+            } = diff::build_plan(local, remote, manifest_entries, direction, device_id);
             summary.skipped += skipped;
+
+            // Arquivos com mtime tocado mas conteúdo intacto: reancora o mtime
+            // no manifest para o pré-filtro não redisparar a cada sync.
+            for entry in mtime_refreshes {
+                let _ = self
+                    .db
+                    .with(move |conn| manifest::upsert(conn, &entry))
+                    .await;
+            }
+
             if plan.is_empty() {
                 continue;
             }
@@ -550,6 +567,34 @@ impl<R: Runtime> SyncEngine<R> {
         Ok(summary)
     }
 
+    /// Pré-passo do diff: calcula o SHA-256 dos arquivos locais cujo mtime
+    /// divergiu da âncora do manifest (e que têm hash conhecido para comparar).
+    /// Falha de leitura deixa o hash `None` — o arquivo segue o fluxo normal.
+    async fn hash_touched_files(
+        &self,
+        mut local: Vec<LocalFile>,
+        manifest: &[ManifestEntry],
+    ) -> Vec<LocalFile> {
+        use std::collections::HashMap;
+        let anchors: HashMap<&str, (&Option<String>, Option<i64>)> = manifest
+            .iter()
+            .map(|e| (e.rel_path.as_str(), (&e.file_hash, e.local_mtime_ms)))
+            .collect();
+
+        for file in &mut local {
+            let Some((known_hash, Some(anchor))) = anchors.get(file.rel_path.as_str()) else {
+                continue;
+            };
+            if known_hash.is_none() || (file.mtime_ms - anchor).abs() <= TIMESTAMP_TOLERANCE_MS {
+                continue;
+            }
+            if let Ok(content) = self.storage.read(&file.loc).await {
+                file.hash = Some(super::sha256_hex(&content));
+            }
+        }
+        local
+    }
+
     async fn execute_op(&self, ctx: &CategoryCtx, op: PlannedOp) -> OpOutcome {
         let rel_path = op.rel_path.clone();
         let bytes = op_bytes(&op);
@@ -582,7 +627,10 @@ impl<R: Runtime> SyncEngine<R> {
                 }
             }
             Err(err) => {
-                let retryable = matches!(err, AppError::Network(_) | AppError::FileBusy(_));
+                let retryable = matches!(
+                    err,
+                    AppError::Network(_) | AppError::FileBusy(_) | AppError::Integrity(_)
+                );
                 tracing::warn!(
                     emulador = %ctx.emulator,
                     arquivo = %rel_path,
@@ -681,6 +729,7 @@ impl<R: Runtime> SyncEngine<R> {
                                 p.mtime_ms,
                                 drive_mtime,
                                 p.size_bytes,
+                                Some(p.content_hash.clone()),
                             )
                             .await;
                         if recorded.is_ok() {
@@ -765,6 +814,7 @@ impl<R: Runtime> SyncEngine<R> {
         };
 
         let size_bytes = content.len() as i64;
+        let content_hash = super::sha256_hex(&content);
         let batch = BatchUploadOp {
             parent_id,
             name: file_name.to_string(),
@@ -777,6 +827,7 @@ impl<R: Runtime> SyncEngine<R> {
             rel_path: op.rel_path.clone(),
             mtime_ms: mtime,
             size_bytes,
+            content_hash,
             op,
             batch,
         })
@@ -806,6 +857,7 @@ impl<R: Runtime> SyncEngine<R> {
         };
 
         let size_bytes = content.len() as i64;
+        let content_hash = super::sha256_hex(&content);
         let tag = DeviceTag {
             name: ctx.device.as_deref(),
             id: ctx.device_id.as_deref(),
@@ -831,6 +883,7 @@ impl<R: Runtime> SyncEngine<R> {
             mtime_after,
             drive_mtime,
             size_bytes,
+            Some(content_hash),
         )
         .await
     }
@@ -885,9 +938,23 @@ impl<R: Runtime> SyncEngine<R> {
 
         let content = self.drive.download(&remote.id).await?;
 
+        // Verificação de integridade: o MD5 do que chegou precisa bater com o
+        // `md5Checksum` que o próprio Drive calculou. Divergência = transferência
+        // corrompida → falha retryable (vai para a fila offline).
+        if let Some(expected) = remote.md5_checksum.as_deref() {
+            let got = super::md5_hex(&content);
+            if !got.eq_ignore_ascii_case(expected) {
+                return Err(AppError::Integrity(format!(
+                    "{}: md5 divergente após download (esperado {expected}, obtido {got})",
+                    op.rel_path
+                )));
+            }
+        }
+
         // mtime local = modifiedTime do Drive, para o diff convergir.
         let drive_mtime = remote.modified_ms();
         let size_bytes = content.len() as i64;
+        let content_hash = super::sha256_hex(&content);
         self.storage
             .write_atomic(&dest, &content, drive_mtime)
             .await?;
@@ -899,6 +966,7 @@ impl<R: Runtime> SyncEngine<R> {
             drive_mtime.unwrap_or(0),
             drive_mtime,
             size_bytes,
+            Some(content_hash),
         )
         .await
     }
@@ -948,6 +1016,7 @@ impl<R: Runtime> SyncEngine<R> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn record_synced(
         &self,
         ctx: &CategoryCtx,
@@ -956,6 +1025,7 @@ impl<R: Runtime> SyncEngine<R> {
         local_mtime_ms: i64,
         drive_mtime_ms: Option<i64>,
         size_bytes: i64,
+        file_hash: Option<String>,
     ) -> AppResult<()> {
         let entry = ManifestEntry {
             emulator: ctx.emulator.clone(),
@@ -966,6 +1036,7 @@ impl<R: Runtime> SyncEngine<R> {
             drive_mtime_ms,
             size_bytes: Some(size_bytes),
             last_synced_at_ms: chrono::Utc::now().timestamp_millis(),
+            file_hash,
         };
         self.db
             .with(move |conn| manifest::upsert(conn, &entry))
@@ -1056,6 +1127,7 @@ impl<R: Runtime> SyncEngine<R> {
 
         let content = self.drive.download(&c.drive_file_id).await?;
         let size_bytes = content.len() as i64;
+        let content_hash = super::sha256_hex(&content);
         let drive_mtime = c.drive_mtime_ms;
         self.storage
             .write_atomic(&dest, &content, Some(drive_mtime))
@@ -1067,6 +1139,7 @@ impl<R: Runtime> SyncEngine<R> {
             Some(drive_mtime),
             size_bytes,
             &c.drive_file_id,
+            Some(content_hash),
         )
         .await
     }
@@ -1076,6 +1149,7 @@ impl<R: Runtime> SyncEngine<R> {
         let src = self.storage.loc_from_stored(&c.local_abs_path);
         let content = self.storage.read(&src).await?;
         let size_bytes = content.len() as i64;
+        let content_hash = super::sha256_hex(&content);
         let local_mtime = self.storage.mtime_ms(&src).await?;
         let device = self
             .db
@@ -1094,8 +1168,15 @@ impl<R: Runtime> SyncEngine<R> {
             .await?;
         let drive_mtime = uploaded.modified_ms();
 
-        self.upsert_resolved_manifest(c, local_mtime, drive_mtime, size_bytes, &uploaded.id)
-            .await
+        self.upsert_resolved_manifest(
+            c,
+            local_mtime,
+            drive_mtime,
+            size_bytes,
+            &uploaded.id,
+            Some(content_hash),
+        )
+        .await
     }
 
     async fn upsert_resolved_manifest(
@@ -1105,6 +1186,7 @@ impl<R: Runtime> SyncEngine<R> {
         drive_mtime_ms: Option<i64>,
         size_bytes: i64,
         drive_file_id: &str,
+        file_hash: Option<String>,
     ) -> AppResult<()> {
         let entry = ManifestEntry {
             emulator: c.emulator.clone(),
@@ -1115,6 +1197,7 @@ impl<R: Runtime> SyncEngine<R> {
             drive_mtime_ms,
             size_bytes: Some(size_bytes),
             last_synced_at_ms: chrono::Utc::now().timestamp_millis(),
+            file_hash,
         };
         self.db
             .with(move |conn| manifest::upsert(conn, &entry))
@@ -1131,6 +1214,8 @@ struct PreparedBatchOp {
     rel_path: String,
     mtime_ms: i64,
     size_bytes: i64,
+    /// SHA-256 do conteúdo enviado — gravado no manifest (`file_hash`).
+    content_hash: String,
 }
 
 /// Bytes que a op vai transferir — tamanho local para uploads, tamanho

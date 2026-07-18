@@ -220,6 +220,8 @@ fn to_drive_file(id: &str, file: &MockFile) -> DriveFile {
         mime_type: super::OCTET_STREAM.to_string(),
         modified_time: chrono::DateTime::from_timestamp_millis(file.mtime_ms),
         size: Some(file.content.len().to_string()),
+        // Mesmo contrato da API real: o Drive calcula e devolve o MD5.
+        md5_checksum: Some(crate::sync::md5_hex(&file.content)),
         app_properties: file.app_properties.clone(),
     }
 }

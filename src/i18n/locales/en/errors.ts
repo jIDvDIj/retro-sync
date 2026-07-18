@@ -11,6 +11,7 @@ export const errors = {
     file_busy: "File in use (modified while reading)",
     drive_not_found: "Folder or file not found on Drive",
     insufficient_disk_space: "Not enough disk space for the download",
+    integrity: "Transfer integrity check failed",
     unexpected: "Unexpected error talking to the backend",
   },
 } as const;

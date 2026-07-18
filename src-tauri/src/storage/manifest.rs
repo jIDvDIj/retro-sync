@@ -20,10 +20,13 @@ pub struct ManifestEntry {
     pub drive_mtime_ms: Option<i64>,
     pub size_bytes: Option<i64>,
     pub last_synced_at_ms: i64,
+    /// SHA-256 (hex) do conteúdo no último sync. `None` em entradas gravadas
+    /// antes da migração v7 — o hash passa a existir no próximo sync do arquivo.
+    pub file_hash: Option<String>,
 }
 
 const COLS: &str = "emulator, category, rel_path, drive_file_id, local_mtime_ms, \
-                    drive_mtime_ms, size_bytes, last_synced_at_ms";
+                    drive_mtime_ms, size_bytes, last_synced_at_ms, file_hash";
 
 fn from_row(row: &Row) -> rusqlite::Result<ManifestEntry> {
     let category_str: String = row.get(1)?;
@@ -43,14 +46,15 @@ fn from_row(row: &Row) -> rusqlite::Result<ManifestEntry> {
         drive_mtime_ms: row.get(5)?,
         size_bytes: row.get(6)?,
         last_synced_at_ms: row.get(7)?,
+        file_hash: row.get(8)?,
     })
 }
 
 pub fn upsert(conn: &Connection, entry: &ManifestEntry) -> AppResult<()> {
     conn.execute(
         "INSERT OR REPLACE INTO sync_manifest (emulator, category, rel_path, drive_file_id, \
-         local_mtime_ms, drive_mtime_ms, size_bytes, last_synced_at_ms) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         local_mtime_ms, drive_mtime_ms, size_bytes, last_synced_at_ms, file_hash) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             entry.emulator,
             entry.category.as_str(),
@@ -60,6 +64,7 @@ pub fn upsert(conn: &Connection, entry: &ManifestEntry) -> AppResult<()> {
             entry.drive_mtime_ms,
             entry.size_bytes,
             entry.last_synced_at_ms,
+            entry.file_hash,
         ],
     )?;
     Ok(())
@@ -134,6 +139,7 @@ mod tests {
             drive_mtime_ms: Some(1_700_000_000_500),
             size_bytes: Some(4096),
             last_synced_at_ms: 1_700_000_001_000,
+            file_hash: Some("ab".repeat(32)),
         }
     }
 

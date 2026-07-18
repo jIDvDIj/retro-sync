@@ -23,6 +23,9 @@ pub struct LocalFile {
     pub mtime_ms: i64,
     #[allow(dead_code)]
     pub size_bytes: i64,
+    /// SHA-256 (hex) do conteúdo atual. Calculado pelo engine SOMENTE quando o
+    /// mtime diverge da âncora do manifest (pré-filtro) — `None` nos demais.
+    pub hash: Option<String>,
 }
 
 /// Operação planejada (apenas Upload/Download; NoOps são contados à parte).
@@ -93,6 +96,7 @@ fn walk(
             loc: FileLoc::from_path(path),
             mtime_ms: system_time_ms(metadata.modified()?),
             size_bytes: metadata.len() as i64,
+            hash: None,
         });
     }
     Ok(())
@@ -105,15 +109,26 @@ pub fn system_time_ms(time: SystemTime) -> i64 {
         .unwrap_or(0)
 }
 
-/// Monta o plano da categoria. Retorna as operações ativas e a contagem de
-/// arquivos sem mudança (`skipped`).
+/// Plano montado para uma categoria.
+pub struct CategoryPlan {
+    pub ops: Vec<PlannedOp>,
+    /// Arquivos sem mudança (inclui os descartados pela direção do sync).
+    pub skipped: u32,
+    /// Entradas cujo arquivo local só teve o mtime tocado (hash idêntico ao do
+    /// último sync): nada a transferir, mas o manifest precisa reancorar o
+    /// mtime — senão o pré-filtro dispara de novo em todo sync seguinte.
+    pub mtime_refreshes: Vec<ManifestEntry>,
+}
+
+/// Monta o plano da categoria. Retorna as operações ativas, a contagem de
+/// arquivos sem mudança e as reancoragens de mtime (hash igual).
 pub fn build_plan(
     local: Vec<LocalFile>,
     remote: Vec<RemoteFile>,
     manifest: Vec<ManifestEntry>,
     direction: SyncDirection,
     this_device_id: Option<&str>,
-) -> (Vec<PlannedOp>, u32) {
+) -> CategoryPlan {
     let local_map: HashMap<String, LocalFile> =
         local.into_iter().map(|f| (f.rel_path.clone(), f)).collect();
     let remote_map: HashMap<String, DriveFile> =
@@ -127,6 +142,7 @@ pub fn build_plan(
 
     let mut ops = Vec::new();
     let mut skipped: u32 = 0;
+    let mut mtime_refreshes = Vec::new();
 
     for rel_path in all_paths {
         let local_file = local_map.get(&rel_path);
@@ -142,6 +158,21 @@ pub fn build_plan(
             remote_file.and_then(|f| f.device_id()),
             this_device_id,
         );
+
+        // Pré-filtro de hash: o mtime local divergiu, mas o conteúdo é idêntico
+        // ao do último sync — o emulador só tocou o timestamp. Nada a enviar;
+        // reancora o mtime no manifest para não recalcular o hash sempre.
+        if action == SyncAction::Upload {
+            if let (Some(file), Some(entry)) = (local_file, manifest_map.get(&rel_path)) {
+                if file.hash.is_some() && file.hash == entry.file_hash {
+                    let mut refreshed = entry.clone();
+                    refreshed.local_mtime_ms = Some(file.mtime_ms);
+                    mtime_refreshes.push(refreshed);
+                    skipped += 1;
+                    continue;
+                }
+            }
+        }
 
         let allowed = match action {
             SyncAction::NoOp => false,
@@ -166,7 +197,11 @@ pub fn build_plan(
         }
     }
 
-    (ops, skipped)
+    CategoryPlan {
+        ops,
+        skipped,
+        mtime_refreshes,
+    }
 }
 
 #[cfg(test)]
@@ -182,6 +217,7 @@ mod tests {
             loc: FileLoc::from_path(PathBuf::from("/tmp").join(rel)),
             mtime_ms: mtime,
             size_bytes: 100,
+            hash: None,
         }
     }
 
@@ -194,6 +230,7 @@ mod tests {
                 mime_type: "application/octet-stream".into(),
                 modified_time: chrono::DateTime::from_timestamp_millis(mtime),
                 size: Some("100".into()),
+                md5_checksum: None,
                 app_properties: std::collections::HashMap::new(),
             },
         }
@@ -220,12 +257,13 @@ mod tests {
             drive_mtime_ms: Some(drive),
             size_bytes: Some(100),
             last_synced_at_ms: T,
+            file_hash: None,
         }
     }
 
     #[test]
     fn arquivo_novo_local_vira_upload() {
-        let (ops, skipped) = build_plan(
+        let CategoryPlan { ops, skipped, .. } = build_plan(
             vec![local_file("novo.bin", T)],
             vec![],
             vec![],
@@ -239,7 +277,7 @@ mod tests {
 
     #[test]
     fn arquivo_novo_no_drive_vira_download() {
-        let (ops, _) = build_plan(
+        let CategoryPlan { ops, .. } = build_plan(
             vec![],
             vec![remote_file("remoto.bin", T)],
             vec![],
@@ -252,8 +290,78 @@ mod tests {
     }
 
     #[test]
+    fn mtime_tocado_com_hash_igual_vira_refresh_sem_upload() {
+        // O emulador reescreveu o arquivo sem mudar o conteúdo: mtime diverge,
+        // hash bate com o manifest → nada a transferir, só reancorar o mtime.
+        let mut file = local_file("save.bin", T + 60_000);
+        file.hash = Some("hash-igual".into());
+        let mut entry = manifest_entry("save.bin", T, T);
+        entry.file_hash = Some("hash-igual".into());
+
+        let CategoryPlan {
+            ops,
+            skipped,
+            mtime_refreshes,
+        } = build_plan(
+            vec![file],
+            vec![remote_file("save.bin", T)],
+            vec![entry],
+            SyncDirection::Bidirectional,
+            None,
+        );
+
+        assert!(ops.is_empty());
+        assert_eq!(skipped, 1);
+        assert_eq!(mtime_refreshes.len(), 1);
+        assert_eq!(mtime_refreshes[0].local_mtime_ms, Some(T + 60_000));
+    }
+
+    #[test]
+    fn mtime_tocado_com_hash_diferente_segue_como_upload() {
+        let mut file = local_file("save.bin", T + 60_000);
+        file.hash = Some("hash-novo".into());
+        let mut entry = manifest_entry("save.bin", T, T);
+        entry.file_hash = Some("hash-antigo".into());
+
+        let CategoryPlan {
+            ops,
+            mtime_refreshes,
+            ..
+        } = build_plan(
+            vec![file],
+            vec![remote_file("save.bin", T)],
+            vec![entry],
+            SyncDirection::Bidirectional,
+            None,
+        );
+
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].action, SyncAction::Upload);
+        assert!(mtime_refreshes.is_empty());
+    }
+
+    #[test]
+    fn sem_hash_local_o_upload_nao_e_filtrado() {
+        // Hash ausente (arquivo não foi lido no pré-passo) não pode suprimir o
+        // upload — na dúvida, transfere.
+        let mut entry = manifest_entry("save.bin", T, T);
+        entry.file_hash = Some("hash".into());
+
+        let CategoryPlan { ops, .. } = build_plan(
+            vec![local_file("save.bin", T + 60_000)],
+            vec![remote_file("save.bin", T)],
+            vec![entry],
+            SyncDirection::Bidirectional,
+            None,
+        );
+
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].action, SyncAction::Upload);
+    }
+
+    #[test]
     fn arquivo_sem_mudanca_e_pulado() {
-        let (ops, skipped) = build_plan(
+        let CategoryPlan { ops, skipped, .. } = build_plan(
             vec![local_file("igual.bin", T)],
             vec![remote_file("igual.bin", T)],
             vec![manifest_entry("igual.bin", T, T)],
@@ -266,7 +374,7 @@ mod tests {
 
     #[test]
     fn local_mais_recente_vira_upload_com_remote_id() {
-        let (ops, _) = build_plan(
+        let CategoryPlan { ops, .. } = build_plan(
             vec![local_file("save.bin", T + 60_000)],
             vec![remote_file("save.bin", T)],
             vec![manifest_entry("save.bin", T, T)],
@@ -281,7 +389,7 @@ mod tests {
     #[test]
     fn primeiro_sync_com_arquivo_nos_dois_lados_baixa_com_backup() {
         // Sem manifest e arquivo presente local e no Drive → DownloadWithBackup.
-        let (ops, skipped) = build_plan(
+        let CategoryPlan { ops, skipped, .. } = build_plan(
             vec![local_file("save.bin", T + 60_000)],
             vec![remote_file("save.bin", T)],
             vec![],
@@ -299,7 +407,7 @@ mod tests {
     fn primeiro_sync_de_outro_dispositivo_vira_conflito() {
         // Sem manifest, ambos existem e divergem, e o Drive foi publicado por
         // outro dispositivo (dev-A) enquanto este é dev-C → Conflict.
-        let (ops, skipped) = build_plan(
+        let CategoryPlan { ops, skipped, .. } = build_plan(
             vec![local_file("save.bin", T + 60_000)],
             vec![remote_file_from("save.bin", T, "dev-A")],
             vec![],
@@ -317,7 +425,7 @@ mod tests {
     fn primeiro_sync_do_mesmo_dispositivo_baixa_com_backup() {
         // Mesmo dispositivo publicou o Drive (dev-C) e é este (dev-C): não há
         // conflito entre dispositivos — segue o Drive-vence com backup.
-        let (ops, _) = build_plan(
+        let CategoryPlan { ops, .. } = build_plan(
             vec![local_file("save.bin", T + 60_000)],
             vec![remote_file_from("save.bin", T, "dev-C")],
             vec![],
@@ -332,7 +440,7 @@ mod tests {
     fn ambos_mudaram_desde_o_ultimo_sync_vira_conflito() {
         // local e drive divergem de (T, T) registrado → Conflict, com os dois
         // lados disponíveis para a UI.
-        let (ops, _) = build_plan(
+        let CategoryPlan { ops, .. } = build_plan(
             vec![local_file("save.bin", T + 300_000)],
             vec![remote_file("save.bin", T + 60_000)],
             vec![manifest_entry("save.bin", T, T)],
@@ -347,7 +455,7 @@ mod tests {
 
     #[test]
     fn direcao_drive_to_local_descarta_uploads() {
-        let (ops, skipped) = build_plan(
+        let CategoryPlan { ops, skipped, .. } = build_plan(
             vec![local_file("novo.bin", T)],
             vec![remote_file("remoto.bin", T)],
             vec![],
@@ -361,7 +469,7 @@ mod tests {
 
     #[test]
     fn direcao_local_to_drive_descarta_downloads() {
-        let (ops, skipped) = build_plan(
+        let CategoryPlan { ops, skipped, .. } = build_plan(
             vec![local_file("novo.bin", T)],
             vec![remote_file("remoto.bin", T)],
             vec![],

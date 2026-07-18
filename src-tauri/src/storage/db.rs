@@ -102,6 +102,13 @@ CREATE TABLE IF NOT EXISTS drive_folders (
 );
 ";
 
+/// v7 — hash SHA-256 do conteúdo no último sync. Pré-filtro de mtime: só é
+/// recalculado quando o mtime diverge; hash igual = conteúdo intacto (emulador
+/// tocou o mtime sem alterar o save) e o upload é dispensado.
+const SCHEMA_V7: &str = "
+ALTER TABLE sync_manifest ADD COLUMN file_hash TEXT;
+";
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -191,6 +198,10 @@ fn migrate(conn: &Connection) -> AppResult<()> {
     if version < 6 {
         conn.execute_batch(SCHEMA_V6)?;
         version = 6;
+    }
+    if version < 7 {
+        conn.execute_batch(SCHEMA_V7)?;
+        version = 7;
     }
     conn.pragma_update(None, "user_version", version)?;
     Ok(())

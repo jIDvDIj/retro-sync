@@ -29,6 +29,20 @@ pub use storage::{FileLoc, LocalStorage};
 use crate::constants::{DRIVE_CONFIG_FOLDER, DRIVE_SAVES_FOLDER, DRIVE_STATES_FOLDER};
 use crate::emulator::EmulatorProfile;
 
+/// SHA-256 (hex) de um conteúdo em memória — identidade de conteúdo usada no
+/// pré-filtro de mtime do diff (coluna `file_hash` do manifest).
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// MD5 (hex) de um conteúdo em memória — comparável ao `md5Checksum` que a API
+/// do Drive devolve (verificação de integridade pós-transferência).
+pub(crate) fn md5_hex(bytes: &[u8]) -> String {
+    use md5::{Digest, Md5};
+    format!("{:x}", Md5::digest(bytes))
+}
+
 /// Direção de uma operação de sync. Espelhado em `src/types/ipc.ts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SyncDirection {

@@ -43,8 +43,13 @@ pub enum AppError {
     #[error("objeto não encontrado no Drive: {0}")]
     DriveObjectNotFound(String),
 
-    #[error("espaço em disco insuficiente: necessário {needed_mb} MB, disponível {available_mb} MB")]
+    #[error(
+        "espaço em disco insuficiente: necessário {needed_mb} MB, disponível {available_mb} MB"
+    )]
     InsufficientDiskSpace { needed_mb: u64, available_mb: u64 },
+
+    #[error("falha de integridade na transferência: {0}")]
+    Integrity(String),
 
     #[error("{0}")]
     Other(String),
@@ -65,6 +70,7 @@ impl AppError {
             AppError::FileBusy(_) => "file_busy",
             AppError::DriveObjectNotFound(_) => "drive_not_found",
             AppError::InsufficientDiskSpace { .. } => "insufficient_disk_space",
+            AppError::Integrity(_) => "integrity",
             AppError::Other(_) => "other",
         }
     }
@@ -89,6 +95,7 @@ impl AppError {
             | AppError::EmulatorExists(s)
             | AppError::FileBusy(s)
             | AppError::DriveObjectNotFound(s)
+            | AppError::Integrity(s)
             | AppError::Other(s) => s.clone(),
         }
     }

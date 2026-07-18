@@ -186,6 +186,7 @@ export interface AppErrorPayload {
     | "file_busy"
     | "drive_not_found"
     | "insufficient_disk_space"
+    | "integrity"
     | "other";
   message: string;
   /** Detalhe técnico sem o prefixo (caminho, nome, msg da lib). O frontend

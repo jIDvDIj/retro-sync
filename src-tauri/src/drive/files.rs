@@ -30,6 +30,10 @@ pub struct DriveFile {
     #[serde(default)]
     #[allow(dead_code)]
     pub size: Option<String>,
+    /// MD5 (hex) do conteúdo, calculado pelo próprio Drive. Usado na verificação
+    /// de integridade pós-download e na detecção de renomeação por conteúdo.
+    #[serde(default)]
+    pub md5_checksum: Option<String>,
     /// Propriedades privadas do app (ex.: `device` = quem publicou a versão).
     #[serde(default)]
     pub app_properties: HashMap<String, String>,
