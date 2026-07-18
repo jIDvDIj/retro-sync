@@ -505,6 +505,16 @@ pub async fn set_backup_retention_days(state: State<'_, AppState>, days: u32) ->
         .await
 }
 
+/// Define o intervalo do scan periódico em minutos (0 = desativado). O timer
+/// relê o valor a cada ciclo — não precisa reiniciar o app.
+#[tauri::command]
+pub async fn set_scan_interval_minutes(state: State<'_, AppState>, minutes: u32) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::set_scan_interval_minutes(conn, minutes))
+        .await
+}
+
 /// Define o nível de notificações nativas (all | errors_only | none).
 #[tauri::command]
 pub async fn set_notification_level(

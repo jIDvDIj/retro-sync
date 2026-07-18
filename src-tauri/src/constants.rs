@@ -88,6 +88,8 @@ pub const TRIGGER_EMULATOR_STOP: &str = "emulator-stop";
 /// Gatilhos exclusivos do mobile (substituem watcher e startup/shutdown).
 pub const TRIGGER_FOREGROUND: &str = "foreground";
 pub const TRIGGER_BACKGROUND: &str = "background";
+/// Scan periódico em background (timer com jitter; só-desktop).
+pub const TRIGGER_SCHEDULED: &str = "scheduled";
 
 /// Chaves da tabela `app_settings` (configurações globais do usuário).
 /// Nome amigável deste dispositivo (ex.: "PC Gamer"), definido no login.
@@ -105,6 +107,11 @@ pub const SETTING_NOTIFICATION_LEVEL: &str = "notification_level";
 pub const SETTING_BACKUP_RETENTION_DAYS: &str = "backup_retention_days";
 /// Default de fábrica da retenção de backups.
 pub const BACKUP_RETENTION_DAYS_DEFAULT: u32 = 30;
+
+/// Intervalo do scan periódico em minutos (0 = desativado).
+pub const SETTING_SCAN_INTERVAL_MINUTES: &str = "scan_interval_minutes";
+/// Default de fábrica do scan periódico.
+pub const SCAN_INTERVAL_MINUTES_DEFAULT: u32 = 60;
 
 /// IDs de banners informativos que o usuário dispensou (array JSON). Um banner
 /// dispensado não reaparece

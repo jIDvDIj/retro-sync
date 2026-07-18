@@ -235,6 +235,7 @@ pub fn run() {
             commands::set_triggers,
             commands::set_notification_level,
             commands::set_backup_retention_days,
+            commands::set_scan_interval_minutes,
             commands::get_emulator_categories,
             commands::set_emulator_categories,
             commands::list_conflicts,

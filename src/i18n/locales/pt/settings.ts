@@ -22,6 +22,12 @@ export const settings: Localized<typeof SettingsEn> = {
       hint: "Muda o idioma da interface do app.",
       label: "Idioma da interface",
     },
+    scan: {
+      heading: "Scan periódico",
+      hint: "Roda um sync completo em background neste intervalo (com um pouco de aleatoriedade), capturando mudanças que os gatilhos perderam. Nunca roda com um emulador aberto. 0 desativa.",
+      label: "Intervalo (minutos)",
+      saved: "Salvo",
+    },
     autoSync: {
       heading: "Sincronização automática",
       hint: "Mesmo com tudo desligado, o botão “Sincronizar agora” continua disponível.",

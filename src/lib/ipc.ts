@@ -126,6 +126,11 @@ export function setBackupRetentionDays(days: number): Promise<void> {
   return invoke<void>("set_backup_retention_days", { days });
 }
 
+/** Intervalo do scan periódico em minutos (0 = desativado). */
+export function setScanIntervalMinutes(minutes: number): Promise<void> {
+  return invoke<void>("set_scan_interval_minutes", { minutes });
+}
+
 /** Liga/desliga o início automático do RetroSync junto com o sistema. */
 export function setAutostart(enabled: boolean): Promise<void> {
   return invoke<void>("set_autostart", { enabled });

@@ -9,6 +9,7 @@ import {
   setBackupRetentionDays,
   setDeviceName,
   setNotificationLevel,
+  setScanIntervalMinutes,
 } from "../lib/ipc";
 import type { EmulatorProfile, NotificationLevel, Settings } from "../types/ipc";
 import { usePlatform } from "../hooks/usePlatform";
@@ -65,6 +66,24 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
   const [retentionSaved, setRetentionSaved] = useState(false);
 
   const retentionDirty = retentionDays !== String(settings.backupRetentionDays);
+  const [scanInterval, setScanInterval] = useState(String(settings.scanIntervalMinutes));
+  const [scanSaved, setScanSaved] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const scanDirty = scanInterval !== String(settings.scanIntervalMinutes);
+
+  const saveScanInterval = async () => {
+    const minutes = Number.parseInt(scanInterval, 10);
+    if (Number.isNaN(minutes) || minutes < 0) return;
+    setScanError(null);
+    setScanSaved(false);
+    try {
+      await setScanIntervalMinutes(minutes);
+      onSaved();
+      setScanSaved(true);
+    } catch (err) {
+      setScanError(errorMessage(err));
+    }
+  };
 
   const saveRetention = async () => {
     const days = Number.parseInt(retentionDays, 10);
@@ -229,6 +248,35 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
             <p className="muted">{t("settings.categories.hint")}</p>
             <CategorySettings emulators={emulators} />
           </section>
+
+          {!isMobile ? (
+            <section className="settings-section">
+              <h3>{t("settings.scan.heading")}</h3>
+              <p className="muted">{t("settings.scan.hint")}</p>
+              <label className="field">
+                <span>{t("settings.scan.label")}</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1440}
+                  value={scanInterval}
+                  onChange={(e) => {
+                    setScanInterval(e.target.value);
+                    setScanSaved(false);
+                  }}
+                />
+              </label>
+              <div className="settings-row">
+                <button onClick={saveScanInterval} disabled={!scanDirty}>
+                  {t("settings.device.save")}
+                </button>
+                {scanSaved && !scanDirty ? (
+                  <span className="saved-hint">{t("settings.scan.saved")}</span>
+                ) : null}
+              </div>
+              {scanError ? <p className="error">{scanError}</p> : null}
+            </section>
+          ) : null}
         </>
       ) : null}
 

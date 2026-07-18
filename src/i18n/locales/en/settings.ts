@@ -23,6 +23,12 @@ export const settings = {
       heading: "Automatic sync",
       hint: "Even with everything off, the “Sync now” button stays available.",
     },
+    scan: {
+      heading: "Periodic scan",
+      hint: "Runs a full sync in the background at this interval (with a little randomness), catching changes the triggers missed. It never runs while an emulator is open. 0 disables it.",
+      label: "Interval (minutes)",
+      saved: "Saved",
+    },
     startup: {
       heading: "Startup",
       hint: "Launches RetroSync with the system, straight to the tray, to sync in the background without you opening the app.",

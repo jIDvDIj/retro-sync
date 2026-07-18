@@ -9,9 +9,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::constants::{
-    BACKUP_RETENTION_DAYS_DEFAULT, SETTING_BACKUP_RETENTION_DAYS, SETTING_DEVICE_NAME,
-    SETTING_DISMISSED_NOTICES, SETTING_NOTIFICATION_LEVEL, SETTING_TRIGGER_EMULATOR_START,
-    SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
+    BACKUP_RETENTION_DAYS_DEFAULT, SCAN_INTERVAL_MINUTES_DEFAULT, SETTING_BACKUP_RETENTION_DAYS,
+    SETTING_DEVICE_NAME, SETTING_DISMISSED_NOTICES, SETTING_NOTIFICATION_LEVEL,
+    SETTING_SCAN_INTERVAL_MINUTES, SETTING_TRIGGER_EMULATOR_START, SETTING_TRIGGER_EMULATOR_STOP,
+    SETTING_TRIGGER_STARTUP,
 };
 // Consumido apenas pelas funções de autostart (só-desktop).
 #[cfg(desktop)]
@@ -40,6 +41,14 @@ pub struct Settings {
     /// roda no startup do app.
     #[serde(default = "default_backup_retention_days")]
     pub backup_retention_days: u32,
+    /// Intervalo do scan periódico em minutos (0 = desativado). O timer aplica
+    /// jitter de ±25% e só dispara quando nenhum emulador está rodando.
+    #[serde(default = "default_scan_interval_minutes")]
+    pub scan_interval_minutes: u32,
+}
+
+fn default_scan_interval_minutes() -> u32 {
+    SCAN_INTERVAL_MINUTES_DEFAULT
 }
 
 fn default_backup_retention_days() -> u32 {
@@ -54,6 +63,7 @@ impl Default for Settings {
             notification_level: NotificationLevel::default(),
             autostart: false,
             backup_retention_days: BACKUP_RETENTION_DAYS_DEFAULT,
+            scan_interval_minutes: SCAN_INTERVAL_MINUTES_DEFAULT,
         }
     }
 }
@@ -160,7 +170,19 @@ pub fn load(conn: &Connection) -> AppResult<Settings> {
         // real lido pelo plugin de autostart.
         autostart: false,
         backup_retention_days: backup_retention_days(conn)?,
+        scan_interval_minutes: scan_interval_minutes(conn)?,
     })
+}
+
+/// Intervalo do scan periódico em minutos (default: 60; 0 = desativado).
+pub fn scan_interval_minutes(conn: &Connection) -> AppResult<u32> {
+    Ok(get(conn, SETTING_SCAN_INTERVAL_MINUTES)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(SCAN_INTERVAL_MINUTES_DEFAULT))
+}
+
+pub fn set_scan_interval_minutes(conn: &Connection, minutes: u32) -> AppResult<()> {
+    set(conn, SETTING_SCAN_INTERVAL_MINUTES, &minutes.to_string())
 }
 
 /// Dias de retenção dos backups locais (default: 30; 0 = manter para sempre).
@@ -363,6 +385,21 @@ mod tests {
     }
 
     #[test]
+    fn scan_interval_minutes_default_e_roundtrip() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert_eq!(scan_interval_minutes(conn)?, SCAN_INTERVAL_MINUTES_DEFAULT);
+            set_scan_interval_minutes(conn, 15)?;
+            assert_eq!(scan_interval_minutes(conn)?, 15);
+            assert_eq!(load(conn)?.scan_interval_minutes, 15);
+            // 0 = scan periódico desativado.
+            set_scan_interval_minutes(conn, 0)?;
+            assert_eq!(scan_interval_minutes(conn)?, 0);
+            Ok(())
+        });
+    }
+
+    #[test]
     fn dismiss_notice_persiste_e_e_idempotente() {
         let db = Db::open_in_memory().unwrap();
         db.with_sync(|conn| {
@@ -388,10 +425,12 @@ mod tests {
             notification_level: NotificationLevel::ErrorsOnly,
             autostart: false,
             backup_retention_days: 15,
+            scan_interval_minutes: 45,
         })
         .unwrap();
         assert_eq!(json["deviceName"], "PC Gamer");
         assert_eq!(json["backupRetentionDays"], 15);
+        assert_eq!(json["scanIntervalMinutes"], 45);
         assert_eq!(json["triggers"]["startup"], true);
         assert_eq!(json["triggers"]["emulatorStart"], true);
         assert_eq!(json["triggers"]["emulatorStop"], true);

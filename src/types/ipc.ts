@@ -37,6 +37,8 @@ export interface Settings {
   autostart: boolean;
   /** Dias de retenção dos backups locais (0 = manter para sempre). */
   backupRetentionDays: number;
+  /** Intervalo do scan periódico em minutos (0 = desativado). */
+  scanIntervalMinutes: number;
 }
 
 /** `emulator::EmulatorProfile` — paths serializam como string */
