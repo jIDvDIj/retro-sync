@@ -349,15 +349,19 @@ mod tests {
         let s = DesktopStorage;
 
         // Pasta existente → válida.
-        assert!(s.is_valid_root(&FileLoc::from_path(tmp.path().to_path_buf())).await);
+        assert!(
+            s.is_valid_root(&FileLoc::from_path(tmp.path().to_path_buf()))
+                .await
+        );
         // Arquivo (não é pasta) → inválido.
         let file = FileLoc::from_path(tmp.path().join("arquivo.bin"));
         s.write_atomic(&file, b"x", None).await.unwrap();
         assert!(!s.is_valid_root(&file).await);
         // Inexistente → inválido.
-        assert!(!s
-            .is_valid_root(&FileLoc::from_path(tmp.path().join("nao_existe")))
-            .await);
+        assert!(
+            !s.is_valid_root(&FileLoc::from_path(tmp.path().join("nao_existe")))
+                .await
+        );
     }
 
     #[tokio::test]

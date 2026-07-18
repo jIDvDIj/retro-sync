@@ -1,4 +1,5 @@
 mod auth;
+mod backups;
 mod commands;
 mod constants;
 mod device;
@@ -211,6 +212,10 @@ pub fn run() {
             commands::set_emulator_categories,
             commands::list_conflicts,
             commands::resolve_conflict,
+            commands::list_pending_ops,
+            commands::list_dismissed_notices,
+            commands::dismiss_notice,
+            commands::list_backups,
             commands::pick_emulator_folder,
             commands::detect_emulator_mobile,
             #[cfg(desktop)]

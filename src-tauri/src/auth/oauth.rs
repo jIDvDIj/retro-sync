@@ -231,8 +231,7 @@ pub async fn authorize_interactive_mobile<R: tauri::Runtime>(
             "state do deep link não confere (possível CSRF)".into(),
         ));
     }
-    let code =
-        code.ok_or_else(|| AppError::Auth("deep link sem authorization code".into()))?;
+    let code = code.ok_or_else(|| AppError::Auth("deep link sem authorization code".into()))?;
 
     exchange_code(http, config, &code, &pkce.verifier, &redirect_uri).await
 }

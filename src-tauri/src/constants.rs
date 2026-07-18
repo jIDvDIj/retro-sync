@@ -96,6 +96,10 @@ pub const SETTING_TRIGGER_EMULATOR_STOP: &str = "trigger_emulator_stop";
 /// Nível de notificações nativas: all | errors_only | none (default: all).
 pub const SETTING_NOTIFICATION_LEVEL: &str = "notification_level";
 
+/// IDs de banners informativos que o usuário dispensou (array JSON). Um banner
+/// dispensado não reaparece
+pub const SETTING_DISMISSED_NOTICES: &str = "dismissed_notices";
+
 /// Marca que o default de fábrica do autostart (ligado) já foi aplicado na
 /// primeira execução. Impede religar o autostart a cada inicialização — depois
 /// disso a escolha do usuário prevalece, inclusive se ele desativar.

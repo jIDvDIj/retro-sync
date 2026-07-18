@@ -1,6 +1,12 @@
 export const settings = {
   settings: {
     title: "Settings",
+    tabs: {
+      general: "General",
+      sync: "Sync",
+      notifications: "Notifications",
+      backups: "Backups",
+    },
     device: {
       heading: "Device",
       hint: "Identifies this machine in the sync metadata. Changing it here doesn't require signing in again.",
@@ -51,7 +57,16 @@ export const settings = {
       heading: "Backups",
       hint: "Copies RetroSync keeps before overwriting a local file — on the first sync of a file that already exists on Drive, or when resolving a conflict by keeping Drive's version. Nothing is deleted.",
       open: "Open backups folder",
+      history: "View history",
     },
+  },
+  backupHistory: {
+    title: "Backup history",
+    intro:
+      "Copies RetroSync saved before overwriting local files. To restore one, open the backups folder and copy the file back manually.",
+    filterLabel: "Filter",
+    filterPlaceholder: "e.g. PPSSPP or SAVE.bin",
+    empty: "No backups yet.",
   },
   addEmulator: {
     button: "Add emulator",

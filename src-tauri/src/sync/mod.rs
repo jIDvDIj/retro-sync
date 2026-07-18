@@ -74,6 +74,10 @@ pub struct SyncProgress {
     pub current_file: String,
     pub completed: u32,
     pub total: u32,
+    /// Bytes já transferidos / totais do plano da categoria em andamento —
+    /// alimentam a barra de progresso, a velocidade e o ETA na UI.
+    pub bytes_done: u64,
+    pub bytes_total: u64,
     pub direction: SyncDirection,
 }
 

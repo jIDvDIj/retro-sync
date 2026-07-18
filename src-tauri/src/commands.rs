@@ -5,9 +5,9 @@
 use std::path::PathBuf;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(mobile)]
 use tauri::Listener;
+use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
 
@@ -122,8 +122,7 @@ pub async fn connect_google_drive(
     let listener_id = {
         let tx = tx.clone();
         app.once("deep-link://new-url", move |event| {
-            let urls: Vec<String> =
-                serde_json::from_str(event.payload()).unwrap_or_default();
+            let urls: Vec<String> = serde_json::from_str(event.payload()).unwrap_or_default();
             if let Some(url) = urls
                 .into_iter()
                 .find(|u| u.starts_with("com.retrosync.app:/oauth2redirect"))
@@ -276,8 +275,9 @@ pub async fn add_emulator_manual(
     // passa pelo plugin nativo via LocalStorage, não por std::fs (BUG-005).
     ensure_valid_root(&state, &path).await?;
 
-    let profile = emulator::build_manual_profile(&root, name, saves_paths, state_paths, config_paths)
-        .map_err(AppError::Other)?;
+    let profile =
+        emulator::build_manual_profile(&root, name, saves_paths, state_paths, config_paths)
+            .map_err(AppError::Other)?;
 
     // Cada pasta informada precisa existir sob a raiz. A checagem sai do
     // `build_manual_profile` (puro) e passa pelo `LocalStorage`, que sabe tratar
@@ -532,4 +532,42 @@ pub fn get_last_sync(state: State<'_, AppState>) -> AppResult<Option<LastSync>> 
         .lock()
         .map_err(|_| AppError::Other("lock do último sync envenenado".into()))?;
     Ok(guard.clone())
+}
+
+/// Fila offline visível: arquivos cuja transferência falhou (rede/arquivo em
+/// uso) e será refeita no próximo sync. A UI exibe o badge "N pendentes" no
+/// card do emulador e a lista com o último erro de cada arquivo.
+#[tauri::command]
+pub async fn list_pending_ops(state: State<'_, AppState>) -> AppResult<Vec<queue::PendingOp>> {
+    state.db.with(queue::list_all).await
+}
+
+/// IDs de banners informativos que o usuário dispensou (não reaparecem).
+#[tauri::command]
+pub async fn list_dismissed_notices(state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    state.db.with(settings::dismissed_notices).await
+}
+
+/// Dispensa um banner informativo de forma persistente (idempotente).
+#[tauri::command]
+pub async fn dismiss_notice(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::dismiss_notice(conn, &id))
+        .await
+}
+
+/// Histórico dos backups locais que o RetroSync criou antes de sobrescrever
+/// arquivos (primeiro sync e resolução de conflito). Só leitura — restauração
+/// continua manual, pela pasta.
+#[tauri::command]
+pub async fn list_backups(app: AppHandle) -> AppResult<Vec<crate::backups::BackupEntry>> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Other(format!("diretório de dados indisponível: {e}")))?
+        .join(LOCAL_BACKUP_DIR);
+    tokio::task::spawn_blocking(move || crate::backups::list(&dir))
+        .await
+        .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))?
 }

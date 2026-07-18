@@ -16,6 +16,8 @@ export type SyncPhase = "idle" | "syncing";
 
 export interface SyncState {
   phase: SyncPhase;
+  /** Gatilho do sync em curso (`manual`, `emulator-start`, …); `null` em idle. */
+  trigger: string | null;
   progress: SyncProgress | null;
   lastSync: LastSync | null;
   lastError: SyncErrorEvent | null;
@@ -30,6 +32,7 @@ export interface SyncState {
  */
 export function useSyncEvents(): SyncState {
   const [phase, setPhase] = useState<SyncPhase>("idle");
+  const [trigger, setTrigger] = useState<string | null>(null);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [lastSync, setLastSync] = useState<LastSync | null>(null);
   const [lastError, setLastError] = useState<SyncErrorEvent | null>(null);
@@ -44,8 +47,9 @@ export function useSyncEvents(): SyncState {
       .catch(() => {});
 
     const subscriptions: Promise<UnlistenFn>[] = [
-      listen<SyncStarted>(EVT.SYNC_STARTED, () => {
+      listen<SyncStarted>(EVT.SYNC_STARTED, (event) => {
         setPhase("syncing");
+        setTrigger(event.payload.trigger);
         setProgress(null);
         setLastError(null);
       }),
@@ -54,6 +58,7 @@ export function useSyncEvents(): SyncState {
       }),
       listen(EVT.SYNC_COMPLETED, () => {
         setPhase("idle");
+        setTrigger(null);
         setProgress(null);
         // O backend grava o LastSync antes de emitir `sync:completed`.
         getLastSync()
@@ -81,5 +86,5 @@ export function useSyncEvents(): SyncState {
     };
   }, []);
 
-  return { phase, progress, lastSync, lastError, running };
+  return { phase, trigger, progress, lastSync, lastError, running };
 }
