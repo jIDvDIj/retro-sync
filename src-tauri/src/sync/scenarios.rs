@@ -561,6 +561,81 @@ async fn renomeacao_local_vira_rename_no_drive_sem_retransferir() {
     assert_eq!(after.uploaded + after.downloaded + after.renamed, 0);
 }
 
+/// Conflito gera a cópia padronizada do lado local em `conflicts/`
+/// (`nome.retrosync-conflict-<carimbo>-<device>.ext`) e grava o caminho no
+/// registro do conflito (issue #10).
+#[tokio::test]
+async fn conflito_gera_copia_padronizada_do_lado_local() {
+    let h = Harness::new().await;
+    h.write_local("save.bin", b"v1", T);
+    h.sync().await;
+
+    // Ambos os lados mudam desde a âncora → conflito.
+    h.write_local("save.bin", b"v2-local", T + S10);
+    h.drive.overwrite_as_device(
+        EMU,
+        SyncCategory::Saves,
+        "save.bin",
+        b"v2-drive",
+        T + 2 * S10,
+        "dev-B",
+    );
+
+    let summary = h.sync().await;
+    assert_eq!(summary.conflicts, 1);
+
+    let conflicts = h.db.with(conflicts::list_all).await.unwrap();
+    let backup_path = conflicts[0]
+        .backup_path
+        .clone()
+        .expect("cópia de conflito registrada");
+    assert!(backup_path.contains(".retrosync-conflict-"));
+    assert!(backup_path.contains(&h.device_id), "device id no nome");
+    assert_eq!(
+        std::fs::read(&backup_path).unwrap(),
+        b"v2-local",
+        "cópia preserva o lado local"
+    );
+}
+
+/// Renomeação que também muda de subpasta move o arquivo no Drive
+/// (addParents/removeParents), sem retransferir (issue #12).
+#[tokio::test]
+async fn renomeacao_entre_subpastas_move_no_drive() {
+    let h = Harness::new().await;
+    h.write_local("GAME01/save.bin", b"conteudo-movido", T);
+    h.sync().await;
+
+    std::fs::create_dir_all(h.saves_dir.join("GAME02")).unwrap();
+    std::fs::rename(
+        h.saves_dir.join("GAME01/save.bin"),
+        h.saves_dir.join("GAME02/save.bin"),
+    )
+    .unwrap();
+    std::fs::remove_dir(h.saves_dir.join("GAME01")).unwrap();
+
+    let summary = h.sync().await;
+
+    assert_eq!(summary.renamed, 1);
+    assert_eq!(summary.uploaded, 0);
+    assert!(h.remote_content("GAME02/save.bin").is_some());
+    assert!(h.remote_content("GAME01/save.bin").is_none());
+}
+
+/// O rastro de downloads recentes (anti-loop do watcher de filesystem) marca
+/// os arquivos gravados pelo próprio sync e expira apenas por TTL.
+#[tokio::test]
+async fn download_marca_arquivo_no_rastro_anti_loop() {
+    let h = Harness::new().await;
+    h.seed_remote("save.bin", b"drive-v1", T, None);
+
+    h.sync().await;
+
+    let written = h.saves_dir.join("save.bin");
+    assert!(h.engine.is_recent_download(&written));
+    assert!(!h.engine.is_recent_download(&h.saves_dir.join("outro.bin")));
+}
+
 /// Sync só-upload (`LocalToDrive`, gatilho emulator-stop) não baixa nada;
 /// o arquivo remoto pendente fica para o sync bidirecional seguinte.
 #[tokio::test]

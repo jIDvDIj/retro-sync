@@ -757,6 +757,58 @@ mod http_tests {
     }
 
     #[tokio::test]
+    async fn rename_file_atualiza_nome_sem_reenviar_conteudo() {
+        let server = MockServer::start().await;
+        let client = test_client(&server).await;
+
+        Mock::given(method("PATCH"))
+            .and(path("/drive/v3/files/file-1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "file-1", "name": "novo.bin", "mimeType": "application/octet-stream"
+            })))
+            .mount(&server)
+            .await;
+
+        let renamed = client
+            .rename_file("file-1", "novo.bin", None, None)
+            .await
+            .unwrap();
+        assert_eq!(renamed.name, "novo.bin");
+
+        // O corpo enviado carrega só o nome novo — nada de conteúdo.
+        let requests = server.received_requests().await.unwrap();
+        let body = String::from_utf8_lossy(&requests[0].body);
+        assert!(body.contains("\"name\":\"novo.bin\""));
+    }
+
+    #[tokio::test]
+    async fn rename_file_com_mudanca_de_pasta_envia_parents() {
+        let server = MockServer::start().await;
+        let client = test_client(&server).await;
+
+        Mock::given(method("PATCH"))
+            .and(path("/drive/v3/files/file-2"))
+            .and(query_param("addParents", "pasta-nova"))
+            .and(query_param("removeParents", "pasta-antiga"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "file-2", "name": "save.bin", "mimeType": "application/octet-stream"
+            })))
+            .mount(&server)
+            .await;
+
+        let renamed = client
+            .rename_file(
+                "file-2",
+                "save.bin",
+                Some("pasta-nova"),
+                Some("pasta-antiga"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(renamed.id, "file-2");
+    }
+
+    #[tokio::test]
     async fn download_retorna_os_bytes_do_arquivo() {
         let server = MockServer::start().await;
         let client = test_client(&server).await;

@@ -48,6 +48,15 @@ fn due_emulators(
         .collect()
 }
 
+/// Só mudanças de conteúdo/estrutura interessam — eventos de acesso (leitura)
+/// gerariam ruído constante com o emulador aberto.
+fn is_relevant(kind: &notify::EventKind) -> bool {
+    matches!(
+        kind,
+        notify::EventKind::Create(_) | notify::EventKind::Modify(_) | notify::EventKind::Remove(_)
+    )
+}
+
 /// Emulador dono de `path`, se o caminho está sob alguma pasta observada.
 fn owner_of<'a>(watched: &'a [WatchedEmulator], path: &Path) -> Option<&'a str> {
     watched
@@ -92,13 +101,7 @@ fn build_watcher(
     let mut watcher =
         match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
             let Ok(event) = res else { return };
-            // Só mudanças de conteúdo/estrutura interessam (Access geraria ruído).
-            if !matches!(
-                event.kind,
-                notify::EventKind::Create(_)
-                    | notify::EventKind::Modify(_)
-                    | notify::EventKind::Remove(_)
-            ) {
+            if !is_relevant(&event.kind) {
                 return;
             }
             for path in event.paths {
@@ -223,5 +226,85 @@ mod tests {
             Some("PPSSPP")
         );
         assert_eq!(owner_of(&watched, Path::new("/outro/lugar.bin")), None);
+    }
+
+    #[test]
+    fn is_relevant_filtra_eventos_de_acesso() {
+        use notify::event::{AccessKind, CreateKind, ModifyKind, RemoveKind};
+        assert!(is_relevant(&notify::EventKind::Create(CreateKind::File)));
+        assert!(is_relevant(&notify::EventKind::Modify(ModifyKind::Any)));
+        assert!(is_relevant(&notify::EventKind::Remove(RemoveKind::File)));
+        assert!(!is_relevant(&notify::EventKind::Access(AccessKind::Read)));
+        assert!(!is_relevant(&notify::EventKind::Any));
+    }
+
+    #[test]
+    fn due_emulators_vazio_sem_pendencias() {
+        let pending: HashMap<String, Instant> = HashMap::new();
+        assert!(due_emulators(&pending, Instant::now(), Duration::from_secs(8)).is_empty());
+    }
+
+    /// `watch_list` monta as pastas absolutas de saves+states dos perfis,
+    /// ignorando pastas inexistentes e emuladores sem nenhuma pasta válida.
+    #[tokio::test]
+    async fn watch_list_resolve_pastas_existentes_dos_perfis() {
+        use crate::emulator::EmulatorProfile;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("emu");
+        std::fs::create_dir_all(root.join("saves")).unwrap();
+        // "states" NÃO existe — deve ser filtrada.
+
+        let db = crate::storage::db::Db::open_in_memory().unwrap();
+        let profile = EmulatorProfile {
+            name: "PPSSPP".into(),
+            root_path: root.clone(),
+            saves_paths: vec![PathBuf::from("saves")],
+            state_paths: vec![PathBuf::from("states")],
+            config_paths: vec![],
+            exclude_patterns: vec![],
+        };
+        let sem_pastas = EmulatorProfile {
+            name: "Fantasma".into(),
+            root_path: tmp.path().join("nao-existe"),
+            saves_paths: vec![PathBuf::from("saves")],
+            state_paths: vec![],
+            config_paths: vec![],
+            exclude_patterns: vec![],
+        };
+        db.with(move |conn| {
+            emulators::upsert(conn, &profile)?;
+            emulators::upsert(conn, &sem_pastas)
+        })
+        .await
+        .unwrap();
+
+        let watched = watch_list(&db).await;
+
+        assert_eq!(watched.len(), 1, "emulador sem pasta válida fica de fora");
+        assert_eq!(watched[0].name, "PPSSPP");
+        assert_eq!(watched[0].dirs, vec![root.join("saves")]);
+    }
+
+    /// O watcher nativo entrega eventos de escrita nas pastas observadas.
+    #[tokio::test]
+    async fn build_watcher_observa_escritas_na_pasta() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("saves");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let (tx, mut rx) = mpsc::channel::<PathBuf>(16);
+        let watched = vec![WatchedEmulator {
+            name: "PPSSPP".into(),
+            dirs: vec![dir.clone()],
+        }];
+        let _watcher = build_watcher(&watched, tx).expect("backend nativo disponível");
+
+        std::fs::write(dir.join("save.bin"), b"conteudo").unwrap();
+
+        let event = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("evento dentro do prazo")
+            .expect("canal aberto");
+        assert!(event.starts_with(&dir));
     }
 }

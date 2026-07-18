@@ -212,6 +212,56 @@ pub fn original_name(archived: &str) -> Option<String> {
     })
 }
 
+/// Resolve uma restauração do histórico: valida `versioned_rel_path`
+/// (relativo, sem `..`/segmentos vazios), monta o caminho absoluto da versão
+/// sob `<backups_root>/<emulador>/history/<categoria>/` e deriva o `rel_path`
+/// original (sem o carimbo). Erro se o caminho é inseguro, o nome não tem
+/// formato de versão ou o arquivo não existe.
+pub fn resolve_restore(
+    backups_root: &Path,
+    emulator: &str,
+    category: &str,
+    versioned_rel_path: &str,
+) -> AppResult<(PathBuf, String)> {
+    use crate::error::AppError;
+
+    if versioned_rel_path.is_empty()
+        || versioned_rel_path
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(AppError::Other(format!(
+            "caminho de versão inválido: {versioned_rel_path}"
+        )));
+    }
+
+    let mut src_abs = backups_root
+        .join(emulator)
+        .join(HISTORY_DIR_NAME)
+        .join(category);
+    for part in versioned_rel_path.split('/') {
+        src_abs.push(part);
+    }
+    if !src_abs.is_file() {
+        return Err(AppError::Other(format!(
+            "versão não encontrada: {versioned_rel_path}"
+        )));
+    }
+
+    let (dir_part, archived_name) = match versioned_rel_path.rsplit_once('/') {
+        Some((dir, name)) => (Some(dir), name),
+        None => (None, versioned_rel_path),
+    };
+    let original = original_name(archived_name)
+        .ok_or_else(|| AppError::Other(format!("nome de versão inválido: {archived_name}")))?;
+    let original_rel = match dir_part {
+        Some(dir) => format!("{dir}/{original}"),
+        None => original,
+    };
+
+    Ok((src_abs, original_rel))
+}
+
 /// Marcador no nome das cópias padronizadas de conflito.
 const CONFLICT_MARKER: &str = ".retrosync-conflict-";
 
@@ -256,6 +306,46 @@ mod tests {
         let src = tmp.path().join("SAVE.bin");
         std::fs::write(&src, b"v1").unwrap();
         (tmp, versioner, src)
+    }
+
+    #[test]
+    fn resolve_restore_deriva_origem_e_rel_original() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp
+            .path()
+            .join("PPSSPP")
+            .join(HISTORY_DIR_NAME)
+            .join("saves")
+            .join("GAME01");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("SAVE~20250717-103000.bin"), b"v1").unwrap();
+
+        let (src, original_rel) = resolve_restore(
+            tmp.path(),
+            "PPSSPP",
+            "saves",
+            "GAME01/SAVE~20250717-103000.bin",
+        )
+        .unwrap();
+
+        assert_eq!(src, dir.join("SAVE~20250717-103000.bin"));
+        assert_eq!(original_rel, "GAME01/SAVE.bin");
+    }
+
+    #[test]
+    fn resolve_restore_rejeita_traversal_e_nomes_invalidos() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Traversal e segmentos vazios.
+        assert!(resolve_restore(tmp.path(), "E", "saves", "../fora.bin").is_err());
+        assert!(resolve_restore(tmp.path(), "E", "saves", "a//b.bin").is_err());
+        assert!(resolve_restore(tmp.path(), "E", "saves", "").is_err());
+        // Arquivo inexistente.
+        assert!(resolve_restore(tmp.path(), "E", "saves", "SAVE~20250717-103000.bin").is_err());
+        // Existe mas sem formato de versão.
+        let dir = tmp.path().join("E").join(HISTORY_DIR_NAME).join("saves");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("SAVE.bin"), b"x").unwrap();
+        assert!(resolve_restore(tmp.path(), "E", "saves", "SAVE.bin").is_err());
     }
 
     #[test]

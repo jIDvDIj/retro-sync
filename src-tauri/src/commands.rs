@@ -729,45 +729,26 @@ pub async fn restore_version(
     category: SyncCategory,
     versioned_rel_path: String,
 ) -> AppResult<()> {
-    // Caminho relativo seguro: sem absolutos, `..` ou segmentos vazios.
-    if versioned_rel_path.is_empty()
-        || versioned_rel_path
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return Err(AppError::Other(format!(
-            "caminho de versão inválido: {versioned_rel_path}"
-        )));
-    }
-
     let backups_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| AppError::Other(format!("diretório de dados indisponível: {e}")))?
         .join(LOCAL_BACKUP_DIR);
-    let mut src_abs = backups_dir
-        .join(&emulator)
-        .join(crate::versioning::HISTORY_DIR_NAME)
-        .join(category.as_str());
-    for part in versioned_rel_path.split('/') {
-        src_abs.push(part);
-    }
-    if !src_abs.is_file() {
-        return Err(AppError::Other(format!(
-            "versão não encontrada: {versioned_rel_path}"
-        )));
-    }
 
-    // Nome original (sem o carimbo) e caminho relativo à categoria.
-    let (dir_part, archived_name) = match versioned_rel_path.rsplit_once('/') {
-        Some((dir, name)) => (Some(dir), name),
-        None => (None, versioned_rel_path.as_str()),
-    };
-    let original = crate::versioning::original_name(archived_name)
-        .ok_or_else(|| AppError::Other(format!("nome de versão inválido: {archived_name}")))?;
-    let original_rel = match dir_part {
-        Some(dir) => format!("{dir}/{original}"),
-        None => original,
+    // Valida o caminho versionado e deriva origem + rel_path original
+    // (lógica pura e testada em `versioning::resolve_restore`).
+    let (src_abs, original_rel) = {
+        let (dir, emu, cat, rel) = (
+            backups_dir.clone(),
+            emulator.clone(),
+            category.as_str().to_string(),
+            versioned_rel_path.clone(),
+        );
+        tokio::task::spawn_blocking(move || {
+            crate::versioning::resolve_restore(&dir, &emu, &cat, &rel)
+        })
+        .await
+        .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))??
     };
 
     // Perfil e primeira pasta-base da categoria → destino da restauração.
