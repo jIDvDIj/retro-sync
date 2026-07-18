@@ -520,6 +520,47 @@ async fn padroes_de_exclusao_ignoram_arquivos_nas_duas_direcoes() {
     assert!(!h.saves_dir.join("outro.tmp").exists());
 }
 
+/// Renomear um arquivo local vira um rename no Drive (issue #12): sem novo
+/// upload, sem zumbi do nome antigo, manifest reancorado no nome novo.
+#[tokio::test]
+async fn renomeacao_local_vira_rename_no_drive_sem_retransferir() {
+    let h = Harness::new().await;
+    h.write_local("antigo.bin", b"conteudo-unico", T);
+    h.sync().await; // sobe e ancora
+    let uploads_before = h
+        .drive
+        .upload_new_calls
+        .load(std::sync::atomic::Ordering::SeqCst);
+
+    // Usuário renomeia localmente (mesmo conteúdo, nome novo).
+    std::fs::rename(h.saves_dir.join("antigo.bin"), h.saves_dir.join("novo.bin")).unwrap();
+
+    let summary = h.sync().await;
+
+    assert_eq!(summary.renamed, 1, "rename detectado por hash");
+    assert_eq!(summary.uploaded, 0, "nada retransferido");
+    assert_eq!(summary.downloaded, 0, "órfão não é re-baixado");
+    assert_eq!(
+        h.drive
+            .upload_new_calls
+            .load(std::sync::atomic::Ordering::SeqCst),
+        uploads_before,
+        "nenhum upload novo"
+    );
+    assert!(
+        h.remote_content("novo.bin").is_some(),
+        "Drive tem o nome novo"
+    );
+    assert!(
+        h.remote_content("antigo.bin").is_none(),
+        "sem zumbi do nome antigo"
+    );
+
+    // Convergido: sync seguinte não move nada.
+    let after = h.sync().await;
+    assert_eq!(after.uploaded + after.downloaded + after.renamed, 0);
+}
+
 /// Sync só-upload (`LocalToDrive`, gatilho emulator-stop) não baixa nada;
 /// o arquivo remoto pendente fica para o sync bidirecional seguinte.
 #[tokio::test]

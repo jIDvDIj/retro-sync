@@ -116,6 +116,21 @@ pub fn list_all(conn: &Connection) -> AppResult<Vec<ManifestEntry>> {
     Ok(entries)
 }
 
+/// Remove a entrada de um único arquivo (usado na detecção de renomeação: a
+/// âncora antiga sai, a nova entra com o nome novo).
+pub fn remove_entry(
+    conn: &Connection,
+    emulator: &str,
+    category: SyncCategory,
+    rel_path: &str,
+) -> AppResult<()> {
+    conn.execute(
+        "DELETE FROM sync_manifest WHERE emulator = ?1 AND category = ?2 AND rel_path = ?3",
+        params![emulator, category.as_str(), rel_path],
+    )?;
+    Ok(())
+}
+
 pub fn remove_for_emulator(conn: &Connection, emulator: &str) -> AppResult<()> {
     conn.execute(
         "DELETE FROM sync_manifest WHERE emulator = ?1",

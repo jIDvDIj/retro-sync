@@ -370,6 +370,27 @@ impl DriveApi for MockDrive {
         Ok(out)
     }
 
+    async fn rename_file(
+        &self,
+        file_id: &str,
+        new_name: &str,
+        add_parent: Option<&str>,
+        remove_parent: Option<&str>,
+    ) -> AppResult<DriveFile> {
+        let mut state = self.state.lock().unwrap();
+        let file = state
+            .files
+            .get_mut(file_id)
+            .ok_or_else(|| AppError::DriveObjectNotFound(format!("mock: {file_id}")))?;
+        file.name = new_name.to_string();
+        if let Some(parent) = add_parent {
+            file.parent = parent.to_string();
+        }
+        let _ = remove_parent;
+        let file = file.clone();
+        Ok(to_drive_file(file_id, &file))
+    }
+
     async fn invalidate_folder_path(&self, _cache_key: &str) {}
 
     async fn clear_folder_cache(&self) {}

@@ -52,6 +52,8 @@ pub struct SyncSummary {
     pub backed_up: u32,
     /// Conflitos detectados neste sync (ambos os lados mudaram — BUG-002).
     pub conflicts: u32,
+    /// Renomeações detectadas por hash e aplicadas no Drive sem retransferir.
+    pub renamed: u32,
     pub duration_ms: u64,
 }
 
@@ -64,6 +66,7 @@ impl SyncSummary {
         self.queued += other.queued;
         self.backed_up += other.backed_up;
         self.conflicts += other.conflicts;
+        self.renamed += other.renamed;
     }
 }
 
@@ -607,6 +610,15 @@ impl<R: Runtime> SyncEngine<R> {
                 }
             }
 
+            // Detecção de renomeação por hash: arquivo novo local com o mesmo
+            // conteúdo de um órfão remoto vira um `files.update` (rename) em
+            // vez de Upload + zumbi do nome antigo.
+            let (renamed_plan, renamed) = self
+                .detect_renames(&target.label, *category, &folder_id, &folder_key, plan)
+                .await;
+            let plan = renamed_plan;
+            summary.renamed += renamed;
+
             if plan.is_empty() {
                 continue;
             }
@@ -702,6 +714,154 @@ impl<R: Runtime> SyncEngine<R> {
             }
         }
         local
+    }
+
+    /// Detecção de renomeação por hash (issue #12): um Upload novo cujo MD5
+    /// bate com o `md5Checksum` de um Download órfão (arquivo remoto que sumiu
+    /// localmente) é a mesma coisa renomeada — aplica `files.update` no Drive,
+    /// reancora o manifest e remove os dois lados do plano. MD5 ambíguo (dois
+    /// órfãos com o mesmo conteúdo) é ignorado por segurança.
+    async fn detect_renames(
+        &self,
+        emulator: &str,
+        category: SyncCategory,
+        folder_id: &str,
+        folder_key: &str,
+        mut plan: Vec<PlannedOp>,
+    ) -> (Vec<PlannedOp>, u32) {
+        use std::collections::{HashMap, HashSet};
+
+        // Órfãos remotos: Download de arquivo sem contraparte local.
+        let mut orphans: HashMap<String, usize> = HashMap::new();
+        let mut ambiguous: HashSet<String> = HashSet::new();
+        for (i, op) in plan.iter().enumerate() {
+            if op.action == SyncAction::Download && op.local.is_none() {
+                if let Some(md5) = op.remote.as_ref().and_then(|r| r.md5_checksum.clone()) {
+                    if orphans.insert(md5.clone(), i).is_some() {
+                        ambiguous.insert(md5);
+                    }
+                }
+            }
+        }
+        orphans.retain(|md5, _| !ambiguous.contains(md5));
+        let has_new_upload = plan
+            .iter()
+            .any(|op| op.action == SyncAction::Upload && op.remote.is_none());
+        if orphans.is_empty() || !has_new_upload {
+            return (plan, 0);
+        }
+
+        let mut consumed: Vec<usize> = Vec::new();
+        let mut renamed = 0u32;
+        for i in 0..plan.len() {
+            let op = &plan[i];
+            if op.action != SyncAction::Upload || op.remote.is_some() {
+                continue;
+            }
+            let Some(local) = op.local.as_ref() else {
+                continue;
+            };
+            let Ok(content) = self.storage.read(&local.loc).await else {
+                continue;
+            };
+            let Some(&orphan_idx) = orphans.get(&super::md5_hex(&content)) else {
+                continue;
+            };
+            if consumed.contains(&orphan_idx) {
+                continue;
+            }
+            let orphan_rel = plan[orphan_idx].rel_path.clone();
+            let remote = plan[orphan_idx].remote.as_ref().expect("órfão tem remoto");
+
+            // Subpasta mudou? Então o rename também move de parent.
+            let (new_dir, new_name) = split_rel_path(&op.rel_path);
+            let (old_dir, _) = split_rel_path(&orphan_rel);
+            let parents = if new_dir == old_dir {
+                Some((None, None))
+            } else {
+                let new_parent = match new_dir {
+                    Some(dir) => self
+                        .drive
+                        .ensure_subpath(folder_id, folder_key, dir)
+                        .await
+                        .ok(),
+                    None => Some(folder_id.to_string()),
+                };
+                let old_parent = match old_dir {
+                    Some(dir) => self
+                        .drive
+                        .ensure_subpath(folder_id, folder_key, dir)
+                        .await
+                        .ok(),
+                    None => Some(folder_id.to_string()),
+                };
+                match (new_parent, old_parent) {
+                    (Some(new_parent), Some(old_parent)) => {
+                        Some((Some(new_parent), Some(old_parent)))
+                    }
+                    _ => None,
+                }
+            };
+            let Some((add_parent, remove_parent)) = parents else {
+                continue;
+            };
+
+            match self
+                .drive
+                .rename_file(
+                    &remote.id,
+                    new_name,
+                    add_parent.as_deref(),
+                    remove_parent.as_deref(),
+                )
+                .await
+            {
+                Ok(updated) => {
+                    tracing::info!(
+                        emulador = %emulator,
+                        de = %orphan_rel,
+                        para = %op.rel_path,
+                        "renomeação detectada por hash; aplicada no Drive sem retransferir"
+                    );
+                    let entry = ManifestEntry {
+                        emulator: emulator.to_string(),
+                        category,
+                        rel_path: op.rel_path.clone(),
+                        drive_file_id: Some(updated.id.clone()),
+                        local_mtime_ms: Some(local.mtime_ms),
+                        drive_mtime_ms: updated.modified_ms(),
+                        size_bytes: Some(content.len() as i64),
+                        last_synced_at_ms: chrono::Utc::now().timestamp_millis(),
+                        file_hash: Some(super::sha256_hex(&content)),
+                    };
+                    let (emu, old_rel) = (emulator.to_string(), orphan_rel);
+                    let _ = self
+                        .db
+                        .with(move |conn| {
+                            manifest::remove_entry(conn, &emu, category, &old_rel)?;
+                            manifest::upsert(conn, &entry)
+                        })
+                        .await;
+                    consumed.push(i);
+                    consumed.push(orphan_idx);
+                    renamed += 1;
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        arquivo = %op.rel_path,
+                        error = %err,
+                        "rename no Drive falhou; seguindo com upload normal"
+                    );
+                }
+            }
+        }
+
+        consumed.sort_unstable();
+        consumed.dedup();
+        for idx in consumed.into_iter().rev() {
+            plan.remove(idx);
+        }
+        (plan, renamed)
     }
 
     async fn execute_op(&self, ctx: &CategoryCtx, op: PlannedOp) -> OpOutcome {

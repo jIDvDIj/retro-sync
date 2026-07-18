@@ -67,6 +67,16 @@ pub trait DriveApi: Send + Sync {
     /// (FEATURE-004). Retorna os `DriveFile` na MESMA ordem das operações.
     async fn upload_batch(&self, ops: Vec<BatchUploadOp>) -> AppResult<Vec<DriveFile>>;
 
+    /// Renomeia (e opcionalmente move) um arquivo sem reenviar conteúdo
+    /// (`files.update`). Usado pela detecção de renomeação por hash.
+    async fn rename_file(
+        &self,
+        file_id: &str,
+        new_name: &str,
+        add_parent: Option<&str>,
+        remove_parent: Option<&str>,
+    ) -> AppResult<DriveFile>;
+
     /// Invalida um caminho lógico de pasta e sua subárvore no cache.
     async fn invalidate_folder_path(&self, cache_key: &str);
 
@@ -132,6 +142,16 @@ impl DriveApi for DriveClient {
 
     async fn upload_batch(&self, ops: Vec<BatchUploadOp>) -> AppResult<Vec<DriveFile>> {
         DriveClient::upload_batch(self, ops).await
+    }
+
+    async fn rename_file(
+        &self,
+        file_id: &str,
+        new_name: &str,
+        add_parent: Option<&str>,
+        remove_parent: Option<&str>,
+    ) -> AppResult<DriveFile> {
+        DriveClient::rename_file(self, file_id, new_name, add_parent, remove_parent).await
     }
 
     async fn invalidate_folder_path(&self, cache_key: &str) {

@@ -161,6 +161,8 @@ export interface SyncSummary {
   backedUp: number;
   /** Conflitos detectados neste sync (ambos os lados mudaram). */
   conflicts: number;
+  /** Renomeações detectadas por hash e aplicadas no Drive sem retransferir. */
+  renamed: number;
   durationMs: number;
 }
 

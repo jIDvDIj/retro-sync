@@ -272,6 +272,38 @@ impl DriveClient {
         }
     }
 
+    /// Renomeia (e opcionalmente move de pasta) um arquivo existente via
+    /// `files.update`, sem reenviar conteúdo. Usado pela detecção de
+    /// renomeação por hash — evita Upload novo + zumbi do nome antigo.
+    pub async fn rename_file(
+        &self,
+        file_id: &str,
+        new_name: &str,
+        add_parent: Option<&str>,
+        remove_parent: Option<&str>,
+    ) -> AppResult<DriveFile> {
+        let url = format!("{}/files/{file_id}", self.api_base);
+        let body = json!({ "name": new_name });
+        let response = self
+            .send_with_retry("files.rename", |token| {
+                let mut request = self
+                    .http
+                    .patch(&url)
+                    .bearer_auth(token)
+                    .query(&[("fields", FILE_FIELDS)])
+                    .json(&body);
+                if let Some(parent) = add_parent {
+                    request = request.query(&[("addParents", parent)]);
+                }
+                if let Some(parent) = remove_parent {
+                    request = request.query(&[("removeParents", parent)]);
+                }
+                request
+            })
+            .await?;
+        Ok(response.json::<DriveFile>().await?)
+    }
+
     /// Envia até `DRIVE_BATCH_MAX_OPS` arquivos novos e pequenos em um único
     /// request `multipart/mixed`, reduzindo ~100× o número de chamadas HTTP no
     /// primeiro sync de coleções grandes (FEATURE-004). Retorna os `DriveFile` na
