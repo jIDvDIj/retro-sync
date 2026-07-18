@@ -194,6 +194,40 @@ impl Versioner for FsVersioner {
     }
 }
 
+/// Marcador no nome das cópias padronizadas de conflito.
+const CONFLICT_MARKER: &str = ".retrosync-conflict-";
+
+/// `("SAVE.bin", "20250717-103000", "dev-a")` →
+/// `"SAVE.retrosync-conflict-20250717-103000-dev-a.bin"`.
+pub fn conflict_copy_name(file_name: &str, stamp: &str, device_id: &str) -> String {
+    match file_name.rsplit_once('.') {
+        Some((stem, ext)) => format!("{stem}{CONFLICT_MARKER}{stamp}-{device_id}.{ext}"),
+        None => format!("{file_name}{CONFLICT_MARKER}{stamp}-{device_id}"),
+    }
+}
+
+/// Mantém no máximo `max` cópias de conflito de `file_name` em `dir`, apagando
+/// as mais antigas (o carimbo no nome é lexicograficamente ordenável).
+pub fn prune_conflict_copies(dir: &Path, file_name: &str, max: usize) -> AppResult<()> {
+    let stem = file_name.rsplit_once('.').map_or(file_name, |(s, _)| s);
+    let prefix = format!("{stem}{CONFLICT_MARKER}");
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Ok(());
+    };
+    let mut copies: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with(&prefix))
+        .collect();
+    // Mais recentes primeiro (carimbo no nome).
+    copies.sort_by(|a, b| b.cmp(a));
+    for old in copies.iter().skip(max.max(1)) {
+        let _ = std::fs::remove_file(dir.join(old));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,6 +238,45 @@ mod tests {
         let src = tmp.path().join("SAVE.bin");
         std::fs::write(&src, b"v1").unwrap();
         (tmp, versioner, src)
+    }
+
+    #[test]
+    fn conflict_copy_name_embute_carimbo_e_dispositivo() {
+        assert_eq!(
+            conflict_copy_name("SAVE.bin", "20250717-103000", "dev-a"),
+            "SAVE.retrosync-conflict-20250717-103000-dev-a.bin"
+        );
+        assert_eq!(
+            conflict_copy_name("SAVE", "20250717-103000", "dev-a"),
+            "SAVE.retrosync-conflict-20250717-103000-dev-a"
+        );
+    }
+
+    #[test]
+    fn prune_conflict_copies_mantem_as_mais_recentes() {
+        let tmp = tempfile::tempdir().unwrap();
+        for stamp in ["20250101-100000", "20250102-100000", "20250103-100000"] {
+            std::fs::write(
+                tmp.path()
+                    .join(conflict_copy_name("SAVE.bin", stamp, "dev")),
+                b"x",
+            )
+            .unwrap();
+        }
+        // Arquivo de outro save não é tocado.
+        std::fs::write(tmp.path().join("OUTRO.bin"), b"x").unwrap();
+
+        prune_conflict_copies(tmp.path(), "SAVE.bin", 2).unwrap();
+
+        let mut names: Vec<String> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names.len(), 3);
+        assert!(names.iter().any(|n| n.contains("20250103")));
+        assert!(names.iter().any(|n| n.contains("20250102")));
+        assert!(!names.iter().any(|n| n.contains("20250101")));
     }
 
     #[test]

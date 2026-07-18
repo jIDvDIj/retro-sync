@@ -118,6 +118,11 @@ pub const SETTING_MAX_BACKUP_VERSIONS: &str = "max_backup_versions";
 /// Default de fábrica do máximo de versões por arquivo.
 pub const MAX_BACKUP_VERSIONS_DEFAULT: u32 = 5;
 
+/// Subpasta (por emulador) das cópias padronizadas de conflito.
+pub const CONFLICT_COPIES_DIR: &str = "conflicts";
+/// Máximo de cópias de conflito mantidas por arquivo (as mais antigas caem).
+pub const MAX_CONFLICT_COPIES: usize = 3;
+
 /// IDs de banners informativos que o usuário dispensou (array JSON). Um banner
 /// dispensado não reaparece
 pub const SETTING_DISMISSED_NOTICES: &str = "dismissed_notices";

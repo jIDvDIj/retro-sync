@@ -162,6 +162,9 @@ export interface Conflict {
   driveFileId: string;
   localAbsPath: string;
   detectedAtMs: number;
+  /** Cópia padronizada do lado local (`…retrosync-conflict-<carimbo>-<device>…`),
+   * para inspeção manual. `null` quando a cópia não pôde ser criada. */
+  backupPath: string | null;
 }
 
 /** `sync::ConflictResolution` — qual versão manter ao resolver um conflito */

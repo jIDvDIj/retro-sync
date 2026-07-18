@@ -146,6 +146,11 @@ export function openBackupFolder(): Promise<void> {
   return invoke<void>("open_backup_folder");
 }
 
+/** Mostra um arquivo de backup no gerenciador de arquivos (abre a pasta dele). */
+export function revealBackupPath(path: string): Promise<void> {
+  return invoke<void>("reveal_backup_path", { path });
+}
+
 /**
  * Abre o seletor de pasta nativo do SO (SAF no Android) e retorna a URI da
  * árvore concedida. No desktop lança erro — use o seletor de ficheiros nativo.

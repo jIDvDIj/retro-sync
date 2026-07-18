@@ -58,6 +58,7 @@ export const sync: Localized<typeof SyncEn> = {
       "Estes arquivos mudaram neste dispositivo e no Drive desde o último sync. Escolha qual versão manter — o sync deste emulador está pausado até a resolução. A versão descartada localmente é salva em backup.",
     thisDevice: "Este dispositivo",
     drive: "Drive",
+    openCopy: "Mostrar cópia local na pasta",
     keepLocal: "Manter local",
     keepDrive: "Manter do Drive",
   },

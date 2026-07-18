@@ -55,5 +55,6 @@ export const sync = {
     drive: "Drive",
     keepLocal: "Keep local",
     keepDrive: "Keep Drive's",
+    openCopy: "Show local copy in folder",
   },
 } as const;

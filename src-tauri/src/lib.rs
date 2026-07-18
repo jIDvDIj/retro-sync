@@ -254,6 +254,8 @@ pub fn run() {
             commands::set_autostart,
             #[cfg(desktop)]
             commands::open_backup_folder,
+            #[cfg(desktop)]
+            commands::reveal_backup_path,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o RetroSync");

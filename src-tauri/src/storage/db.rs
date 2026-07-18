@@ -116,6 +116,13 @@ const SCHEMA_V8: &str = "
 ALTER TABLE pending_ops ADD COLUMN next_retry_at_ms INTEGER DEFAULT 0;
 ";
 
+/// v9 — caminho da cópia padronizada do lado local do conflito
+/// (`<nome>.retrosync-conflict-<carimbo>-<device>.<ext>`), para o usuário
+/// inspecionar os dois lados antes de decidir. `NULL` quando a cópia falhou.
+const SCHEMA_V9: &str = "
+ALTER TABLE sync_conflicts ADD COLUMN backup_path TEXT;
+";
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -213,6 +220,10 @@ fn migrate(conn: &Connection) -> AppResult<()> {
     if version < 8 {
         conn.execute_batch(SCHEMA_V8)?;
         version = 8;
+    }
+    if version < 9 {
+        conn.execute_batch(SCHEMA_V9)?;
+        version = 9;
     }
     conn.pragma_update(None, "user_version", version)?;
     Ok(())

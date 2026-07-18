@@ -1091,6 +1091,11 @@ impl<R: Runtime> SyncEngine<R> {
             .as_ref()
             .ok_or_else(|| AppError::Other("conflito planejado sem arquivo remoto".into()))?;
 
+        // Cópia padronizada do lado local em <backups>/<emu>/conflicts/, com
+        // carimbo e device no nome — o usuário inspeciona os dois lados antes
+        // de decidir. Best-effort: a falha não impede o registro do conflito.
+        let backup_path = self.copy_conflict_side(ctx, op, &local.loc).await;
+
         let conflict = Conflict {
             emulator: ctx.emulator.clone(),
             category: ctx.category,
@@ -1108,6 +1113,7 @@ impl<R: Runtime> SyncEngine<R> {
             drive_file_id: remote.id.clone(),
             local_abs_path: self.storage.loc_to_stored(&local.loc),
             detected_at_ms: chrono::Utc::now().timestamp_millis(),
+            backup_path,
         };
 
         let stored = conflict.clone();
@@ -1121,6 +1127,52 @@ impl<R: Runtime> SyncEngine<R> {
             self.notify_conflict(&ctx.emulator, &op.rel_path);
         }
         Ok(())
+    }
+
+    /// Copia o lado local do conflito para
+    /// `<backups>/<emu>/conflicts/<cat>/<rel_dir>/<nome>.retrosync-conflict-<carimbo>-<device><ext>`
+    /// e poda cópias antigas do mesmo arquivo (máx. [`MAX_CONFLICT_COPIES`]).
+    /// Retorna o caminho persistível da cópia, ou `None` em falha.
+    async fn copy_conflict_side(
+        &self,
+        ctx: &CategoryCtx,
+        op: &PlannedOp,
+        src: &FileLoc,
+    ) -> Option<String> {
+        use crate::constants::{CONFLICT_COPIES_DIR, MAX_CONFLICT_COPIES};
+
+        let (dir_part, file_name) = split_rel_path(&op.rel_path);
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let device = ctx.device_id.as_deref().unwrap_or("unknown");
+        let copy_name = crate::versioning::conflict_copy_name(file_name, &stamp, device);
+        let copy_rel = match dir_part {
+            Some(dir) => format!("{dir}/{copy_name}"),
+            None => copy_name,
+        };
+
+        let base = FileLoc::from_path(
+            self.backup_dir
+                .join(&ctx.emulator)
+                .join(CONFLICT_COPIES_DIR)
+                .join(ctx.category.as_str()),
+        );
+        let dest = self.storage.join(&base, &copy_rel);
+
+        if let Err(err) = self.storage.copy_to(src, &dest).await {
+            tracing::warn!(arquivo = %op.rel_path, error = %err, "falha ao copiar o lado local do conflito");
+            return None;
+        }
+
+        // Poda best-effort das cópias antigas deste arquivo.
+        if let Some(dir) = dest.as_native_path().and_then(|p| p.parent()) {
+            let (dir, name) = (dir.to_path_buf(), file_name.to_string());
+            let _ = tokio::task::spawn_blocking(move || {
+                crate::versioning::prune_conflict_copies(&dir, &name, MAX_CONFLICT_COPIES)
+            })
+            .await;
+        }
+
+        Some(self.storage.loc_to_stored(&dest))
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -2,6 +2,8 @@
 //! Toda struct que cruza esta boundary deriva `Serialize`/`Deserialize` e tem
 //! interface TypeScript espelhada em `src/types/ipc.ts`.
 
+#[cfg(desktop)]
+use std::path::Path;
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -502,6 +504,35 @@ pub async fn open_backup_folder(app: AppHandle) -> AppResult<()> {
         .map_err(|e| AppError::Other(format!("diretório de dados indisponível: {e}")))?
         .join(LOCAL_BACKUP_DIR);
     tokio::fs::create_dir_all(&dir).await?;
+    tokio::task::spawn_blocking(move || open::that(&dir))
+        .await
+        .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))??;
+    Ok(())
+}
+
+/// Mostra um arquivo de backup no gerenciador de arquivos do SO (abre a pasta
+/// que o contém). Restrito à árvore de backups do app — recusa qualquer
+/// caminho fora dela.
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn reveal_backup_path(app: AppHandle, path: String) -> AppResult<()> {
+    let backups_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Other(format!("diretório de dados indisponível: {e}")))?
+        .join(LOCAL_BACKUP_DIR);
+    let target = PathBuf::from(&path);
+    let canonical = tokio::fs::canonicalize(&target).await?;
+    let root_canonical = tokio::fs::canonicalize(&backups_root).await?;
+    if !canonical.starts_with(&root_canonical) {
+        return Err(AppError::Other(
+            "caminho fora da pasta de backups do RetroSync".into(),
+        ));
+    }
+    let dir = canonical
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or(canonical);
     tokio::task::spawn_blocking(move || open::that(&dir))
         .await
         .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))??;
