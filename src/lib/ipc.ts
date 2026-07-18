@@ -147,6 +147,11 @@ export function setMaxBackupVersions(versions: number): Promise<void> {
   return invoke<void>("set_max_backup_versions", { versions });
 }
 
+/** Limites de banda em KB/s (0 = ilimitado). Aplicados imediatamente. */
+export function setBandwidthLimits(uploadKbps: number, downloadKbps: number): Promise<void> {
+  return invoke<void>("set_bandwidth_limits", { uploadKbps, downloadKbps });
+}
+
 /** Liga/desliga o início automático do RetroSync junto com o sistema. */
 export function setAutostart(enabled: boolean): Promise<void> {
   return invoke<void>("set_autostart", { enabled });

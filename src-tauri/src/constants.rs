@@ -129,6 +129,10 @@ pub const SETTING_MAX_BACKUP_VERSIONS: &str = "max_backup_versions";
 /// Default de fábrica do máximo de versões por arquivo.
 pub const MAX_BACKUP_VERSIONS_DEFAULT: u32 = 5;
 
+/// Limites de banda das transferências com o Drive, em KB/s (0 = ilimitado).
+pub const SETTING_UPLOAD_KBPS: &str = "upload_kbps";
+pub const SETTING_DOWNLOAD_KBPS: &str = "download_kbps";
+
 /// Subpasta (por emulador) das cópias padronizadas de conflito.
 pub const CONFLICT_COPIES_DIR: &str = "conflicts";
 /// Máximo de cópias de conflito mantidas por arquivo (as mais antigas caem).

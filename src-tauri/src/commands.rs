@@ -592,6 +592,20 @@ pub async fn set_max_backup_versions(state: State<'_, AppState>, versions: u32) 
         .await
 }
 
+/// Define os limites de banda das transferências em KB/s (0 = ilimitado).
+/// Aplicados imediatamente — o cliente relê os valores a cada operação.
+#[tauri::command]
+pub async fn set_bandwidth_limits(
+    state: State<'_, AppState>,
+    upload_kbps: u32,
+    download_kbps: u32,
+) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::set_bandwidth_limits(conn, upload_kbps, download_kbps))
+        .await
+}
+
 /// Define o intervalo do scan periódico em minutos (0 = desativado). O timer
 /// relê o valor a cada ciclo — não precisa reiniciar o app.
 #[tauri::command]

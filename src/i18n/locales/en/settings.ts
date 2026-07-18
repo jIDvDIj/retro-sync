@@ -23,6 +23,13 @@ export const settings = {
       heading: "Automatic sync",
       hint: "Even with everything off, the “Sync now” button stays available.",
     },
+    bandwidth: {
+      heading: "Bandwidth limits",
+      hint: "Caps the average transfer rate to Drive. 0 means unlimited.",
+      uploadLabel: "Upload (KB/s)",
+      downloadLabel: "Download (KB/s)",
+      saved: "Saved",
+    },
     scan: {
       heading: "Periodic scan",
       hint: "Runs a full sync in the background at this interval (with a little randomness), catching changes the triggers missed. It never runs while an emulator is open. 0 disables it.",

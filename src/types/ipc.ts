@@ -41,6 +41,10 @@ export interface Settings {
   scanIntervalMinutes: number;
   /** Máximo de versões arquivadas por arquivo no histórico pré-download. */
   maxBackupVersions: number;
+  /** Limite de upload em KB/s (0 = ilimitado). */
+  uploadKbps: number;
+  /** Limite de download em KB/s (0 = ilimitado). */
+  downloadKbps: number;
 }
 
 /** `storage::stats::EmulatorStats` — contadores acumulados por emulador */

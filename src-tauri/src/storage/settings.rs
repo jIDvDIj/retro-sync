@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use crate::constants::{
     BACKUP_RETENTION_DAYS_DEFAULT, MAX_BACKUP_VERSIONS_DEFAULT, SCAN_INTERVAL_MINUTES_DEFAULT,
     SETTING_BACKUP_RETENTION_DAYS, SETTING_DEVICE_NAME, SETTING_DISMISSED_NOTICES,
-    SETTING_MAX_BACKUP_VERSIONS, SETTING_NOTIFICATION_LEVEL, SETTING_SCAN_INTERVAL_MINUTES,
-    SETTING_TRIGGER_EMULATOR_START, SETTING_TRIGGER_EMULATOR_STOP, SETTING_TRIGGER_STARTUP,
+    SETTING_DOWNLOAD_KBPS, SETTING_MAX_BACKUP_VERSIONS, SETTING_NOTIFICATION_LEVEL,
+    SETTING_SCAN_INTERVAL_MINUTES, SETTING_TRIGGER_EMULATOR_START, SETTING_TRIGGER_EMULATOR_STOP,
+    SETTING_TRIGGER_STARTUP, SETTING_UPLOAD_KBPS,
 };
 // Consumido apenas pelas funções de autostart (só-desktop).
 #[cfg(desktop)]
@@ -49,6 +50,12 @@ pub struct Settings {
     /// sobrescrever o local (mínimo 1).
     #[serde(default = "default_max_backup_versions")]
     pub max_backup_versions: u32,
+    /// Limite de upload em KB/s (0 = ilimitado).
+    #[serde(default)]
+    pub upload_kbps: u32,
+    /// Limite de download em KB/s (0 = ilimitado).
+    #[serde(default)]
+    pub download_kbps: u32,
 }
 
 fn default_max_backup_versions() -> u32 {
@@ -73,6 +80,8 @@ impl Default for Settings {
             backup_retention_days: BACKUP_RETENTION_DAYS_DEFAULT,
             scan_interval_minutes: SCAN_INTERVAL_MINUTES_DEFAULT,
             max_backup_versions: MAX_BACKUP_VERSIONS_DEFAULT,
+            upload_kbps: 0,
+            download_kbps: 0,
         }
     }
 }
@@ -181,7 +190,28 @@ pub fn load(conn: &Connection) -> AppResult<Settings> {
         backup_retention_days: backup_retention_days(conn)?,
         scan_interval_minutes: scan_interval_minutes(conn)?,
         max_backup_versions: max_backup_versions(conn)?,
+        upload_kbps: upload_kbps(conn)?,
+        download_kbps: download_kbps(conn)?,
     })
+}
+
+/// Limite de upload em KB/s (default: 0 = ilimitado).
+pub fn upload_kbps(conn: &Connection) -> AppResult<u32> {
+    Ok(get(conn, SETTING_UPLOAD_KBPS)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0))
+}
+
+/// Limite de download em KB/s (default: 0 = ilimitado).
+pub fn download_kbps(conn: &Connection) -> AppResult<u32> {
+    Ok(get(conn, SETTING_DOWNLOAD_KBPS)?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0))
+}
+
+pub fn set_bandwidth_limits(conn: &Connection, upload: u32, download: u32) -> AppResult<()> {
+    set(conn, SETTING_UPLOAD_KBPS, &upload.to_string())?;
+    set(conn, SETTING_DOWNLOAD_KBPS, &download.to_string())
 }
 
 /// Máximo de versões arquivadas por arquivo (default: 5; mínimo efetivo 1).
@@ -439,6 +469,21 @@ mod tests {
     }
 
     #[test]
+    fn limites_de_banda_default_e_roundtrip() {
+        let db = Db::open_in_memory().unwrap();
+        db.with_sync(|conn| {
+            assert_eq!(upload_kbps(conn)?, 0);
+            assert_eq!(download_kbps(conn)?, 0);
+            set_bandwidth_limits(conn, 512, 1024)?;
+            assert_eq!(upload_kbps(conn)?, 512);
+            assert_eq!(download_kbps(conn)?, 1024);
+            assert_eq!(load(conn)?.upload_kbps, 512);
+            assert_eq!(load(conn)?.download_kbps, 1024);
+            Ok(())
+        });
+    }
+
+    #[test]
     fn dismiss_notice_persiste_e_e_idempotente() {
         let db = Db::open_in_memory().unwrap();
         db.with_sync(|conn| {
@@ -466,12 +511,16 @@ mod tests {
             backup_retention_days: 15,
             scan_interval_minutes: 45,
             max_backup_versions: 3,
+            upload_kbps: 256,
+            download_kbps: 0,
         })
         .unwrap();
         assert_eq!(json["deviceName"], "PC Gamer");
         assert_eq!(json["backupRetentionDays"], 15);
         assert_eq!(json["scanIntervalMinutes"], 45);
         assert_eq!(json["maxBackupVersions"], 3);
+        assert_eq!(json["uploadKbps"], 256);
+        assert_eq!(json["downloadKbps"], 0);
         assert_eq!(json["triggers"]["startup"], true);
         assert_eq!(json["triggers"]["emulatorStart"], true);
         assert_eq!(json["triggers"]["emulatorStop"], true);

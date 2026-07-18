@@ -16,6 +16,37 @@ use crate::error::{AppError, AppResult};
 use crate::storage::db::Db;
 use crate::storage::drive_folders;
 
+/// Limitador global de banda (fase 1 do throttle): cada transferência reserva
+/// uma janela de tempo proporcional ao tamanho e à taxa configurada; as
+/// seguintes esperam a janela anterior vencer. Como os corpos são transferidos
+/// inteiros, o limite vale como média entre operações — suficiente para não
+/// saturar conexões lentas durante um sync grande.
+#[derive(Default)]
+pub(crate) struct RateLimiter {
+    /// Instante até o qual a banda já está comprometida por transferências
+    /// anteriores. `None` = ocioso.
+    committed_until: tokio::sync::Mutex<Option<tokio::time::Instant>>,
+}
+
+impl RateLimiter {
+    /// Reserva a janela para `bytes` a `kbps` e dorme até a vez desta
+    /// transferência. `kbps == 0` = ilimitado (retorna na hora).
+    pub(crate) async fn throttle(&self, bytes: usize, kbps: u32) {
+        if kbps == 0 || bytes == 0 {
+            return;
+        }
+        let window = Duration::from_secs_f64(bytes as f64 / (f64::from(kbps) * 1024.0));
+        let start = {
+            let mut guard = self.committed_until.lock().await;
+            let now = tokio::time::Instant::now();
+            let start = guard.map_or(now, |busy_until| busy_until.max(now));
+            *guard = Some(start + window);
+            start
+        };
+        tokio::time::sleep_until(start).await;
+    }
+}
+
 pub struct DriveClient {
     pub(crate) http: reqwest::Client,
     pub(crate) auth: Arc<AuthManager>,
@@ -30,6 +61,8 @@ pub struct DriveClient {
     pub(crate) api_base: String,
     pub(crate) upload_base: String,
     pub(crate) batch_base: String,
+    /// Throttle global de banda (limites lidos das settings a cada operação).
+    pub(crate) limiter: RateLimiter,
 }
 
 impl DriveClient {
@@ -56,7 +89,29 @@ impl DriveClient {
             api_base: super::DRIVE_API_BASE.to_string(),
             upload_base: super::DRIVE_UPLOAD_BASE.to_string(),
             batch_base: super::DRIVE_BATCH_BASE.to_string(),
+            limiter: RateLimiter::default(),
         }
+    }
+
+    /// Aplica o limite de upload configurado antes de enviar `bytes`.
+    pub(crate) async fn throttle_upload(&self, bytes: usize) {
+        let kbps = self
+            .db
+            .with(crate::storage::settings::upload_kbps)
+            .await
+            .unwrap_or(0);
+        self.limiter.throttle(bytes, kbps).await;
+    }
+
+    /// Aplica o limite de download configurado após receber `bytes` — compromete
+    /// a janela para que os próximos downloads aguardem, mantendo a média.
+    pub(crate) async fn throttle_download(&self, bytes: usize) {
+        let kbps = self
+            .db
+            .with(crate::storage::settings::download_kbps)
+            .await
+            .unwrap_or(0);
+        self.limiter.throttle(bytes, kbps).await;
     }
 
     /// Redireciona as três bases da API para `base` (URI de um servidor de
@@ -187,6 +242,34 @@ mod tests {
                 base + 250
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod limiter_tests {
+    use super::*;
+
+    /// Duas transferências de 64 KB a 64 KB/s: a segunda só começa após a
+    /// janela de 1s da primeira (tempo virtual do tokio, sem espera real).
+    #[tokio::test(start_paused = true)]
+    async fn throttle_espaca_transferencias_pela_taxa() {
+        let limiter = RateLimiter::default();
+        let start = tokio::time::Instant::now();
+
+        limiter.throttle(64 * 1024, 64).await; // 1ª: janela imediata
+        assert_eq!(start.elapsed(), Duration::ZERO);
+
+        limiter.throttle(64 * 1024, 64).await; // 2ª: espera a janela de 1s
+        assert!(start.elapsed() >= Duration::from_secs(1));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn throttle_zero_e_ilimitado() {
+        let limiter = RateLimiter::default();
+        let start = tokio::time::Instant::now();
+        limiter.throttle(10 * 1024 * 1024, 0).await;
+        limiter.throttle(10 * 1024 * 1024, 0).await;
+        assert_eq!(start.elapsed(), Duration::ZERO);
     }
 }
 

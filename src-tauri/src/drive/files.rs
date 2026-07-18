@@ -221,7 +221,10 @@ impl DriveClient {
                     .query(&[("alt", "media")])
             })
             .await?;
-        Ok(response.bytes().await?.to_vec())
+        let content = response.bytes().await?.to_vec();
+        // Compromete a janela de banda para os próximos downloads (fase 1).
+        self.throttle_download(content.len()).await;
+        Ok(content)
     }
 
     /// Cria um arquivo novo em `parent_id` preservando o mtime original e
@@ -313,6 +316,9 @@ impl DriveClient {
         if ops.is_empty() {
             return Ok(Vec::new());
         }
+        // Limite de banda: o batch inteiro conta como uma transferência única.
+        let total_bytes: usize = ops.iter().map(|op| op.content.len()).sum();
+        self.throttle_upload(total_bytes).await;
         let (boundary, body) = build_batch_body(&ops)?;
         let content_type = format!("multipart/mixed; boundary={boundary}");
 
@@ -354,6 +360,8 @@ impl DriveClient {
         metadata: &serde_json::Value,
         content: Vec<u8>,
     ) -> AppResult<DriveFile> {
+        // Limite de banda de upload (fase 1): reserva a janela antes de enviar.
+        self.throttle_upload(content.len()).await;
         let (boundary, body) = build_multipart_related(metadata, &content)?;
         let content_type = format!("multipart/related; boundary={boundary}");
 
@@ -380,6 +388,8 @@ impl DriveClient {
         metadata: &serde_json::Value,
         content: Vec<u8>,
     ) -> AppResult<DriveFile> {
+        // Limite de banda de upload (fase 1): reserva a janela antes de enviar.
+        self.throttle_upload(content.len()).await;
         let initiate = self
             .send_with_retry("files.upload.initiate", |token| {
                 self.http

@@ -8,6 +8,7 @@ import {
   setAutostart,
   setBackupRetentionDays,
   setDeviceName,
+  setBandwidthLimits,
   setMaxBackupVersions,
   setNotificationLevel,
   setScanIntervalMinutes,
@@ -89,6 +90,27 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
   const [scanSaved, setScanSaved] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const scanDirty = scanInterval !== String(settings.scanIntervalMinutes);
+
+  const [uploadKbps, setUploadKbps] = useState(String(settings.uploadKbps));
+  const [downloadKbps, setDownloadKbps] = useState(String(settings.downloadKbps));
+  const [bandwidthSaved, setBandwidthSaved] = useState(false);
+  const bandwidthDirty =
+    uploadKbps !== String(settings.uploadKbps) || downloadKbps !== String(settings.downloadKbps);
+
+  const saveBandwidth = async () => {
+    const up = Number.parseInt(uploadKbps, 10);
+    const down = Number.parseInt(downloadKbps, 10);
+    if (Number.isNaN(up) || Number.isNaN(down) || up < 0 || down < 0) return;
+    setScanError(null);
+    setBandwidthSaved(false);
+    try {
+      await setBandwidthLimits(up, down);
+      onSaved();
+      setBandwidthSaved(true);
+    } catch (err) {
+      setScanError(errorMessage(err));
+    }
+  };
 
   const saveScanInterval = async () => {
     const minutes = Number.parseInt(scanInterval, 10);
@@ -266,6 +288,43 @@ export function SettingsModal({ settings, emulators, onClose, onSaved }: Props) 
             <h3>{t("settings.categories.heading")}</h3>
             <p className="muted">{t("settings.categories.hint")}</p>
             <CategorySettings emulators={emulators} />
+          </section>
+
+          <section className="settings-section">
+            <h3>{t("settings.bandwidth.heading")}</h3>
+            <p className="muted">{t("settings.bandwidth.hint")}</p>
+            <label className="field">
+              <span>{t("settings.bandwidth.uploadLabel")}</span>
+              <input
+                type="number"
+                min={0}
+                value={uploadKbps}
+                onChange={(e) => {
+                  setUploadKbps(e.target.value);
+                  setBandwidthSaved(false);
+                }}
+              />
+            </label>
+            <label className="field">
+              <span>{t("settings.bandwidth.downloadLabel")}</span>
+              <input
+                type="number"
+                min={0}
+                value={downloadKbps}
+                onChange={(e) => {
+                  setDownloadKbps(e.target.value);
+                  setBandwidthSaved(false);
+                }}
+              />
+            </label>
+            <div className="settings-row">
+              <button onClick={saveBandwidth} disabled={!bandwidthDirty}>
+                {t("settings.device.save")}
+              </button>
+              {bandwidthSaved && !bandwidthDirty ? (
+                <span className="saved-hint">{t("settings.bandwidth.saved")}</span>
+              ) : null}
+            </div>
           </section>
 
           {!isMobile ? (

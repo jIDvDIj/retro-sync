@@ -22,6 +22,13 @@ export const settings: Localized<typeof SettingsEn> = {
       hint: "Muda o idioma da interface do app.",
       label: "Idioma da interface",
     },
+    bandwidth: {
+      heading: "Limites de banda",
+      hint: "Limita a taxa média de transferência com o Drive. 0 = ilimitado.",
+      uploadLabel: "Upload (KB/s)",
+      downloadLabel: "Download (KB/s)",
+      saved: "Salvo",
+    },
     scan: {
       heading: "Scan periódico",
       hint: "Roda um sync completo em background neste intervalo (com um pouco de aleatoriedade), capturando mudanças que os gatilhos perderam. Nunca roda com um emulador aberto. 0 desativa.",
