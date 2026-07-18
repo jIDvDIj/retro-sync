@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { currentLocale } from "../i18n";
 import { useErrorMessage } from "../lib/errors";
 import { formatBytes } from "../lib/format";
-import { listBackups, openBackupFolder } from "../lib/ipc";
+import { listBackups, openBackupFolder, restoreVersion } from "../lib/ipc";
 import { usePlatform } from "../hooks/usePlatform";
 import type { BackupEntry } from "../types/ipc";
 import { Modal } from "./ui/Modal";
@@ -25,6 +25,32 @@ export function BackupHistoryModal({ onClose }: Props) {
   const [entries, setEntries] = useState<BackupEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [busyPath, setBusyPath] = useState<string | null>(null);
+  const [restoredPath, setRestoredPath] = useState<string | null>(null);
+
+  /** Só entradas do histórico de versões (`history/`) são restauráveis pela UI
+   * — o nome com carimbo permite localizar a versão e o arquivo original. */
+  const isRestorable = (entry: BackupEntry) =>
+    entry.run === "history" &&
+    (entry.category === "saves" || entry.category === "savestates" || entry.category === "config");
+
+  const restore = async (entry: BackupEntry) => {
+    setBusyPath(entry.absPath);
+    setError(null);
+    setRestoredPath(null);
+    try {
+      await restoreVersion(
+        entry.emulator,
+        entry.category as "saves" | "savestates" | "config",
+        entry.relPath,
+      );
+      setRestoredPath(entry.absPath);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyPath(null);
+    }
+  };
 
   useEffect(() => {
     listBackups()
@@ -83,6 +109,19 @@ export function BackupHistoryModal({ onClose }: Props) {
                 </span>
               </div>
               <span className="backup-size">{formatBytes(entry.sizeBytes)}</span>
+              {isRestorable(entry) ? (
+                <button
+                  className="secondary"
+                  disabled={busyPath !== null}
+                  onClick={() => restore(entry)}
+                >
+                  {busyPath === entry.absPath
+                    ? t("backupHistory.restoring")
+                    : restoredPath === entry.absPath
+                      ? t("backupHistory.restored")
+                      : t("backupHistory.restore")}
+                </button>
+              ) : null}
             </div>
           ))}
         </div>

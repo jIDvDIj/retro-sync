@@ -694,6 +694,150 @@ pub async fn dismiss_notice(state: State<'_, AppState>, id: String) -> AppResult
         .await
 }
 
+/// Versões arquivadas de um arquivo no histórico pré-download
+/// (`<backups>/<emulador>/history/<categoria>/…`), mais recentes primeiro.
+#[tauri::command]
+pub async fn list_file_versions(
+    app: AppHandle,
+    emulator: String,
+    category: SyncCategory,
+    rel_path: String,
+) -> AppResult<Vec<crate::versioning::FileVersion>> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Other(format!("diretório de dados indisponível: {e}")))?
+        .join(LOCAL_BACKUP_DIR);
+    tokio::task::spawn_blocking(move || {
+        use crate::versioning::Versioner;
+        crate::versioning::FsVersioner::new(dir).versions(&emulator, category.as_str(), &rel_path)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))?
+}
+
+/// Restaura uma versão arquivada por cima do arquivo atual do emulador.
+/// `versioned_rel_path` é o caminho relativo dentro de
+/// `history/<categoria>/` como listado no histórico (nome com carimbo).
+/// O estado atual é arquivado ANTES da restauração — nada se perde. O arquivo
+/// restaurado recebe mtime atual, então o próximo sync o envia ao Drive.
+#[tauri::command]
+pub async fn restore_version(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    emulator: String,
+    category: SyncCategory,
+    versioned_rel_path: String,
+) -> AppResult<()> {
+    // Caminho relativo seguro: sem absolutos, `..` ou segmentos vazios.
+    if versioned_rel_path.is_empty()
+        || versioned_rel_path
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(AppError::Other(format!(
+            "caminho de versão inválido: {versioned_rel_path}"
+        )));
+    }
+
+    let backups_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Other(format!("diretório de dados indisponível: {e}")))?
+        .join(LOCAL_BACKUP_DIR);
+    let mut src_abs = backups_dir
+        .join(&emulator)
+        .join(crate::versioning::HISTORY_DIR_NAME)
+        .join(category.as_str());
+    for part in versioned_rel_path.split('/') {
+        src_abs.push(part);
+    }
+    if !src_abs.is_file() {
+        return Err(AppError::Other(format!(
+            "versão não encontrada: {versioned_rel_path}"
+        )));
+    }
+
+    // Nome original (sem o carimbo) e caminho relativo à categoria.
+    let (dir_part, archived_name) = match versioned_rel_path.rsplit_once('/') {
+        Some((dir, name)) => (Some(dir), name),
+        None => (None, versioned_rel_path.as_str()),
+    };
+    let original = crate::versioning::original_name(archived_name)
+        .ok_or_else(|| AppError::Other(format!("nome de versão inválido: {archived_name}")))?;
+    let original_rel = match dir_part {
+        Some(dir) => format!("{dir}/{original}"),
+        None => original,
+    };
+
+    // Perfil e primeira pasta-base da categoria → destino da restauração.
+    let name = emulator.clone();
+    let profile = state
+        .db
+        .with(emulators::list)
+        .await?
+        .into_iter()
+        .find(|p| p.name == name)
+        .ok_or_else(|| AppError::Other(format!("emulador não encontrado: {emulator}")))?;
+    let bases = match category {
+        SyncCategory::Saves => &profile.saves_paths,
+        SyncCategory::Savestates => &profile.state_paths,
+        SyncCategory::Config => &profile.config_paths,
+    };
+    let base = bases
+        .first()
+        .ok_or_else(|| AppError::Other(format!("categoria sem pasta configurada: {emulator}")))?;
+    let root_loc = state.storage.root_loc(&profile.root_path);
+    let base_loc = state
+        .storage
+        .join(&root_loc, &base.to_string_lossy().replace('\\', "/"));
+    let dest = state.storage.join(&base_loc, &original_rel);
+
+    // Arquiva o estado ATUAL antes de sobrescrever (best-effort; sem estado
+    // atual — arquivo já apagado — só restaura).
+    if state.storage.exists(&dest).await {
+        let max_versions = state
+            .db
+            .with(settings::max_backup_versions)
+            .await
+            .unwrap_or(crate::constants::MAX_BACKUP_VERSIONS_DEFAULT)
+            as usize;
+        let current = state.storage.loc_to_stored(&dest);
+        let (emu, cat, rel) = (
+            emulator.clone(),
+            category.as_str().to_string(),
+            original_rel.clone(),
+        );
+        let dir = backups_dir.clone();
+        let archived = tokio::task::spawn_blocking(move || {
+            use crate::versioning::Versioner;
+            crate::versioning::FsVersioner::new(dir).archive(
+                &emu,
+                &cat,
+                &rel,
+                std::path::Path::new(&current),
+                max_versions,
+            )
+        })
+        .await
+        .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))?;
+        if let Err(err) = archived {
+            tracing::warn!(error = %err, "falha ao arquivar o estado atual antes de restaurar");
+        }
+    }
+
+    // Restaura com mtime atual: o próximo sync envia a versão restaurada.
+    let content = tokio::fs::read(&src_abs).await?;
+    state.storage.write_atomic(&dest, &content, None).await?;
+    tracing::info!(
+        emulador = %emulator,
+        arquivo = %original_rel,
+        versao = %versioned_rel_path,
+        "versão restaurada do histórico"
+    );
+    Ok(())
+}
+
 /// Histórico dos backups locais que o RetroSync criou antes de sobrescrever
 /// arquivos (primeiro sync e resolução de conflito). Só leitura — restauração
 /// continua manual, pela pasta.

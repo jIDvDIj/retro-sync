@@ -194,6 +194,24 @@ impl Versioner for FsVersioner {
     }
 }
 
+/// Inverte [`versioned_name`]: recupera o nome original de um arquivo
+/// arquivado (`"SAVE~20250717-103000.bin"` → `"SAVE.bin"`). `None` quando o
+/// nome não segue o formato de versão.
+pub fn original_name(archived: &str) -> Option<String> {
+    let (stem_and_stamp, ext) = match archived.rsplit_once('.') {
+        Some((rest, ext)) => (rest, Some(ext)),
+        None => (archived, None),
+    };
+    let (stem, stamp) = stem_and_stamp.rsplit_once(VERSION_SEP)?;
+    if stamp.len() != 15 || !stamp.chars().all(|c| c.is_ascii_digit() || c == '-') {
+        return None;
+    }
+    Some(match ext {
+        Some(ext) => format!("{stem}.{ext}"),
+        None => stem.to_string(),
+    })
+}
+
 /// Marcador no nome das cópias padronizadas de conflito.
 const CONFLICT_MARKER: &str = ".retrosync-conflict-";
 
@@ -238,6 +256,20 @@ mod tests {
         let src = tmp.path().join("SAVE.bin");
         std::fs::write(&src, b"v1").unwrap();
         (tmp, versioner, src)
+    }
+
+    #[test]
+    fn original_name_inverte_o_nome_arquivado() {
+        assert_eq!(
+            original_name("SAVE~20250717-103000.bin").as_deref(),
+            Some("SAVE.bin")
+        );
+        assert_eq!(
+            original_name("SAVE~20250717-103000").as_deref(),
+            Some("SAVE")
+        );
+        assert_eq!(original_name("SAVE.bin"), None);
+        assert_eq!(original_name("SAVE~qualquer.bin"), None);
     }
 
     #[test]

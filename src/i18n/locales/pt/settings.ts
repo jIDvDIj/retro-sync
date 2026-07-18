@@ -90,7 +90,10 @@ export const settings: Localized<typeof SettingsEn> = {
   backupHistory: {
     title: "Histórico de backups",
     intro:
-      "Cópias que o RetroSync guardou antes de sobrescrever arquivos locais. Para restaurar uma, abra a pasta de backups e copie o arquivo de volta manualmente.",
+      "Cópias que o RetroSync guardou antes de sobrescrever arquivos locais. Entradas versionadas (history) podem ser restauradas aqui mesmo — o arquivo atual é arquivado antes.",
+    restore: "Restaurar",
+    restoring: "Restaurando…",
+    restored: "Restaurado",
     filterLabel: "Filtrar",
     filterPlaceholder: "ex.: PPSSPP ou SAVE.bin",
     empty: "Nenhum backup ainda.",

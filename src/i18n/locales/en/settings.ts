@@ -86,7 +86,10 @@ export const settings = {
   backupHistory: {
     title: "Backup history",
     intro:
-      "Copies RetroSync saved before overwriting local files. To restore one, open the backups folder and copy the file back manually.",
+      "Copies RetroSync saved before overwriting local files. Versioned entries (history) can be restored right here — the current file is backed up first.",
+    restore: "Restore",
+    restoring: "Restoring…",
+    restored: "Restored",
     filterLabel: "Filter",
     filterPlaceholder: "e.g. PPSSPP or SAVE.bin",
     empty: "No backups yet.",

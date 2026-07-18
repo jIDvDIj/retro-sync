@@ -251,6 +251,8 @@ pub fn run() {
             commands::list_dismissed_notices,
             commands::dismiss_notice,
             commands::list_backups,
+            commands::list_file_versions,
+            commands::restore_version,
             commands::pick_emulator_folder,
             commands::detect_emulator_mobile,
             #[cfg(desktop)]

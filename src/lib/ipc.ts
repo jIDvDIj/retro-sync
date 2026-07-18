@@ -13,6 +13,7 @@ import type {
   DiscoveredEmulator,
   EmulatorProfile,
   EmulatorStats,
+  FileVersion,
   HealthStatus,
   LastSync,
   NotificationLevel,
@@ -227,6 +228,28 @@ export function dismissNotice(id: string): Promise<void> {
 /** Histórico de backups locais (primeiro sync e resoluções de conflito). */
 export function listBackups(): Promise<BackupEntry[]> {
   return invoke<BackupEntry[]>("list_backups");
+}
+
+/** Versões arquivadas de um arquivo no histórico pré-download, recentes primeiro. */
+export function listFileVersions(
+  emulator: string,
+  category: PendingOp["category"],
+  relPath: string,
+): Promise<FileVersion[]> {
+  return invoke<FileVersion[]>("list_file_versions", { emulator, category, relPath });
+}
+
+/**
+ * Restaura uma versão arquivada por cima do arquivo atual do emulador.
+ * O estado atual é arquivado antes; o restaurado sobe no próximo sync.
+ * `versionedRelPath` é o caminho listado no histórico (nome com carimbo).
+ */
+export function restoreVersion(
+  emulator: string,
+  category: PendingOp["category"],
+  versionedRelPath: string,
+): Promise<void> {
+  return invoke<void>("restore_version", { emulator, category, versionedRelPath });
 }
 
 /** Categorias de sync habilitadas para um emulador (default: todas ativas). */
