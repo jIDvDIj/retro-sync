@@ -22,6 +22,8 @@ markers = ["SAVEDATA", "PPSSPP_STATE", "SYSTEM"]
 saves = ["SAVEDATA"]
 states = ["PPSSPP_STATE"]
 config = ["SYSTEM"]
+# Temporários e cache do PPSSPP não valem sincronizar.
+exclude = ["*.tmp", "cache/**"]
 data_dirs.windows = ["{documents}/PPSSPP", "{localappdata}/PPSSPP"]
 data_dirs.macos = ["{home}/Library/Application Support/PPSSPP"]
 # Linux nativo (XDG) + instalação Flatpak (EmuDeck/Steam Deck).
@@ -37,6 +39,8 @@ markers = ["memcards", "sstates", "bios"]
 saves = ["memcards"]
 states = ["sstates"]
 config = ["inis"]
+# Temporários e locks de escrita do PCSX2.
+exclude = ["*.tmp", "*.lock"]
 data_dirs.windows = ["{documents}/PCSX2", "{localappdata}/PCSX2"]
 data_dirs.macos = ["{home}/Library/Application Support/PCSX2"]
 # Linux nativo (XDG) + instalação Flatpak (EmuDeck/Steam Deck).

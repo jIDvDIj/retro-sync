@@ -152,6 +152,13 @@ pub trait LocalStorage: Send + Sync {
     /// saves/savestates/config informados manualmente sem vazar `std::fs`/URIs
     /// SAF para fora desta abstração.
     async fn subdir_exists(&self, root: &FileLoc, rel: &str) -> bool;
+
+    /// Bytes livres no volume que contém `loc`. `None` quando a plataforma não
+    /// consegue medir (locador não-filesystem, volume não identificado) — nesse
+    /// caso a checagem de espaço antes do download é simplesmente pulada.
+    async fn available_space(&self, _loc: &FileLoc) -> Option<u64> {
+        None
+    }
 }
 
 /// `true` se `path` existe e é um diretório (não propaga erro — ausência,
@@ -279,6 +286,26 @@ impl LocalStorage for DesktopStorage {
         }
         path_is_dir(&path).await
     }
+
+    async fn available_space(&self, loc: &FileLoc) -> Option<u64> {
+        let path = loc.as_path()?.to_path_buf();
+        tokio::task::spawn_blocking(move || available_space_for(&path))
+            .await
+            .ok()
+            .flatten()
+    }
+}
+
+/// Bytes livres do disco cujo ponto de montagem é o prefixo mais longo de
+/// `path`. O caminho não precisa existir ainda (destino de download novo).
+#[cfg(desktop)]
+fn available_space_for(path: &Path) -> Option<u64> {
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    disks
+        .iter()
+        .filter(|d| path.starts_with(d.mount_point()))
+        .max_by_key(|d| d.mount_point().as_os_str().len())
+        .map(|d| d.available_space())
 }
 
 #[cfg(test)]
@@ -349,15 +376,19 @@ mod tests {
         let s = DesktopStorage;
 
         // Pasta existente → válida.
-        assert!(s.is_valid_root(&FileLoc::from_path(tmp.path().to_path_buf())).await);
+        assert!(
+            s.is_valid_root(&FileLoc::from_path(tmp.path().to_path_buf()))
+                .await
+        );
         // Arquivo (não é pasta) → inválido.
         let file = FileLoc::from_path(tmp.path().join("arquivo.bin"));
         s.write_atomic(&file, b"x", None).await.unwrap();
         assert!(!s.is_valid_root(&file).await);
         // Inexistente → inválido.
-        assert!(!s
-            .is_valid_root(&FileLoc::from_path(tmp.path().join("nao_existe")))
-            .await);
+        assert!(
+            !s.is_valid_root(&FileLoc::from_path(tmp.path().join("nao_existe")))
+                .await
+        );
     }
 
     #[tokio::test]

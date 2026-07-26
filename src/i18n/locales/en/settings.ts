@@ -1,6 +1,12 @@
 export const settings = {
   settings: {
     title: "Settings",
+    tabs: {
+      general: "General",
+      sync: "Sync",
+      notifications: "Notifications",
+      backups: "Backups",
+    },
     device: {
       heading: "Device",
       hint: "Identifies this machine in the sync metadata. Changing it here doesn't require signing in again.",
@@ -16,6 +22,19 @@ export const settings = {
     autoSync: {
       heading: "Automatic sync",
       hint: "Even with everything off, the “Sync now” button stays available.",
+    },
+    bandwidth: {
+      heading: "Bandwidth limits",
+      hint: "Caps the average transfer rate to Drive. 0 means unlimited.",
+      uploadLabel: "Upload (KB/s)",
+      downloadLabel: "Download (KB/s)",
+      saved: "Saved",
+    },
+    scan: {
+      heading: "Periodic scan",
+      hint: "Runs a full sync in the background at this interval (with a little randomness), catching changes the triggers missed. It never runs while an emulator is open. 0 disables it.",
+      label: "Interval (minutes)",
+      saved: "Saved",
     },
     startup: {
       heading: "Startup",
@@ -38,6 +57,10 @@ export const settings = {
       saves: "Saves",
       savestates: "Savestates",
       config: "Config",
+      excludeLabel: "Ignore patterns (comma-separated)",
+      excludePlaceholder: "e.g. *.tmp, cache/**",
+      excludeSave: "Save patterns",
+      excludeSaved: "Saved",
     },
     triggers: {
       startupLabel: "When RetroSync opens",
@@ -51,7 +74,25 @@ export const settings = {
       heading: "Backups",
       hint: "Copies RetroSync keeps before overwriting a local file — on the first sync of a file that already exists on Drive, or when resolving a conflict by keeping Drive's version. Nothing is deleted.",
       open: "Open backups folder",
+      history: "View history",
+      retentionLabel: "Keep backups for (days)",
+      retentionHint: "Older backup runs are removed when the app starts. 0 keeps them forever.",
+      retentionSaved: "Saved",
+      versionsLabel: "Versions kept per file",
+      versionsHint:
+        "Before a download overwrites a local save, the current version is archived under history/. Oldest versions beyond this limit are removed.",
     },
+  },
+  backupHistory: {
+    title: "Backup history",
+    intro:
+      "Copies RetroSync saved before overwriting local files. Versioned entries (history) can be restored right here — the current file is backed up first.",
+    restore: "Restore",
+    restoring: "Restoring…",
+    restored: "Restored",
+    filterLabel: "Filter",
+    filterPlaceholder: "e.g. PPSSPP or SAVE.bin",
+    empty: "No backups yet.",
   },
   addEmulator: {
     button: "Add emulator",

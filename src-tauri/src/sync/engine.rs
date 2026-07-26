@@ -6,19 +6,19 @@
 //! executa as transferências com concorrência limitada, emitindo progresso
 //! ao frontend. Falhas de rede/arquivo em uso vão para a fila offline.
 
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime, Wry};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::Mutex;
 
-use super::conflict::SyncAction;
-use super::diff::{self, PlannedOp};
+use super::conflict::{SyncAction, TIMESTAMP_TOLERANCE_MS};
+use super::diff::{self, CategoryPlan, LocalFile, PlannedOp};
 use super::storage::{FileLoc, LocalStorage};
 use super::{SyncCategory, SyncDirection, SyncProgress, SyncTarget};
 use crate::auth::AuthManager;
@@ -26,7 +26,7 @@ use crate::constants::{
     DRIVE_BATCH_MAX_OPS, DRIVE_BATCH_MIN_OPS, DRIVE_MANIFEST_FILE, DRIVE_MAX_CONCURRENT_TRANSFERS,
     DRIVE_SIMPLE_UPLOAD_MAX_BYTES,
 };
-use crate::drive::{BatchUploadOp, DeviceTag, DriveClient};
+use crate::drive::{BatchUploadOp, DeviceTag, DriveApi};
 use crate::error::{AppError, AppResult};
 use crate::events::{
     EVT_SYNC_COMPLETED, EVT_SYNC_CONFLICT, EVT_SYNC_ERROR, EVT_SYNC_PROGRESS, EVT_SYNC_STARTED,
@@ -35,7 +35,8 @@ use crate::storage::conflicts::{self, Conflict};
 use crate::storage::db::Db;
 use crate::storage::manifest::{self, ManifestEntry};
 use crate::storage::settings::{self, NotificationLevel};
-use crate::storage::{emulators, queue};
+use crate::storage::{emulators, queue, stats};
+use crate::versioning::Versioner;
 
 /// Resultado agregado de um sync. Espelhado em `src/types/ipc.ts`.
 #[derive(Debug, Default, Clone, Serialize)]
@@ -51,6 +52,8 @@ pub struct SyncSummary {
     pub backed_up: u32,
     /// Conflitos detectados neste sync (ambos os lados mudaram — BUG-002).
     pub conflicts: u32,
+    /// Renomeações detectadas por hash e aplicadas no Drive sem retransferir.
+    pub renamed: u32,
     pub duration_ms: u64,
 }
 
@@ -63,6 +66,7 @@ impl SyncSummary {
         self.queued += other.queued;
         self.backed_up += other.backed_up;
         self.conflicts += other.conflicts;
+        self.renamed += other.renamed;
     }
 }
 
@@ -139,18 +143,30 @@ struct CategoryCtx {
     device_id: Option<String>,
     /// Nível de notificação vigente (gating da notificação de conflito).
     notif: NotificationLevel,
+    /// Máximo de versões arquivadas por arquivo no histórico pré-download.
+    max_versions: usize,
     total: u32,
     completed: AtomicU32,
+    /// Total de bytes do plano e bytes já concluídos — para a UI mostrar
+    /// progresso em bytes, velocidade e ETA (não só contagem de arquivos).
+    bytes_total: u64,
+    bytes_done: AtomicU64,
 }
 
-pub struct SyncEngine {
+/// Genérico sobre o runtime do Tauri para ser testável: em produção é o `Wry`
+/// (default); nos testes de cenário (`sync::scenarios`), o `MockRuntime` do
+/// `tauri::test`. O Drive entra pelo trait [`DriveApi`] — `DriveClient` real
+/// ou `MockDrive` em memória (issue #82).
+pub struct SyncEngine<R: Runtime = Wry> {
     db: Db,
-    drive: Arc<DriveClient>,
+    drive: Arc<dyn DriveApi>,
     auth: Arc<AuthManager>,
-    app: AppHandle,
+    app: AppHandle<R>,
     last_sync: LastSyncStore,
     /// Raiz dos backups locais (`<app_data>/backups`).
     backup_dir: PathBuf,
+    /// Histórico de versões pré-download (`<backups>/<emulador>/history/`).
+    versioner: Arc<crate::versioning::FsVersioner>,
     /// Acesso ao armazenamento local de saves (filesystem no desktop; SAF /
     /// bookmarks no mobile, futuramente). Todo o I/O local passa por aqui.
     storage: Arc<dyn LocalStorage>,
@@ -158,16 +174,20 @@ pub struct SyncEngine {
     secrets: Arc<dyn crate::secrets::SecretStore>,
     /// Serializa execuções: um sync por vez, os demais aguardam.
     running: Mutex<()>,
+    /// Arquivos gravados por downloads recentes (caminho nativo → instante).
+    /// O watcher de filesystem consulta para não reagir às próprias escritas
+    /// do sync (anti-loop). Entradas expiram após `RECENT_DOWNLOAD_TTL_SECS`.
+    recent_downloads: std::sync::Mutex<std::collections::HashMap<PathBuf, Instant>>,
 }
 
-impl SyncEngine {
+impl<R: Runtime> SyncEngine<R> {
     // Construtor de injeção: recebe o wiring completo do app montado no setup.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         db: Db,
-        drive: Arc<DriveClient>,
+        drive: Arc<dyn DriveApi>,
         auth: Arc<AuthManager>,
-        app: AppHandle,
+        app: AppHandle<R>,
         last_sync: LastSyncStore,
         backup_dir: PathBuf,
         storage: Arc<dyn LocalStorage>,
@@ -179,11 +199,41 @@ impl SyncEngine {
             auth,
             app,
             last_sync,
+            versioner: Arc::new(crate::versioning::FsVersioner::new(backup_dir.clone())),
             backup_dir,
             storage,
             secrets,
             running: Mutex::new(()),
+            recent_downloads: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
+    }
+
+    /// Registra que `loc` acabou de ser gravado por um download (anti-loop do
+    /// watcher de filesystem). Também expira entradas antigas de passagem.
+    fn mark_recent_download(&self, loc: &FileLoc) {
+        let Some(path) = loc.as_native_path() else {
+            return;
+        };
+        let ttl = std::time::Duration::from_secs(crate::constants::RECENT_DOWNLOAD_TTL_SECS);
+        if let Ok(mut map) = self.recent_downloads.lock() {
+            let now = Instant::now();
+            map.retain(|_, at| now.duration_since(*at) < ttl);
+            map.insert(path.to_path_buf(), now);
+        }
+    }
+
+    /// O caminho foi gravado por um download nos últimos
+    /// `RECENT_DOWNLOAD_TTL_SECS`? Consultado pelo watcher de filesystem.
+    #[cfg(desktop)]
+    pub fn is_recent_download(&self, path: &Path) -> bool {
+        let ttl = std::time::Duration::from_secs(crate::constants::RECENT_DOWNLOAD_TTL_SECS);
+        self.recent_downloads
+            .lock()
+            .map(|map| {
+                map.get(path)
+                    .is_some_and(|at| Instant::now().duration_since(*at) < ttl)
+            })
+            .unwrap_or(false)
     }
 
     /// Acesso ao armazenamento local — usado pela detecção automática mobile
@@ -250,6 +300,12 @@ impl SyncEngine {
         // se o keyring estiver indisponível — desliga só a detecção de conflito
         // entre dispositivos nesta execução.
         let device_id = crate::device::current(self.secrets.clone()).await;
+        // Máximo de versões arquivadas por arquivo (histórico pré-download).
+        let max_versions =
+            self.db
+                .with(settings::max_backup_versions)
+                .await
+                .unwrap_or(crate::constants::MAX_BACKUP_VERSIONS_DEFAULT) as usize;
 
         let profiles = self.db.with(emulators::list).await?;
         // Por emulador: monta o target e remove as categorias que o usuário
@@ -319,10 +375,19 @@ impl SyncEngine {
                     device.as_deref(),
                     device_id.as_deref(),
                     notif,
+                    max_versions,
                 )
                 .await
             {
-                Ok(partial) => summary.merge(&partial),
+                Ok(partial) => {
+                    summary.merge(&partial);
+                    let (emulator, at) =
+                        (target.label.clone(), chrono::Utc::now().timestamp_millis());
+                    let _ = self
+                        .db
+                        .with(move |conn| stats::touch_last_sync(conn, &emulator, at))
+                        .await;
+                }
                 Err(err) => {
                     summary.failed += 1;
                     tracing::error!(emulador = %target.label, error = %err, "sync do emulador falhou");
@@ -414,6 +479,7 @@ impl SyncEngine {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn sync_target(
         &self,
         target: &SyncTarget,
@@ -422,8 +488,19 @@ impl SyncEngine {
         device: Option<&str>,
         device_id: Option<&str>,
         notif: NotificationLevel,
+        max_versions: usize,
     ) -> AppResult<SyncSummary> {
         let mut summary = SyncSummary::default();
+
+        // Carimbo do início do scan deste emulador (estatísticas).
+        let (emulator, now_ms) = (target.label.clone(), chrono::Utc::now().timestamp_millis());
+        let _ = self
+            .db
+            .with(move |conn| stats::touch_last_scan(conn, &emulator, now_ms))
+            .await;
+
+        // Padrões de exclusão do emulador, compilados uma vez por sync.
+        let exclude = super::build_exclude_set(&target.exclude_patterns);
 
         for (category, bases) in &target.categories {
             if bases.is_empty() {
@@ -463,7 +540,25 @@ impl SyncEngine {
                 Err(err) => return Err(err),
             };
 
-            let local = self.storage.scan(&target.root, bases).await?;
+            let mut local = self.storage.scan(&target.root, bases).await?;
+
+            // Exclusões: arquivos que casam com os padrões do emulador ficam
+            // fora do sync nas duas direções (nem sobem nem descem).
+            let mut remote = remote;
+            if let Some(set) = &exclude {
+                let before = local.len() + remote.len();
+                local.retain(|f| !set.is_match(&f.rel_path));
+                remote.retain(|f| !set.is_match(&f.rel_path));
+                let excluded = before - (local.len() + remote.len());
+                if excluded > 0 {
+                    tracing::debug!(
+                        emulador = %target.label,
+                        categoria = category.as_str(),
+                        arquivos = excluded,
+                        "arquivos ignorados pelos padrões de exclusão"
+                    );
+                }
+            }
 
             let (emulator, cat) = (target.label.clone(), *category);
             let manifest_entries = self
@@ -471,9 +566,59 @@ impl SyncEngine {
                 .with(move |conn| manifest::list_for_category(conn, &emulator, cat))
                 .await?;
 
-            let (plan, skipped) =
-                diff::build_plan(local, remote, manifest_entries, direction, device_id);
+            // Pré-filtro de mtime: calcula o SHA-256 apenas dos arquivos cujo
+            // mtime divergiu da âncora do manifest — nunca sem essa divergência.
+            let local = self.hash_touched_files(local, &manifest_entries).await;
+
+            let CategoryPlan {
+                ops: mut plan,
+                skipped,
+                mtime_refreshes,
+            } = diff::build_plan(local, remote, manifest_entries, direction, device_id);
             summary.skipped += skipped;
+
+            // Arquivos com mtime tocado mas conteúdo intacto: reancora o mtime
+            // no manifest para o pré-filtro não redisparar a cada sync.
+            for entry in mtime_refreshes {
+                let _ = self
+                    .db
+                    .with(move |conn| manifest::upsert(conn, &entry))
+                    .await;
+            }
+
+            // Backoff da fila offline: pendências cuja janela de retentativa
+            // ainda não venceu (ou mortas) são puladas neste ciclo.
+            let (emulator, cat) = (target.label.clone(), *category);
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let deferred = self
+                .db
+                .with(move |conn| queue::deferred_rel_paths(conn, &emulator, cat, now_ms))
+                .await
+                .unwrap_or_default();
+            if !deferred.is_empty() {
+                let before = plan.len();
+                plan.retain(|op| !deferred.contains(&op.rel_path));
+                let skipped_by_backoff = (before - plan.len()) as u32;
+                if skipped_by_backoff > 0 {
+                    tracing::info!(
+                        emulador = %target.label,
+                        categoria = category.as_str(),
+                        arquivos = skipped_by_backoff,
+                        "pendências em backoff puladas neste ciclo"
+                    );
+                    summary.skipped += skipped_by_backoff;
+                }
+            }
+
+            // Detecção de renomeação por hash: arquivo novo local com o mesmo
+            // conteúdo de um órfão remoto vira um `files.update` (rename) em
+            // vez de Upload + zumbi do nome antigo.
+            let (renamed_plan, renamed) = self
+                .detect_renames(&target.label, *category, &folder_id, &folder_key, plan)
+                .await;
+            let plan = renamed_plan;
+            summary.renamed += renamed;
+
             if plan.is_empty() {
                 continue;
             }
@@ -507,8 +652,11 @@ impl SyncEngine {
                 device: device.map(str::to_string),
                 device_id: device_id.map(str::to_string),
                 notif,
+                max_versions,
                 total: plan.len() as u32,
                 completed: AtomicU32::new(0),
+                bytes_total: plan.iter().map(op_bytes).sum(),
+                bytes_done: AtomicU64::new(0),
             };
 
             // FEATURE-004: uploads de arquivos NOVOS e pequenos vão em lote (Batch
@@ -540,8 +688,185 @@ impl SyncEngine {
         Ok(summary)
     }
 
+    /// Pré-passo do diff: calcula o SHA-256 dos arquivos locais cujo mtime
+    /// divergiu da âncora do manifest (e que têm hash conhecido para comparar).
+    /// Falha de leitura deixa o hash `None` — o arquivo segue o fluxo normal.
+    async fn hash_touched_files(
+        &self,
+        mut local: Vec<LocalFile>,
+        manifest: &[ManifestEntry],
+    ) -> Vec<LocalFile> {
+        use std::collections::HashMap;
+        let anchors: HashMap<&str, (&Option<String>, Option<i64>)> = manifest
+            .iter()
+            .map(|e| (e.rel_path.as_str(), (&e.file_hash, e.local_mtime_ms)))
+            .collect();
+
+        for file in &mut local {
+            let Some((known_hash, Some(anchor))) = anchors.get(file.rel_path.as_str()) else {
+                continue;
+            };
+            if known_hash.is_none() || (file.mtime_ms - anchor).abs() <= TIMESTAMP_TOLERANCE_MS {
+                continue;
+            }
+            if let Ok(content) = self.storage.read(&file.loc).await {
+                file.hash = Some(super::sha256_hex(&content));
+            }
+        }
+        local
+    }
+
+    /// Detecção de renomeação por hash (issue #12): um Upload novo cujo MD5
+    /// bate com o `md5Checksum` de um Download órfão (arquivo remoto que sumiu
+    /// localmente) é a mesma coisa renomeada — aplica `files.update` no Drive,
+    /// reancora o manifest e remove os dois lados do plano. MD5 ambíguo (dois
+    /// órfãos com o mesmo conteúdo) é ignorado por segurança.
+    async fn detect_renames(
+        &self,
+        emulator: &str,
+        category: SyncCategory,
+        folder_id: &str,
+        folder_key: &str,
+        mut plan: Vec<PlannedOp>,
+    ) -> (Vec<PlannedOp>, u32) {
+        use std::collections::{HashMap, HashSet};
+
+        // Órfãos remotos: Download de arquivo sem contraparte local.
+        let mut orphans: HashMap<String, usize> = HashMap::new();
+        let mut ambiguous: HashSet<String> = HashSet::new();
+        for (i, op) in plan.iter().enumerate() {
+            if op.action == SyncAction::Download && op.local.is_none() {
+                if let Some(md5) = op.remote.as_ref().and_then(|r| r.md5_checksum.clone()) {
+                    if orphans.insert(md5.clone(), i).is_some() {
+                        ambiguous.insert(md5);
+                    }
+                }
+            }
+        }
+        orphans.retain(|md5, _| !ambiguous.contains(md5));
+        let has_new_upload = plan
+            .iter()
+            .any(|op| op.action == SyncAction::Upload && op.remote.is_none());
+        if orphans.is_empty() || !has_new_upload {
+            return (plan, 0);
+        }
+
+        let mut consumed: Vec<usize> = Vec::new();
+        let mut renamed = 0u32;
+        for i in 0..plan.len() {
+            let op = &plan[i];
+            if op.action != SyncAction::Upload || op.remote.is_some() {
+                continue;
+            }
+            let Some(local) = op.local.as_ref() else {
+                continue;
+            };
+            let Ok(content) = self.storage.read(&local.loc).await else {
+                continue;
+            };
+            let Some(&orphan_idx) = orphans.get(&super::md5_hex(&content)) else {
+                continue;
+            };
+            if consumed.contains(&orphan_idx) {
+                continue;
+            }
+            let orphan_rel = plan[orphan_idx].rel_path.clone();
+            let remote = plan[orphan_idx].remote.as_ref().expect("órfão tem remoto");
+
+            // Subpasta mudou? Então o rename também move de parent.
+            let (new_dir, new_name) = split_rel_path(&op.rel_path);
+            let (old_dir, _) = split_rel_path(&orphan_rel);
+            let parents = if new_dir == old_dir {
+                Some((None, None))
+            } else {
+                let new_parent = match new_dir {
+                    Some(dir) => self
+                        .drive
+                        .ensure_subpath(folder_id, folder_key, dir)
+                        .await
+                        .ok(),
+                    None => Some(folder_id.to_string()),
+                };
+                let old_parent = match old_dir {
+                    Some(dir) => self
+                        .drive
+                        .ensure_subpath(folder_id, folder_key, dir)
+                        .await
+                        .ok(),
+                    None => Some(folder_id.to_string()),
+                };
+                match (new_parent, old_parent) {
+                    (Some(new_parent), Some(old_parent)) => {
+                        Some((Some(new_parent), Some(old_parent)))
+                    }
+                    _ => None,
+                }
+            };
+            let Some((add_parent, remove_parent)) = parents else {
+                continue;
+            };
+
+            match self
+                .drive
+                .rename_file(
+                    &remote.id,
+                    new_name,
+                    add_parent.as_deref(),
+                    remove_parent.as_deref(),
+                )
+                .await
+            {
+                Ok(updated) => {
+                    tracing::info!(
+                        emulador = %emulator,
+                        de = %orphan_rel,
+                        para = %op.rel_path,
+                        "renomeação detectada por hash; aplicada no Drive sem retransferir"
+                    );
+                    let entry = ManifestEntry {
+                        emulator: emulator.to_string(),
+                        category,
+                        rel_path: op.rel_path.clone(),
+                        drive_file_id: Some(updated.id.clone()),
+                        local_mtime_ms: Some(local.mtime_ms),
+                        drive_mtime_ms: updated.modified_ms(),
+                        size_bytes: Some(content.len() as i64),
+                        last_synced_at_ms: chrono::Utc::now().timestamp_millis(),
+                        file_hash: Some(super::sha256_hex(&content)),
+                    };
+                    let (emu, old_rel) = (emulator.to_string(), orphan_rel);
+                    let _ = self
+                        .db
+                        .with(move |conn| {
+                            manifest::remove_entry(conn, &emu, category, &old_rel)?;
+                            manifest::upsert(conn, &entry)
+                        })
+                        .await;
+                    consumed.push(i);
+                    consumed.push(orphan_idx);
+                    renamed += 1;
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        arquivo = %op.rel_path,
+                        error = %err,
+                        "rename no Drive falhou; seguindo com upload normal"
+                    );
+                }
+            }
+        }
+
+        consumed.sort_unstable();
+        consumed.dedup();
+        for idx in consumed.into_iter().rev() {
+            plan.remove(idx);
+        }
+        (plan, renamed)
+    }
+
     async fn execute_op(&self, ctx: &CategoryCtx, op: PlannedOp) -> OpOutcome {
         let rel_path = op.rel_path.clone();
+        let bytes = op_bytes(&op);
         let result = match op.action {
             SyncAction::Upload => self.do_upload(ctx, &op).await,
             SyncAction::Download => self.do_download(ctx, &op).await,
@@ -550,20 +875,45 @@ impl SyncEngine {
             SyncAction::NoOp => Ok(()),
         };
 
-        self.emit_progress(ctx, &rel_path);
+        self.emit_progress(ctx, &rel_path, bytes);
 
         match result {
             Ok(()) => {
                 // Conflito não é transferência: não limpa a pendência (o
                 // emulador fica bloqueado até a resolução).
                 if matches!(op.action, SyncAction::Conflict) {
+                    let emulator = ctx.emulator.clone();
+                    let _ = self
+                        .db
+                        .with(move |conn| stats::record_conflict(conn, &emulator))
+                        .await;
                     return OpOutcome::Conflicted;
                 }
-                let (emulator, category, rel) = (ctx.emulator.clone(), ctx.category, rel_path);
+                let (emulator, category, rel) =
+                    (ctx.emulator.clone(), ctx.category, rel_path.clone());
                 let _ = self
                     .db
                     .with(move |conn| queue::resolve(conn, &emulator, category, &rel))
                     .await;
+
+                // Estatísticas acumuladas do emulador (best-effort).
+                let (emulator, rel, bytes_i64, is_upload) = (
+                    ctx.emulator.clone(),
+                    rel_path,
+                    bytes as i64,
+                    matches!(op.action, SyncAction::Upload),
+                );
+                let _ = self
+                    .db
+                    .with(move |conn| {
+                        if is_upload {
+                            stats::record_upload(conn, &emulator, bytes_i64, &rel)
+                        } else {
+                            stats::record_download(conn, &emulator, bytes_i64, &rel)
+                        }
+                    })
+                    .await;
+
                 match op.action {
                     SyncAction::Upload => OpOutcome::Uploaded,
                     SyncAction::DownloadWithBackup => OpOutcome::DownloadedWithBackup,
@@ -571,7 +921,10 @@ impl SyncEngine {
                 }
             }
             Err(err) => {
-                let retryable = matches!(err, AppError::Network(_) | AppError::FileBusy(_));
+                let retryable = matches!(
+                    err,
+                    AppError::Network(_) | AppError::FileBusy(_) | AppError::Integrity(_)
+                );
                 tracing::warn!(
                     emulador = %ctx.emulator,
                     arquivo = %rel_path,
@@ -600,9 +953,11 @@ impl SyncEngine {
         }
     }
 
-    /// Emite o evento de progresso e avança o contador de concluídos da categoria.
-    fn emit_progress(&self, ctx: &CategoryCtx, rel_path: &str) {
+    /// Emite o evento de progresso e avança os contadores (arquivos e bytes)
+    /// de concluídos da categoria.
+    fn emit_progress(&self, ctx: &CategoryCtx, rel_path: &str, bytes: u64) {
         let completed = ctx.completed.fetch_add(1, Ordering::Relaxed) + 1;
+        let bytes_done = ctx.bytes_done.fetch_add(bytes, Ordering::Relaxed) + bytes;
         let _ = self.app.emit(
             EVT_SYNC_PROGRESS,
             &SyncProgress {
@@ -610,6 +965,8 @@ impl SyncEngine {
                 current_file: rel_path.to_string(),
                 completed,
                 total: ctx.total,
+                bytes_done,
+                bytes_total: ctx.bytes_total,
                 direction: ctx.direction,
             },
         );
@@ -666,6 +1023,7 @@ impl SyncEngine {
                                 p.mtime_ms,
                                 drive_mtime,
                                 p.size_bytes,
+                                Some(p.content_hash.clone()),
                             )
                             .await;
                         if recorded.is_ok() {
@@ -675,11 +1033,19 @@ impl SyncEngine {
                                 .db
                                 .with(move |conn| queue::resolve(conn, &emulator, category, &rel))
                                 .await;
+                            let (emulator, rel, bytes) =
+                                (ctx.emulator.clone(), p.rel_path.clone(), p.size_bytes);
+                            let _ = self
+                                .db
+                                .with(move |conn| {
+                                    stats::record_upload(conn, &emulator, bytes, &rel)
+                                })
+                                .await;
                             summary.uploaded += 1;
                         } else {
                             summary.failed += 1;
                         }
-                        self.emit_progress(ctx, &p.rel_path);
+                        self.emit_progress(ctx, &p.rel_path, p.size_bytes.max(0) as u64);
                     }
                 }
                 result => {
@@ -750,6 +1116,7 @@ impl SyncEngine {
         };
 
         let size_bytes = content.len() as i64;
+        let content_hash = super::sha256_hex(&content);
         let batch = BatchUploadOp {
             parent_id,
             name: file_name.to_string(),
@@ -762,6 +1129,7 @@ impl SyncEngine {
             rel_path: op.rel_path.clone(),
             mtime_ms: mtime,
             size_bytes,
+            content_hash,
             op,
             batch,
         })
@@ -791,6 +1159,7 @@ impl SyncEngine {
         };
 
         let size_bytes = content.len() as i64;
+        let content_hash = super::sha256_hex(&content);
         let tag = DeviceTag {
             name: ctx.device.as_deref(),
             id: ctx.device_id.as_deref(),
@@ -816,6 +1185,7 @@ impl SyncEngine {
             mtime_after,
             drive_mtime,
             size_bytes,
+            Some(content_hash),
         )
         .await
     }
@@ -838,25 +1208,105 @@ impl SyncEngine {
         self.do_download(ctx, op).await
     }
 
+    /// Arquiva a versão local vigente de `op` no histórico
+    /// (`<backups>/<emulador>/history/...`), mantendo no máximo
+    /// `ctx.max_versions` por arquivo. No-op se o arquivo local não existe ou
+    /// não tem caminho nativo (armazenamento SAF do mobile).
+    async fn archive_previous_version(&self, ctx: &CategoryCtx, op: &PlannedOp) {
+        let Some(src) = op
+            .local
+            .as_ref()
+            .and_then(|l| l.loc.as_native_path())
+            .map(Path::to_path_buf)
+        else {
+            return;
+        };
+
+        let versioner = self.versioner.clone();
+        let (emulator, category, rel_path) = (
+            ctx.emulator.clone(),
+            ctx.category.as_str().to_string(),
+            op.rel_path.clone(),
+        );
+        let max = ctx.max_versions;
+        let archived = tokio::task::spawn_blocking(move || {
+            versioner.archive(&emulator, &category, &rel_path, &src, max)
+        })
+        .await;
+        match archived {
+            Ok(Ok(dest)) => {
+                tracing::debug!(arquivo = %op.rel_path, destino = %dest.display(), "versão anterior arquivada");
+            }
+            Ok(Err(err)) => {
+                tracing::warn!(arquivo = %op.rel_path, error = %err, "falha ao arquivar versão anterior");
+            }
+            Err(err) => {
+                tracing::warn!(arquivo = %op.rel_path, error = %err, "tarefa de arquivamento abortada");
+            }
+        }
+    }
+
     async fn do_download(&self, ctx: &CategoryCtx, op: &PlannedOp) -> AppResult<()> {
         let remote = op
             .remote
             .as_ref()
             .ok_or_else(|| AppError::Other("download planejado sem arquivo remoto".into()))?;
 
-        let content = self.drive.download(&remote.id).await?;
-
         let dest = match op.local.as_ref() {
             Some(local) => local.loc.clone(),
             None => self.storage.join(&ctx.download_base, &op.rel_path),
         };
 
+        // Checa o espaço livre no volume de destino ANTES de baixar (margem de
+        // 10%). Sem medição disponível (mobile/volume desconhecido), segue.
+        let expected_size: u64 = remote
+            .size
+            .as_deref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        if expected_size > 0 {
+            if let Some(available) = self.storage.available_space(&dest).await {
+                let needed = expected_size + expected_size / 10;
+                if available < needed {
+                    return Err(AppError::InsufficientDiskSpace {
+                        needed_mb: needed / (1024 * 1024),
+                        available_mb: available / (1024 * 1024),
+                    });
+                }
+            }
+        }
+
+        let content = self.drive.download(&remote.id).await?;
+
+        // Verificação de integridade: o MD5 do que chegou precisa bater com o
+        // `md5Checksum` que o próprio Drive calculou. Divergência = transferência
+        // corrompida → falha retryable (vai para a fila offline).
+        if let Some(expected) = remote.md5_checksum.as_deref() {
+            let got = super::md5_hex(&content);
+            if !got.eq_ignore_ascii_case(expected) {
+                return Err(AppError::Integrity(format!(
+                    "{}: md5 divergente após download (esperado {expected}, obtido {got})",
+                    op.rel_path
+                )));
+            }
+        }
+
+        // Versionamento: arquiva a versão local vigente ANTES de sobrescrever
+        // (só em downloads comuns — o primeiro sync tem o backup dedicado do
+        // BUG-001). Best-effort: falha de arquivamento não bloqueia o sync,
+        // pois a versão anterior já esteve no Drive em algum momento.
+        if op.action == SyncAction::Download {
+            self.archive_previous_version(ctx, op).await;
+        }
+
         // mtime local = modifiedTime do Drive, para o diff convergir.
         let drive_mtime = remote.modified_ms();
         let size_bytes = content.len() as i64;
+        let content_hash = super::sha256_hex(&content);
         self.storage
             .write_atomic(&dest, &content, drive_mtime)
             .await?;
+        self.mark_recent_download(&dest);
 
         self.record_synced(
             ctx,
@@ -865,6 +1315,7 @@ impl SyncEngine {
             drive_mtime.unwrap_or(0),
             drive_mtime,
             size_bytes,
+            Some(content_hash),
         )
         .await
     }
@@ -881,6 +1332,11 @@ impl SyncEngine {
             .remote
             .as_ref()
             .ok_or_else(|| AppError::Other("conflito planejado sem arquivo remoto".into()))?;
+
+        // Cópia padronizada do lado local em <backups>/<emu>/conflicts/, com
+        // carimbo e device no nome — o usuário inspeciona os dois lados antes
+        // de decidir. Best-effort: a falha não impede o registro do conflito.
+        let backup_path = self.copy_conflict_side(ctx, op, &local.loc).await;
 
         let conflict = Conflict {
             emulator: ctx.emulator.clone(),
@@ -899,6 +1355,7 @@ impl SyncEngine {
             drive_file_id: remote.id.clone(),
             local_abs_path: self.storage.loc_to_stored(&local.loc),
             detected_at_ms: chrono::Utc::now().timestamp_millis(),
+            backup_path,
         };
 
         let stored = conflict.clone();
@@ -914,6 +1371,53 @@ impl SyncEngine {
         Ok(())
     }
 
+    /// Copia o lado local do conflito para
+    /// `<backups>/<emu>/conflicts/<cat>/<rel_dir>/<nome>.retrosync-conflict-<carimbo>-<device><ext>`
+    /// e poda cópias antigas do mesmo arquivo (máx. [`MAX_CONFLICT_COPIES`]).
+    /// Retorna o caminho persistível da cópia, ou `None` em falha.
+    async fn copy_conflict_side(
+        &self,
+        ctx: &CategoryCtx,
+        op: &PlannedOp,
+        src: &FileLoc,
+    ) -> Option<String> {
+        use crate::constants::{CONFLICT_COPIES_DIR, MAX_CONFLICT_COPIES};
+
+        let (dir_part, file_name) = split_rel_path(&op.rel_path);
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let device = ctx.device_id.as_deref().unwrap_or("unknown");
+        let copy_name = crate::versioning::conflict_copy_name(file_name, &stamp, device);
+        let copy_rel = match dir_part {
+            Some(dir) => format!("{dir}/{copy_name}"),
+            None => copy_name,
+        };
+
+        let base = FileLoc::from_path(
+            self.backup_dir
+                .join(&ctx.emulator)
+                .join(CONFLICT_COPIES_DIR)
+                .join(ctx.category.as_str()),
+        );
+        let dest = self.storage.join(&base, &copy_rel);
+
+        if let Err(err) = self.storage.copy_to(src, &dest).await {
+            tracing::warn!(arquivo = %op.rel_path, error = %err, "falha ao copiar o lado local do conflito");
+            return None;
+        }
+
+        // Poda best-effort das cópias antigas deste arquivo.
+        if let Some(dir) = dest.as_native_path().and_then(|p| p.parent()) {
+            let (dir, name) = (dir.to_path_buf(), file_name.to_string());
+            let _ = tokio::task::spawn_blocking(move || {
+                crate::versioning::prune_conflict_copies(&dir, &name, MAX_CONFLICT_COPIES)
+            })
+            .await;
+        }
+
+        Some(self.storage.loc_to_stored(&dest))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn record_synced(
         &self,
         ctx: &CategoryCtx,
@@ -922,6 +1426,7 @@ impl SyncEngine {
         local_mtime_ms: i64,
         drive_mtime_ms: Option<i64>,
         size_bytes: i64,
+        file_hash: Option<String>,
     ) -> AppResult<()> {
         let entry = ManifestEntry {
             emulator: ctx.emulator.clone(),
@@ -932,6 +1437,7 @@ impl SyncEngine {
             drive_mtime_ms,
             size_bytes: Some(size_bytes),
             last_synced_at_ms: chrono::Utc::now().timestamp_millis(),
+            file_hash,
         };
         self.db
             .with(move |conn| manifest::upsert(conn, &entry))
@@ -1022,10 +1528,12 @@ impl SyncEngine {
 
         let content = self.drive.download(&c.drive_file_id).await?;
         let size_bytes = content.len() as i64;
+        let content_hash = super::sha256_hex(&content);
         let drive_mtime = c.drive_mtime_ms;
         self.storage
             .write_atomic(&dest, &content, Some(drive_mtime))
             .await?;
+        self.mark_recent_download(&dest);
 
         self.upsert_resolved_manifest(
             c,
@@ -1033,6 +1541,7 @@ impl SyncEngine {
             Some(drive_mtime),
             size_bytes,
             &c.drive_file_id,
+            Some(content_hash),
         )
         .await
     }
@@ -1042,6 +1551,7 @@ impl SyncEngine {
         let src = self.storage.loc_from_stored(&c.local_abs_path);
         let content = self.storage.read(&src).await?;
         let size_bytes = content.len() as i64;
+        let content_hash = super::sha256_hex(&content);
         let local_mtime = self.storage.mtime_ms(&src).await?;
         let device = self
             .db
@@ -1060,8 +1570,15 @@ impl SyncEngine {
             .await?;
         let drive_mtime = uploaded.modified_ms();
 
-        self.upsert_resolved_manifest(c, local_mtime, drive_mtime, size_bytes, &uploaded.id)
-            .await
+        self.upsert_resolved_manifest(
+            c,
+            local_mtime,
+            drive_mtime,
+            size_bytes,
+            &uploaded.id,
+            Some(content_hash),
+        )
+        .await
     }
 
     async fn upsert_resolved_manifest(
@@ -1071,6 +1588,7 @@ impl SyncEngine {
         drive_mtime_ms: Option<i64>,
         size_bytes: i64,
         drive_file_id: &str,
+        file_hash: Option<String>,
     ) -> AppResult<()> {
         let entry = ManifestEntry {
             emulator: c.emulator.clone(),
@@ -1081,6 +1599,7 @@ impl SyncEngine {
             drive_mtime_ms,
             size_bytes: Some(size_bytes),
             last_synced_at_ms: chrono::Utc::now().timestamp_millis(),
+            file_hash,
         };
         self.db
             .with(move |conn| manifest::upsert(conn, &entry))
@@ -1097,6 +1616,27 @@ struct PreparedBatchOp {
     rel_path: String,
     mtime_ms: i64,
     size_bytes: i64,
+    /// SHA-256 do conteúdo enviado — gravado no manifest (`file_hash`).
+    content_hash: String,
+}
+
+/// Bytes que a op vai transferir — tamanho local para uploads, tamanho
+/// remoto para downloads; conflitos/no-ops não transferem nada.
+fn op_bytes(op: &PlannedOp) -> u64 {
+    match op.action {
+        SyncAction::Upload => op
+            .local
+            .as_ref()
+            .map(|l| l.size_bytes.max(0) as u64)
+            .unwrap_or(0),
+        SyncAction::Download | SyncAction::DownloadWithBackup => op
+            .remote
+            .as_ref()
+            .and_then(|r| r.size.as_deref())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0),
+        SyncAction::Conflict | SyncAction::NoOp => 0,
+    }
 }
 
 /// Elegível ao batch: upload de arquivo que ainda não existe no Drive e é

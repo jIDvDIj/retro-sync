@@ -47,6 +47,9 @@ dirs = "6"
 futures = "0.3"
 filetime = "0.2"
 sha2 = "0.10"
+globset = "0.4"
+# Confere o conteúdo baixado contra o `md5Checksum` devolvido pela API do Drive.
+md-5 = "0.10"
 rand = "0.8"
 base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
@@ -67,6 +70,9 @@ tracing-appender = "0.2"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
 sysinfo = "0.33"
+# Watcher de filesystem nativo (ReadDirectoryChangesW/inotify/FSEvents) para o
+# gatilho "file-change" — sincroniza sem esperar o emulador fechar.
+notify = "6"
 keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
 
 # Dependências exclusivas do mobile.
@@ -82,3 +88,22 @@ winreg = "0.55"
 
 [dev-dependencies]
 tempfile = "3"
+# `start_paused` (tempo virtual) nos testes do rate limiter — sem esperas reais.
+tokio = { version = "1", features = ["test-util"] }
+# Servidor HTTP fake para os testes do DriveClient (list_tree, find_child,
+# download, upload_new/existing): exercita o código real de request/parse
+# contra localhost, sem depender do Google nem de credenciais.
+wiremock = "0.6"
+
+# MockRuntime p/ construir AppHandle sem janela nos testes do SyncEngine (issue #82).
+# NÃO-Windows de propósito: a feature `test` do tauri derruba o executável de
+# teste no Windows com STATUS_ENTRYPOINT_NOT_FOUND (bug upstream sem correção —
+# tauri-apps/tauri#13419/#11028). Os cenários rodam no Linux/macOS; o job de
+# Windows segue compilando e rodando o restante da suíte.
+[target.'cfg(not(windows))'.dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
+[features]
+# Reservada p/ testes de integração com credenciais reais do Drive (issue #82);
+# hoje nenhum teste a usa — os cenários rodam 100% no MockDrive, sem rede.
+integration-tests = []

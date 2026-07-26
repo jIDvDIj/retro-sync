@@ -7,13 +7,17 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type {
   AuthStatus,
+  BackupEntry,
   Conflict,
   ConflictResolution,
   DiscoveredEmulator,
   EmulatorProfile,
+  EmulatorStats,
+  FileVersion,
   HealthStatus,
   LastSync,
   NotificationLevel,
+  PendingOp,
   Settings,
   SyncCategories,
   SyncedGame,
@@ -84,6 +88,16 @@ export function listSyncedGames(): Promise<SyncedGame[]> {
   return invoke<SyncedGame[]>("list_synced_games");
 }
 
+/** Estatísticas acumuladas de um emulador; `null` = nunca houve atividade. */
+export function getEmulatorStats(name: string): Promise<EmulatorStats | null> {
+  return invoke<EmulatorStats | null>("get_emulator_stats", { name });
+}
+
+/** Estatísticas acumuladas de todos os emuladores com atividade. */
+export function listEmulatorStats(): Promise<EmulatorStats[]> {
+  return invoke<EmulatorStats[]>("list_emulator_stats");
+}
+
 /** Remove da sincronização; nada é apagado no Drive nem no disco. */
 export function removeEmulator(name: string): Promise<void> {
   return invoke<void>("remove_emulator", { name });
@@ -119,6 +133,26 @@ export function setNotificationLevel(level: NotificationLevel): Promise<void> {
   return invoke<void>("set_notification_level", { level });
 }
 
+/** Retenção dos backups locais em dias (0 = manter para sempre). */
+export function setBackupRetentionDays(days: number): Promise<void> {
+  return invoke<void>("set_backup_retention_days", { days });
+}
+
+/** Intervalo do scan periódico em minutos (0 = desativado). */
+export function setScanIntervalMinutes(minutes: number): Promise<void> {
+  return invoke<void>("set_scan_interval_minutes", { minutes });
+}
+
+/** Máximo de versões arquivadas por arquivo no histórico pré-download. */
+export function setMaxBackupVersions(versions: number): Promise<void> {
+  return invoke<void>("set_max_backup_versions", { versions });
+}
+
+/** Limites de banda em KB/s (0 = ilimitado). Aplicados imediatamente. */
+export function setBandwidthLimits(uploadKbps: number, downloadKbps: number): Promise<void> {
+  return invoke<void>("set_bandwidth_limits", { uploadKbps, downloadKbps });
+}
+
 /** Liga/desliga o início automático do RetroSync junto com o sistema. */
 export function setAutostart(enabled: boolean): Promise<void> {
   return invoke<void>("set_autostart", { enabled });
@@ -127,6 +161,11 @@ export function setAutostart(enabled: boolean): Promise<void> {
 /** Abre a pasta de backups locais no gerenciador de arquivos do SO. */
 export function openBackupFolder(): Promise<void> {
   return invoke<void>("open_backup_folder");
+}
+
+/** Mostra um arquivo de backup no gerenciador de arquivos (abre a pasta dele). */
+export function revealBackupPath(path: string): Promise<void> {
+  return invoke<void>("reveal_backup_path", { path });
 }
 
 /**
@@ -162,6 +201,57 @@ export function resolveConflict(
   return invoke<void>("resolve_conflict", { emulator, category, relPath, keep });
 }
 
+/** Fila offline: arquivos que falharam (rede/arquivo em uso) e serão retentados. */
+export function listPendingOps(): Promise<PendingOp[]> {
+  return invoke<PendingOp[]>("list_pending_ops");
+}
+
+/** Zera tentativas/backoff de uma pendência (inclusive mortas) para retentar já. */
+export function retryPendingOp(
+  emulator: string,
+  category: PendingOp["category"],
+  relPath: string,
+): Promise<void> {
+  return invoke<void>("retry_pending_op", { emulator, category, relPath });
+}
+
+/** IDs de banners informativos já dispensados pelo usuário. */
+export function listDismissedNotices(): Promise<string[]> {
+  return invoke<string[]>("list_dismissed_notices");
+}
+
+/** Dispensa um banner de forma persistente — ele não reaparece. */
+export function dismissNotice(id: string): Promise<void> {
+  return invoke<void>("dismiss_notice", { id });
+}
+
+/** Histórico de backups locais (primeiro sync e resoluções de conflito). */
+export function listBackups(): Promise<BackupEntry[]> {
+  return invoke<BackupEntry[]>("list_backups");
+}
+
+/** Versões arquivadas de um arquivo no histórico pré-download, recentes primeiro. */
+export function listFileVersions(
+  emulator: string,
+  category: PendingOp["category"],
+  relPath: string,
+): Promise<FileVersion[]> {
+  return invoke<FileVersion[]>("list_file_versions", { emulator, category, relPath });
+}
+
+/**
+ * Restaura uma versão arquivada por cima do arquivo atual do emulador.
+ * O estado atual é arquivado antes; o restaurado sobe no próximo sync.
+ * `versionedRelPath` é o caminho listado no histórico (nome com carimbo).
+ */
+export function restoreVersion(
+  emulator: string,
+  category: PendingOp["category"],
+  versionedRelPath: string,
+): Promise<void> {
+  return invoke<void>("restore_version", { emulator, category, versionedRelPath });
+}
+
 /** Categorias de sync habilitadas para um emulador (default: todas ativas). */
 export function getEmulatorCategories(name: string): Promise<SyncCategories> {
   return invoke<SyncCategories>("get_emulator_categories", { name });
@@ -170,4 +260,12 @@ export function getEmulatorCategories(name: string): Promise<SyncCategories> {
 /** Define quais categorias sincronizar para um emulador. */
 export function setEmulatorCategories(name: string, categories: SyncCategories): Promise<void> {
   return invoke<void>("set_emulator_categories", { name, categories });
+}
+
+/**
+ * Define os padrões glob de exclusão de um emulador (arquivos que casam ficam
+ * fora do sync nas duas direções). Rejeita padrões glob inválidos.
+ */
+export function setExcludePatterns(name: string, patterns: string[]): Promise<void> {
+  return invoke<void>("set_exclude_patterns", { name, patterns });
 }

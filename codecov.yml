@@ -1,0 +1,11 @@
+# Política de cobertura:
+# - patch (código novo do PR): BLOQUEANTE — exige ≥ 80% das linhas cobríveis do
+#   diff cobertas por teste.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        target: 80%

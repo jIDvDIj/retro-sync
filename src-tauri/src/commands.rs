@@ -2,12 +2,14 @@
 //! Toda struct que cruza esta boundary deriva `Serialize`/`Deserialize` e tem
 //! interface TypeScript espelhada em `src/types/ipc.ts`.
 
+#[cfg(desktop)]
+use std::path::Path;
 use std::path::PathBuf;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(mobile)]
 use tauri::Listener;
+use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(desktop)]
 use tauri_plugin_autostart::ManagerExt;
 
@@ -122,8 +124,7 @@ pub async fn connect_google_drive(
     let listener_id = {
         let tx = tx.clone();
         app.once("deep-link://new-url", move |event| {
-            let urls: Vec<String> =
-                serde_json::from_str(event.payload()).unwrap_or_default();
+            let urls: Vec<String> = serde_json::from_str(event.payload()).unwrap_or_default();
             if let Some(url) = urls
                 .into_iter()
                 .find(|u| u.starts_with("com.retrosync.app:/oauth2redirect"))
@@ -276,8 +277,9 @@ pub async fn add_emulator_manual(
     // passa pelo plugin nativo via LocalStorage, não por std::fs (BUG-005).
     ensure_valid_root(&state, &path).await?;
 
-    let profile = emulator::build_manual_profile(&root, name, saves_paths, state_paths, config_paths)
-        .map_err(AppError::Other)?;
+    let profile =
+        emulator::build_manual_profile(&root, name, saves_paths, state_paths, config_paths)
+            .map_err(AppError::Other)?;
 
     // Cada pasta informada precisa existir sob a raiz. A checagem sai do
     // `build_manual_profile` (puro) e passa pelo `LocalStorage`, que sabe tratar
@@ -349,9 +351,32 @@ pub async fn remove_emulator(state: State<'_, AppState>, name: String) -> AppRes
             emulators::remove_categories(conn, &name)?;
             conflicts::remove_for_emulator(conn, &name)?;
             manifest::remove_for_emulator(conn, &name)?;
+            crate::storage::stats::remove_for_emulator(conn, &name)?;
             queue::remove_for_emulator(conn, &name)
         })
         .await
+}
+
+/// Estatísticas acumuladas de um emulador (uploads, downloads, bytes,
+/// conflitos, últimos sync/scan). `None` = nunca houve atividade.
+#[tauri::command]
+pub async fn get_emulator_stats(
+    state: State<'_, AppState>,
+    name: String,
+) -> AppResult<Option<crate::storage::stats::EmulatorStats>> {
+    state
+        .db
+        .with(move |conn| crate::storage::stats::get(conn, &name))
+        .await
+}
+
+/// Estatísticas acumuladas de todos os emuladores com atividade — a UI carrega
+/// uma vez e distribui pelos cards.
+#[tauri::command]
+pub async fn list_emulator_stats(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<crate::storage::stats::EmulatorStats>> {
+    state.db.with(crate::storage::stats::list_all).await
 }
 
 /// Conflitos pendentes (ambos os lados mudaram). A UI exibe o botão de resolver
@@ -401,6 +426,29 @@ pub async fn set_emulator_categories(
     state
         .db
         .with(move |conn| emulators::set_categories(conn, &name, &categories))
+        .await
+}
+
+/// Define os padrões glob de exclusão de um emulador (arquivos que casam ficam
+/// fora do sync nas duas direções). Valida cada padrão antes de gravar.
+#[tauri::command]
+pub async fn set_exclude_patterns(
+    state: State<'_, AppState>,
+    name: String,
+    patterns: Vec<String>,
+) -> AppResult<()> {
+    let patterns: Vec<String> = patterns
+        .into_iter()
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    for pattern in &patterns {
+        globset::Glob::new(pattern)
+            .map_err(|e| AppError::Other(format!("padrão inválido \"{pattern}\": {e}")))?;
+    }
+    state
+        .db
+        .with(move |conn| emulators::set_exclude_patterns(conn, &name, &patterns))
         .await
 }
 
@@ -485,6 +533,35 @@ pub async fn open_backup_folder(app: AppHandle) -> AppResult<()> {
     Ok(())
 }
 
+/// Mostra um arquivo de backup no gerenciador de arquivos do SO (abre a pasta
+/// que o contém). Restrito à árvore de backups do app — recusa qualquer
+/// caminho fora dela.
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn reveal_backup_path(app: AppHandle, path: String) -> AppResult<()> {
+    let backups_root = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Other(format!("diretório de dados indisponível: {e}")))?
+        .join(LOCAL_BACKUP_DIR);
+    let target = PathBuf::from(&path);
+    let canonical = tokio::fs::canonicalize(&target).await?;
+    let root_canonical = tokio::fs::canonicalize(&backups_root).await?;
+    if !canonical.starts_with(&root_canonical) {
+        return Err(AppError::Other(
+            "caminho fora da pasta de backups do RetroSync".into(),
+        ));
+    }
+    let dir = canonical
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or(canonical);
+    tokio::task::spawn_blocking(move || open::that(&dir))
+        .await
+        .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))??;
+    Ok(())
+}
+
 /// Liga/desliga os gatilhos de sync automático. O sync manual (botão/tray) não
 /// é afetado por estes flags.
 #[tauri::command]
@@ -492,6 +569,50 @@ pub async fn set_triggers(state: State<'_, AppState>, triggers: TriggerSettings)
     state
         .db
         .with(move |conn| settings::set_triggers(conn, &triggers))
+        .await
+}
+
+/// Define a retenção dos backups locais em dias (0 = manter para sempre).
+/// A limpeza roda no próximo startup do app.
+#[tauri::command]
+pub async fn set_backup_retention_days(state: State<'_, AppState>, days: u32) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::set_backup_retention_days(conn, days))
+        .await
+}
+
+/// Define o máximo de versões arquivadas por arquivo no histórico
+/// pré-download (mínimo 1).
+#[tauri::command]
+pub async fn set_max_backup_versions(state: State<'_, AppState>, versions: u32) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::set_max_backup_versions(conn, versions))
+        .await
+}
+
+/// Define os limites de banda das transferências em KB/s (0 = ilimitado).
+/// Aplicados imediatamente — o cliente relê os valores a cada operação.
+#[tauri::command]
+pub async fn set_bandwidth_limits(
+    state: State<'_, AppState>,
+    upload_kbps: u32,
+    download_kbps: u32,
+) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::set_bandwidth_limits(conn, upload_kbps, download_kbps))
+        .await
+}
+
+/// Define o intervalo do scan periódico em minutos (0 = desativado). O timer
+/// relê o valor a cada ciclo — não precisa reiniciar o app.
+#[tauri::command]
+pub async fn set_scan_interval_minutes(state: State<'_, AppState>, minutes: u32) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::set_scan_interval_minutes(conn, minutes))
         .await
 }
 
@@ -532,4 +653,183 @@ pub fn get_last_sync(state: State<'_, AppState>) -> AppResult<Option<LastSync>> 
         .lock()
         .map_err(|_| AppError::Other("lock do último sync envenenado".into()))?;
     Ok(guard.clone())
+}
+
+/// Fila offline visível: arquivos cuja transferência falhou (rede/arquivo em
+/// uso) e será refeita no próximo sync. A UI exibe o badge "N pendentes" no
+/// card do emulador e a lista com o último erro de cada arquivo.
+#[tauri::command]
+pub async fn list_pending_ops(state: State<'_, AppState>) -> AppResult<Vec<queue::PendingOp>> {
+    state.db.with(queue::list_all).await
+}
+
+/// Ação "tentar novamente" da fila offline: zera as tentativas e o backoff de
+/// um arquivo (inclusive pendências mortas), liberando a retentativa no próximo
+/// sync.
+#[tauri::command]
+pub async fn retry_pending_op(
+    state: State<'_, AppState>,
+    emulator: String,
+    category: SyncCategory,
+    rel_path: String,
+) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| queue::retry_now(conn, &emulator, category, &rel_path))
+        .await
+}
+
+/// IDs de banners informativos que o usuário dispensou (não reaparecem).
+#[tauri::command]
+pub async fn list_dismissed_notices(state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    state.db.with(settings::dismissed_notices).await
+}
+
+/// Dispensa um banner informativo de forma persistente (idempotente).
+#[tauri::command]
+pub async fn dismiss_notice(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state
+        .db
+        .with(move |conn| settings::dismiss_notice(conn, &id))
+        .await
+}
+
+/// Versões arquivadas de um arquivo no histórico pré-download
+/// (`<backups>/<emulador>/history/<categoria>/…`), mais recentes primeiro.
+#[tauri::command]
+pub async fn list_file_versions(
+    app: AppHandle,
+    emulator: String,
+    category: SyncCategory,
+    rel_path: String,
+) -> AppResult<Vec<crate::versioning::FileVersion>> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Other(format!("diretório de dados indisponível: {e}")))?
+        .join(LOCAL_BACKUP_DIR);
+    tokio::task::spawn_blocking(move || {
+        use crate::versioning::Versioner;
+        crate::versioning::FsVersioner::new(dir).versions(&emulator, category.as_str(), &rel_path)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))?
+}
+
+/// Restaura uma versão arquivada por cima do arquivo atual do emulador.
+/// `versioned_rel_path` é o caminho relativo dentro de
+/// `history/<categoria>/` como listado no histórico (nome com carimbo).
+/// O estado atual é arquivado ANTES da restauração — nada se perde. O arquivo
+/// restaurado recebe mtime atual, então o próximo sync o envia ao Drive.
+#[tauri::command]
+pub async fn restore_version(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    emulator: String,
+    category: SyncCategory,
+    versioned_rel_path: String,
+) -> AppResult<()> {
+    let backups_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Other(format!("diretório de dados indisponível: {e}")))?
+        .join(LOCAL_BACKUP_DIR);
+
+    // Valida o caminho versionado e deriva origem + rel_path original
+    // (lógica pura e testada em `versioning::resolve_restore`).
+    let (src_abs, original_rel) = {
+        let (dir, emu, cat, rel) = (
+            backups_dir.clone(),
+            emulator.clone(),
+            category.as_str().to_string(),
+            versioned_rel_path.clone(),
+        );
+        tokio::task::spawn_blocking(move || {
+            crate::versioning::resolve_restore(&dir, &emu, &cat, &rel)
+        })
+        .await
+        .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))??
+    };
+
+    // Perfil e primeira pasta-base da categoria → destino da restauração.
+    let name = emulator.clone();
+    let profile = state
+        .db
+        .with(emulators::list)
+        .await?
+        .into_iter()
+        .find(|p| p.name == name)
+        .ok_or_else(|| AppError::Other(format!("emulador não encontrado: {emulator}")))?;
+    let bases = match category {
+        SyncCategory::Saves => &profile.saves_paths,
+        SyncCategory::Savestates => &profile.state_paths,
+        SyncCategory::Config => &profile.config_paths,
+    };
+    let base = bases
+        .first()
+        .ok_or_else(|| AppError::Other(format!("categoria sem pasta configurada: {emulator}")))?;
+    let root_loc = state.storage.root_loc(&profile.root_path);
+    let base_loc = state
+        .storage
+        .join(&root_loc, &base.to_string_lossy().replace('\\', "/"));
+    let dest = state.storage.join(&base_loc, &original_rel);
+
+    // Arquiva o estado ATUAL antes de sobrescrever (best-effort; sem estado
+    // atual — arquivo já apagado — só restaura).
+    if state.storage.exists(&dest).await {
+        let max_versions = state
+            .db
+            .with(settings::max_backup_versions)
+            .await
+            .unwrap_or(crate::constants::MAX_BACKUP_VERSIONS_DEFAULT)
+            as usize;
+        let current = state.storage.loc_to_stored(&dest);
+        let (emu, cat, rel) = (
+            emulator.clone(),
+            category.as_str().to_string(),
+            original_rel.clone(),
+        );
+        let dir = backups_dir.clone();
+        let archived = tokio::task::spawn_blocking(move || {
+            use crate::versioning::Versioner;
+            crate::versioning::FsVersioner::new(dir).archive(
+                &emu,
+                &cat,
+                &rel,
+                std::path::Path::new(&current),
+                max_versions,
+            )
+        })
+        .await
+        .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))?;
+        if let Err(err) = archived {
+            tracing::warn!(error = %err, "falha ao arquivar o estado atual antes de restaurar");
+        }
+    }
+
+    // Restaura com mtime atual: o próximo sync envia a versão restaurada.
+    let content = tokio::fs::read(&src_abs).await?;
+    state.storage.write_atomic(&dest, &content, None).await?;
+    tracing::info!(
+        emulador = %emulator,
+        arquivo = %original_rel,
+        versao = %versioned_rel_path,
+        "versão restaurada do histórico"
+    );
+    Ok(())
+}
+
+/// Histórico dos backups locais que o RetroSync criou antes de sobrescrever
+/// arquivos (primeiro sync e resolução de conflito). Só leitura — restauração
+/// continua manual, pela pasta.
+#[tauri::command]
+pub async fn list_backups(app: AppHandle) -> AppResult<Vec<crate::backups::BackupEntry>> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| AppError::Other(format!("diretório de dados indisponível: {e}")))?
+        .join(LOCAL_BACKUP_DIR);
+    tokio::task::spawn_blocking(move || crate::backups::list(&dir))
+        .await
+        .map_err(|e| AppError::Other(format!("tarefa bloqueante abortada: {e}")))?
 }

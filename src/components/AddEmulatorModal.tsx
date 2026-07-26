@@ -14,6 +14,7 @@ import {
   pickEmulatorFolder,
 } from "../lib/ipc";
 import type { DiscoveredEmulator, EmulatorProfile } from "../types/ipc";
+import { Modal } from "./ui/Modal";
 
 interface Props {
   /** Emuladores já configurados — filtrados das recomendações. */
@@ -210,137 +211,128 @@ export function AddEmulatorModal({ existingNames, onClose, onAdded }: Props) {
   const manualIncomplete = manualName.trim() === "" || (!savesRel && !statesRel && !configRel);
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h2>{t("addEmulator.title")}</h2>
-          <button className="secondary" onClick={onClose}>
-            {t("common.close")}
+    <Modal title={t("addEmulator.title")} onClose={onClose}>
+      {/* Seção de recomendados — apenas no desktop (requer scan de filesystem). */}
+      {!isMobile ? (
+        <section className="settings-section">
+          <h3>{t("addEmulator.recommended")}</h3>
+          {discovery.loading ? (
+            <p className="muted">{t("addEmulator.searching")}</p>
+          ) : discovery.error ? (
+            <p className="error">{discovery.error}</p>
+          ) : recommendations.length === 0 ? (
+            <p className="muted">{t("addEmulator.noneDetected")}</p>
+          ) : (
+            <div className="discovery-list">
+              {recommendations.map((d) => (
+                <div className="discovery-row" key={d.name}>
+                  <div className="discovery-info">
+                    <span className="discovery-name">{d.name}</span>
+                    <span className="muted discovery-meta">
+                      {d.profile
+                        ? t(SOURCE_LABEL_KEY[d.source])
+                        : t("addEmulator.installedNoSaves")}
+                    </span>
+                  </div>
+                  {d.profile ? (
+                    <button disabled={busy !== null} onClick={() => addRecommended(d)}>
+                      {busy === `rec:${d.name}` ? t("addEmulator.adding") : t("common.add")}
+                    </button>
+                  ) : (
+                    <span className="muted discovery-hint">{t("addEmulator.openOnce")}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      <section className="settings-section">
+        <h3>{t("addEmulator.pickFolder")}</h3>
+        <p className="muted">
+          {isMobile ? t("addEmulator.pickFolderHintMobile") : t("addEmulator.pickFolderHint")}
+        </p>
+        <div className="settings-row">
+          <button className="secondary" disabled={busy === "detect"} onClick={pickRoot}>
+            {busy === "detect" ? t("addEmulator.detecting") : t("addEmulator.selectFolder")}
           </button>
+          {root ? (
+            <span className="muted discovery-meta" title={root}>
+              {isMobile ? t("addEmulator.folderGranted") : root}
+            </span>
+          ) : null}
         </div>
 
-        {/* Seção de recomendados — apenas no desktop (requer scan de filesystem). */}
-        {!isMobile ? (
-          <section className="settings-section">
-            <h3>{t("addEmulator.recommended")}</h3>
-            {discovery.loading ? (
-              <p className="muted">{t("addEmulator.searching")}</p>
-            ) : discovery.error ? (
-              <p className="error">{discovery.error}</p>
-            ) : recommendations.length === 0 ? (
-              <p className="muted">{t("addEmulator.noneDetected")}</p>
-            ) : (
-              <div className="discovery-list">
-                {recommendations.map((d) => (
-                  <div className="discovery-row" key={d.name}>
-                    <div className="discovery-info">
-                      <span className="discovery-name">{d.name}</span>
-                      <span className="muted discovery-meta">
-                        {d.profile
-                          ? t(SOURCE_LABEL_KEY[d.source])
-                          : t("addEmulator.installedNoSaves")}
-                      </span>
-                    </div>
-                    {d.profile ? (
-                      <button disabled={busy !== null} onClick={() => addRecommended(d)}>
-                        {busy === `rec:${d.name}` ? t("addEmulator.adding") : t("common.add")}
-                      </button>
-                    ) : (
-                      <span className="muted discovery-hint">{t("addEmulator.openOnce")}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+        {detected ? (
+          <div className="discovery-row">
+            <div className="discovery-info">
+              <span className="discovery-name">{detected.name}</span>
+              <span className="muted discovery-meta">{t("addEmulator.detectedHere")}</span>
+            </div>
+            <button disabled={busy !== null} onClick={addDetected}>
+              {busy === "add-detected" ? t("addEmulator.adding") : t("common.add")}
+            </button>
+          </div>
         ) : null}
 
-        <section className="settings-section">
-          <h3>{t("addEmulator.pickFolder")}</h3>
-          <p className="muted">
-            {isMobile ? t("addEmulator.pickFolderHintMobile") : t("addEmulator.pickFolderHint")}
-          </p>
-          <div className="settings-row">
-            <button className="secondary" disabled={busy === "detect"} onClick={pickRoot}>
-              {busy === "detect" ? t("addEmulator.detecting") : t("addEmulator.selectFolder")}
-            </button>
-            {root ? (
-              <span className="muted discovery-meta" title={root}>
-                {isMobile ? t("addEmulator.folderGranted") : root}
-              </span>
-            ) : null}
-          </div>
-
-          {detected ? (
-            <div className="discovery-row">
-              <div className="discovery-info">
-                <span className="discovery-name">{detected.name}</span>
-                <span className="muted discovery-meta">{t("addEmulator.detectedHere")}</span>
-              </div>
-              <button disabled={busy !== null} onClick={addDetected}>
-                {busy === "add-detected" ? t("addEmulator.adding") : t("common.add")}
-              </button>
-            </div>
-          ) : null}
-
-          {needsManual ? (
-            <div className="manual-form">
-              <p className="muted">{t("addEmulator.manualIntro")}</p>
-              <label className="manual-field">
-                <span>{t("addEmulator.nameLabel")}</span>
-                <input
-                  value={manualName}
-                  onChange={(e) => onNameChange(e.target.value)}
-                  placeholder={t("addEmulator.namePlaceholder")}
+        {needsManual ? (
+          <div className="manual-form">
+            <p className="muted">{t("addEmulator.manualIntro")}</p>
+            <label className="manual-field">
+              <span>{t("addEmulator.nameLabel")}</span>
+              <input
+                value={manualName}
+                onChange={(e) => onNameChange(e.target.value)}
+                placeholder={t("addEmulator.namePlaceholder")}
+              />
+            </label>
+            {isMobile ? (
+              <>
+                <MobilePathInput
+                  label={t("settings.categories.saves")}
+                  value={savesRel}
+                  onChange={setSavesRel}
                 />
-              </label>
-              {isMobile ? (
-                <>
-                  <MobilePathInput
-                    label={t("settings.categories.saves")}
-                    value={savesRel}
-                    onChange={setSavesRel}
-                  />
-                  <MobilePathInput
-                    label={t("settings.categories.savestates")}
-                    value={statesRel}
-                    onChange={setStatesRel}
-                  />
-                  <MobilePathInput
-                    label={t("settings.categories.config")}
-                    value={configRel}
-                    onChange={setConfigRel}
-                  />
-                </>
-              ) : (
-                <>
-                  <ManualPathRow
-                    label={t("settings.categories.saves")}
-                    value={savesRel}
-                    onPick={() => pickSub(setSavesRel)}
-                  />
-                  <ManualPathRow
-                    label={t("settings.categories.savestates")}
-                    value={statesRel}
-                    onPick={() => pickSub(setStatesRel)}
-                  />
-                  <ManualPathRow
-                    label={t("settings.categories.config")}
-                    value={configRel}
-                    onPick={() => pickSub(setConfigRel)}
-                  />
-                </>
-              )}
-              <button disabled={busy !== null || manualIncomplete} onClick={addManual}>
-                {busy === "add-manual" ? t("addEmulator.adding") : t("addEmulator.addManual")}
-              </button>
-            </div>
-          ) : null}
-        </section>
+                <MobilePathInput
+                  label={t("settings.categories.savestates")}
+                  value={statesRel}
+                  onChange={setStatesRel}
+                />
+                <MobilePathInput
+                  label={t("settings.categories.config")}
+                  value={configRel}
+                  onChange={setConfigRel}
+                />
+              </>
+            ) : (
+              <>
+                <ManualPathRow
+                  label={t("settings.categories.saves")}
+                  value={savesRel}
+                  onPick={() => pickSub(setSavesRel)}
+                />
+                <ManualPathRow
+                  label={t("settings.categories.savestates")}
+                  value={statesRel}
+                  onPick={() => pickSub(setStatesRel)}
+                />
+                <ManualPathRow
+                  label={t("settings.categories.config")}
+                  value={configRel}
+                  onPick={() => pickSub(setConfigRel)}
+                />
+              </>
+            )}
+            <button disabled={busy !== null || manualIncomplete} onClick={addManual}>
+              {busy === "add-manual" ? t("addEmulator.adding") : t("addEmulator.addManual")}
+            </button>
+          </div>
+        ) : null}
+      </section>
 
-        {error ? <p className="error">{error}</p> : null}
-      </div>
-    </div>
+      {error ? <p className="error">{error}</p> : null}
+    </Modal>
   );
 }
 

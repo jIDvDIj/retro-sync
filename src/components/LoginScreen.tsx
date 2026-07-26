@@ -3,13 +3,18 @@ import { Trans, useTranslation } from "react-i18next";
 
 import { useErrorMessage } from "../lib/errors";
 import { connectGoogleDrive, setDeviceName } from "../lib/ipc";
+import type { Theme } from "../hooks/useTheme";
 import type { AuthStatus } from "../types/ipc";
+import { Button } from "./ui/Button";
+import { Card } from "./ui/Card";
 
 interface Props {
   /** Nome do dispositivo já salvo, usado para pré-preencher o campo. */
   initialDeviceName: string | null;
   /** Chamado com o novo status após o login concluir com sucesso. */
   onConnected: (status: AuthStatus) => void;
+  theme: Theme;
+  onToggleTheme: () => void;
 }
 
 /**
@@ -19,7 +24,7 @@ interface Props {
  * O nome do dispositivo é obrigatório: identifica esta máquina nos metadados de
  * sync no Drive e é gravado antes de concluir a autenticação.
  */
-export function LoginScreen({ initialDeviceName, onConnected }: Props) {
+export function LoginScreen({ initialDeviceName, onConnected, theme, onToggleTheme }: Props) {
   const { t } = useTranslation();
   const errorMessage = useErrorMessage();
   const [device, setDevice] = useState(initialDeviceName ?? "");
@@ -50,7 +55,10 @@ export function LoginScreen({ initialDeviceName, onConnected }: Props) {
 
   return (
     <main className="login-screen">
-      <div className="login-card">
+      <Button variant="secondary" size="sm" className="theme-toggle" onClick={onToggleTheme}>
+        {theme === "dark" ? t("app.switchToLightTheme") : t("app.switchToDarkTheme")}
+      </Button>
+      <Card as="div" padding="lg" className="login-card">
         <h1>RetroSync</h1>
         <p className="login-tagline">{t("login.tagline")}</p>
 
@@ -71,12 +79,12 @@ export function LoginScreen({ initialDeviceName, onConnected }: Props) {
           />
         </label>
 
-        <button className="login-button" onClick={handleConnect} disabled={!canConnect}>
+        <Button variant="primary" fullWidth onClick={handleConnect} disabled={!canConnect}>
           {connecting ? t("login.connecting") : t("login.connect")}
-        </button>
+        </Button>
 
         {error ? <p className="error">{error}</p> : null}
-      </div>
+      </Card>
     </main>
   );
 }

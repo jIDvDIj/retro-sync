@@ -23,7 +23,15 @@ pub fn setup(
 ) -> Result<(), Box<dyn std::error::Error>> {
     setup_tray(app.handle())?;
     maybe_show_window(app.handle());
-    start_watcher(db.clone(), engine, app.handle().clone());
+    let running = crate::watcher::RunningEmulators::default();
+    start_watcher(
+        db.clone(),
+        engine.clone(),
+        app.handle().clone(),
+        running.clone(),
+    );
+    start_scheduled_scan(db.clone(), engine.clone(), running.clone());
+    crate::watcher::fs_watcher::start(db.clone(), engine, running);
     setup_default_autostart(app.handle().clone(), db);
     Ok(())
 }
@@ -106,10 +114,7 @@ fn spawn_sync(app: AppHandle, trigger: &'static str, then_exit: bool) {
     use crate::sync::SyncDirection;
     tauri::async_runtime::spawn(async move {
         let engine = app.state::<AppState>().engine.clone();
-        if let Err(err) = engine
-            .sync_all(SyncDirection::Bidirectional, trigger)
-            .await
-        {
+        if let Err(err) = engine.sync_all(SyncDirection::Bidirectional, trigger).await {
             tracing::warn!(trigger, error = %err, "sync acionado pela bandeja falhou");
         }
         if then_exit {
@@ -130,8 +135,59 @@ fn maybe_show_window(app: &AppHandle) {
     }
 }
 
-fn start_watcher(db: Db, engine: Arc<SyncEngine>, app: AppHandle) {
-    crate::watcher::start(db, engine, app);
+fn start_watcher(
+    db: Db,
+    engine: Arc<SyncEngine>,
+    app: AppHandle,
+    running: crate::watcher::RunningEmulators,
+) {
+    crate::watcher::start(db, engine, app, running);
+}
+
+/// Scan periódico em background: a cada `scan_interval_minutes` (com jitter de
+/// ±25%, para não sincronizar em hora cheia nem alinhar com outros
+/// dispositivos), dispara um sync completo — mas só quando nenhum emulador
+/// está rodando. Captura divergências que os gatilhos discretos perdem
+/// (cópia manual de saves, hibernação, evento de watcher perdido).
+fn start_scheduled_scan(
+    db: Db,
+    engine: Arc<SyncEngine>,
+    running: crate::watcher::RunningEmulators,
+) {
+    use rand::Rng;
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let minutes = db
+                .with(crate::storage::settings::scan_interval_minutes)
+                .await
+                .unwrap_or(constants::SCAN_INTERVAL_MINUTES_DEFAULT);
+            if minutes == 0 {
+                // Desativado: reconfere a cada minuto se o usuário religou.
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                continue;
+            }
+
+            let jitter = rand::thread_rng().gen_range(0.75..1.25);
+            let delay = std::time::Duration::from_secs_f64(f64::from(minutes) * 60.0 * jitter);
+            tokio::time::sleep(delay).await;
+
+            let busy = running.lock().map(|set| !set.is_empty()).unwrap_or(false);
+            if busy {
+                tracing::info!("scan periódico adiado: emulador em execução");
+                continue;
+            }
+
+            if let Err(err) = engine
+                .sync_all(
+                    crate::sync::SyncDirection::Bidirectional,
+                    constants::TRIGGER_SCHEDULED,
+                )
+                .await
+            {
+                tracing::warn!(error = %err, "scan periódico falhou");
+            }
+        }
+    });
 }
 
 /// Na primeiríssima execução registra o autostart para o app subir com o

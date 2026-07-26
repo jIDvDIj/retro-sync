@@ -43,6 +43,14 @@ pub enum AppError {
     #[error("objeto não encontrado no Drive: {0}")]
     DriveObjectNotFound(String),
 
+    #[error(
+        "espaço em disco insuficiente: necessário {needed_mb} MB, disponível {available_mb} MB"
+    )]
+    InsufficientDiskSpace { needed_mb: u64, available_mb: u64 },
+
+    #[error("falha de integridade na transferência: {0}")]
+    Integrity(String),
+
     #[error("{0}")]
     Other(String),
 }
@@ -61,6 +69,8 @@ impl AppError {
             AppError::EmulatorExists(_) => "emulator_exists",
             AppError::FileBusy(_) => "file_busy",
             AppError::DriveObjectNotFound(_) => "drive_not_found",
+            AppError::InsufficientDiskSpace { .. } => "insufficient_disk_space",
+            AppError::Integrity(_) => "integrity",
             AppError::Other(_) => "other",
         }
     }
@@ -76,11 +86,16 @@ impl AppError {
             #[cfg(desktop)]
             AppError::Keyring(e) => e.to_string(),
             AppError::Serialization(e) => e.to_string(),
+            AppError::InsufficientDiskSpace {
+                needed_mb,
+                available_mb,
+            } => format!("necessário {needed_mb} MB, disponível {available_mb} MB"),
             AppError::Auth(s)
             | AppError::EmulatorNotDetected(s)
             | AppError::EmulatorExists(s)
             | AppError::FileBusy(s)
             | AppError::DriveObjectNotFound(s)
+            | AppError::Integrity(s)
             | AppError::Other(s) => s.clone(),
         }
     }
@@ -93,5 +108,57 @@ impl Serialize for AppError {
         s.serialize_field("message", &self.to_string())?;
         s.serialize_field("detail", &self.detail())?;
         s.end()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn payload(err: AppError) -> serde_json::Value {
+        serde_json::to_value(err).unwrap()
+    }
+
+    #[test]
+    fn erro_serializa_como_code_message_detail() {
+        let v = payload(AppError::FileBusy("save.bin".into()));
+        assert_eq!(v["code"], "file_busy");
+        assert_eq!(v["detail"], "save.bin");
+        // message = prefixo localizável + detalhe.
+        assert!(v["message"].as_str().unwrap().contains("arquivo em uso"));
+        assert!(v["message"].as_str().unwrap().contains("save.bin"));
+    }
+
+    #[test]
+    fn codes_sao_estaveis_para_o_frontend() {
+        // O union AppErrorPayload["code"] em src/types/ipc.ts depende destes valores.
+        assert_eq!(payload(AppError::Auth("x".into()))["code"], "auth");
+        assert_eq!(
+            payload(AppError::DriveObjectNotFound("x".into()))["code"],
+            "drive_not_found"
+        );
+        assert_eq!(
+            payload(AppError::EmulatorNotDetected("x".into()))["code"],
+            "emulator_not_detected"
+        );
+        assert_eq!(
+            payload(AppError::EmulatorExists("x".into()))["code"],
+            "emulator_exists"
+        );
+        assert_eq!(payload(AppError::Other("x".into()))["code"], "other");
+        assert_eq!(
+            payload(AppError::InsufficientDiskSpace {
+                needed_mb: 12,
+                available_mb: 3
+            })["code"],
+            "insufficient_disk_space"
+        );
+    }
+
+    #[test]
+    fn other_usa_o_texto_inteiro_como_message_e_detail() {
+        let v = payload(AppError::Other("falha específica".into()));
+        assert_eq!(v["message"], "falha específica");
+        assert_eq!(v["detail"], "falha específica");
     }
 }

@@ -5,6 +5,7 @@ export const common: Localized<typeof CommonEn> = {
   common: {
     close: "Fechar",
     add: "Adicionar",
+    dismiss: "Dispensar",
   },
   app: {
     checkingConnection: "verificando conexão com o Google Drive…",
@@ -13,5 +14,7 @@ export const common: Localized<typeof CommonEn> = {
     loading: "carregando…",
     noEmulators:
       "Nenhum emulador configurado. Use “Adicionar emulador” e selecione a pasta raiz do PPSSPP ou PCSX2.",
+    switchToLightTheme: "☀ Tema claro",
+    switchToDarkTheme: "🌙 Tema escuro",
   },
 };

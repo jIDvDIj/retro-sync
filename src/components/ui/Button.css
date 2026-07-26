@@ -1,0 +1,78 @@
+.rs-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--rs-space-2);
+  border: none;
+  border-radius: var(--rs-radius-md);
+  padding: 0 var(--rs-space-4);
+  font-family: inherit;
+  font-weight: var(--rs-weight-semibold);
+  cursor: pointer;
+  transition:
+    background-color var(--rs-motion-fast) var(--rs-ease-state),
+    border-color var(--rs-motion-fast) var(--rs-ease-state),
+    color var(--rs-motion-fast) var(--rs-ease-state);
+  box-sizing: border-box;
+}
+
+.rs-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.rs-button-md {
+  min-height: var(--rs-space-11);
+  font-size: var(--rs-font-base);
+}
+
+.rs-button-sm {
+  min-height: var(--rs-space-9);
+  padding: 0 var(--rs-space-3);
+  font-size: var(--rs-font-md);
+}
+
+.rs-button-full {
+  width: 100%;
+}
+
+.rs-button-primary {
+  background-color: var(--rs-color-brand);
+  color: #ffffff;
+}
+
+.rs-button-primary:hover:not(:disabled) {
+  background-color: var(--rs-color-brand-alt);
+}
+
+.rs-button-secondary {
+  background-color: transparent;
+  border: 1px solid var(--rs-color-border);
+  color: var(--rs-color-text-muted);
+}
+
+.rs-button-secondary:hover:not(:disabled) {
+  background-color: var(--rs-color-surface-alt);
+  color: var(--rs-color-text);
+}
+
+.rs-button-ghost {
+  background-color: transparent;
+  color: var(--rs-color-text-muted);
+  padding: 0;
+  min-height: auto;
+}
+
+.rs-button-ghost:hover:not(:disabled) {
+  color: var(--rs-color-text);
+  text-decoration: underline;
+}
+
+.rs-button-danger {
+  background-color: var(--rs-color-danger);
+  color: #ffffff;
+}
+
+.rs-button-danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+}

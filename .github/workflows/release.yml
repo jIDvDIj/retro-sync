@@ -247,6 +247,33 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Assinatura + notarização do macOS: as variáveis APPLE_* só podem entrar
+      # no ambiente quando os secrets EXISTEM — o bundler do Tauri trata
+      # variável definida (mesmo vazia) como "assinar", tenta importar um
+      # certificado vazio no keychain e derruba o build. Sem certificado, o
+      # .app sai sem assinatura (abrir com clique-direito → Abrir); ao criar os
+      # secrets APPLE_*, a assinatura reativa sozinha.
+      - name: Habilitar assinatura macOS (quando houver certificado)
+        if: startsWith(matrix.platform, 'macos')
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "Sem APPLE_CERTIFICATE — o build macOS sairá sem assinatura."
+            exit 0
+          fi
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                   APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            printf '%s<<__APPLE_EOF__\n%s\n__APPLE_EOF__\n' "$v" "${!v}" >> "$GITHUB_ENV"
+          done
+          echo "Assinatura macOS habilitada."
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -254,15 +281,6 @@ jobs:
           RETROSYNC_GOOGLE_CLIENT_ID: ${{ secrets.RETROSYNC_GOOGLE_CLIENT_ID }}
           RETROSYNC_TOKEN_PROXY_URL: ${{ secrets.RETROSYNC_TOKEN_PROXY_URL }}
           RETROSYNC_PROXY_SECRET: ${{ secrets.RETROSYNC_PROXY_SECRET }}
-
-          # Assinatura + notarização do macOS. O tauri-action só assina/notariza
-          # quando estas variáveis estão presentes; sem elas o build sai sem assinatura
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ needs.version.outputs.tag }}
           releaseName: RetroSync v${{ needs.version.outputs.version }}

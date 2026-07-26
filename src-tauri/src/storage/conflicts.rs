@@ -30,11 +30,15 @@ pub struct Conflict {
     /// Caminho absoluto local — interno, usado pela resolução.
     pub local_abs_path: String,
     pub detected_at_ms: i64,
+    /// Cópia padronizada do lado local
+    /// (`<nome>.retrosync-conflict-<carimbo>-<device><ext>`) para inspeção
+    /// manual. `None` quando a cópia não pôde ser criada.
+    pub backup_path: Option<String>,
 }
 
 const COLS: &str = "emulator, category, rel_path, local_mtime_ms, local_size, local_device, \
                     drive_mtime_ms, drive_size, drive_device, drive_file_id, local_abs_path, \
-                    detected_at_ms";
+                    detected_at_ms, backup_path";
 
 fn from_row(row: &Row) -> rusqlite::Result<Conflict> {
     let category_str: String = row.get(1)?;
@@ -58,6 +62,7 @@ fn from_row(row: &Row) -> rusqlite::Result<Conflict> {
         drive_file_id: row.get(9)?,
         local_abs_path: row.get(10)?,
         detected_at_ms: row.get(11)?,
+        backup_path: row.get(12)?,
     })
 }
 
@@ -65,8 +70,9 @@ pub fn upsert(conn: &Connection, c: &Conflict) -> AppResult<()> {
     conn.execute(
         "INSERT OR REPLACE INTO sync_conflicts \
          (emulator, category, rel_path, local_mtime_ms, local_size, local_device, \
-          drive_mtime_ms, drive_size, drive_device, drive_file_id, local_abs_path, detected_at_ms) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+          drive_mtime_ms, drive_size, drive_device, drive_file_id, local_abs_path, \
+          detected_at_ms, backup_path) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             c.emulator,
             c.category.as_str(),
@@ -80,6 +86,7 @@ pub fn upsert(conn: &Connection, c: &Conflict) -> AppResult<()> {
             c.drive_file_id,
             c.local_abs_path,
             c.detected_at_ms,
+            c.backup_path,
         ],
     )?;
     Ok(())
@@ -164,6 +171,9 @@ mod tests {
             drive_file_id: "drive-id-1".into(),
             local_abs_path: "/tmp/ppsspp/SAVEDATA/GAME01/SAVE.bin".into(),
             detected_at_ms: 1_700_000_300_000,
+            backup_path: Some(
+                "/backups/PPSSPP/conflicts/saves/GAME01/SAVE.retrosync-conflict-x.bin".into(),
+            ),
         }
     }
 
@@ -220,5 +230,9 @@ mod tests {
         assert_eq!(json["localDevice"], "PC Gamer");
         assert_eq!(json["driveDevice"], "Notebook");
         assert_eq!(json["driveFileId"], "drive-id-1");
+        assert!(json["backupPath"]
+            .as_str()
+            .unwrap()
+            .contains("retrosync-conflict"));
     }
 }

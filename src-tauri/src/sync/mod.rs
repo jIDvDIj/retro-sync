@@ -10,6 +10,11 @@ mod diff;
 mod engine;
 #[cfg(mobile)]
 pub mod mobile_storage;
+// `not(windows)`: o MockRuntime do tauri quebra o exe de teste no Windows
+// (STATUS_ENTRYPOINT_NOT_FOUND — tauri-apps/tauri#13419); os cenários rodam
+// no Linux/macOS, onde a cobertura também é medida.
+#[cfg(all(test, desktop, not(windows)))]
+mod scenarios;
 mod storage;
 
 use std::path::PathBuf;
@@ -23,6 +28,20 @@ pub use storage::{FileLoc, LocalStorage};
 
 use crate::constants::{DRIVE_CONFIG_FOLDER, DRIVE_SAVES_FOLDER, DRIVE_STATES_FOLDER};
 use crate::emulator::EmulatorProfile;
+
+/// SHA-256 (hex) de um conteúdo em memória — identidade de conteúdo usada no
+/// pré-filtro de mtime do diff (coluna `file_hash` do manifest).
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// MD5 (hex) de um conteúdo em memória — comparável ao `md5Checksum` que a API
+/// do Drive devolve (verificação de integridade pós-transferência).
+pub(crate) fn md5_hex(bytes: &[u8]) -> String {
+    use md5::{Digest, Md5};
+    format!("{:x}", Md5::digest(bytes))
+}
 
 /// Direção de uma operação de sync. Espelhado em `src/types/ipc.ts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +88,10 @@ pub struct SyncProgress {
     pub current_file: String,
     pub completed: u32,
     pub total: u32,
+    /// Bytes já transferidos / totais do plano da categoria em andamento —
+    /// alimentam a barra de progresso, a velocidade e o ETA na UI.
+    pub bytes_done: u64,
+    pub bytes_total: u64,
     pub direction: SyncDirection,
 }
 
@@ -79,6 +102,8 @@ pub struct SyncTarget {
     pub label: String,
     pub root: PathBuf,
     pub categories: Vec<(SyncCategory, Vec<PathBuf>)>,
+    /// Padrões glob de arquivos a ignorar no sync (herdados do perfil).
+    pub exclude_patterns: Vec<String>,
 }
 
 impl SyncTarget {
@@ -91,6 +116,79 @@ impl SyncTarget {
                 (SyncCategory::Savestates, profile.state_paths.clone()),
                 (SyncCategory::Config, profile.config_paths.clone()),
             ],
+            exclude_patterns: profile.exclude_patterns.clone(),
         }
+    }
+}
+
+/// Compila os padrões de exclusão do emulador num `GlobSet` (uma vez por sync,
+/// não por arquivo). Padrões inválidos são ignorados com warning — um glob
+/// quebrado nunca derruba o sync. `None` = nada a excluir.
+pub(crate) fn build_exclude_set(patterns: &[String]) -> Option<globset::GlobSet> {
+    if patterns.is_empty() {
+        return None;
+    }
+    let mut builder = globset::GlobSetBuilder::new();
+    let mut any = false;
+    for pattern in patterns {
+        match globset::Glob::new(pattern) {
+            Ok(glob) => {
+                builder.add(glob);
+                any = true;
+            }
+            Err(err) => {
+                tracing::warn!(padrao = %pattern, error = %err, "padrão de exclusão inválido; ignorado");
+            }
+        }
+    }
+    if !any {
+        return None;
+    }
+    builder.build().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn categoria_roundtrip_as_str_parse() {
+        for cat in [
+            SyncCategory::Saves,
+            SyncCategory::Savestates,
+            SyncCategory::Config,
+        ] {
+            assert_eq!(SyncCategory::parse(cat.as_str()), Some(cat));
+        }
+        assert_eq!(SyncCategory::parse("outra-coisa"), None);
+    }
+
+    #[test]
+    fn from_profile_mapeia_as_tres_categorias() {
+        let profile = EmulatorProfile {
+            name: "PPSSPP".into(),
+            root_path: PathBuf::from("/raiz"),
+            saves_paths: vec![PathBuf::from("saves")],
+            config_paths: vec![PathBuf::from("cfg"), PathBuf::from("cfg2")],
+            state_paths: vec![],
+            exclude_patterns: vec!["*.tmp".into()],
+        };
+
+        let target = SyncTarget::from_profile(&profile);
+
+        assert_eq!(target.label, "PPSSPP");
+        assert_eq!(target.root, PathBuf::from("/raiz"));
+        assert_eq!(target.categories.len(), 3);
+        let by_cat = |c: SyncCategory| {
+            target
+                .categories
+                .iter()
+                .find(|(cat, _)| *cat == c)
+                .map(|(_, paths)| paths.len())
+                .unwrap()
+        };
+        assert_eq!(by_cat(SyncCategory::Saves), 1);
+        assert_eq!(by_cat(SyncCategory::Config), 2);
+        assert_eq!(by_cat(SyncCategory::Savestates), 0);
     }
 }

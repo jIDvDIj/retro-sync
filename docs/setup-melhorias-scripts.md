@@ -1,8 +1,4 @@
-# Setup pendente — melhorias de tooling (scripts do Syncthing)
-
-As melhorias descritas em [melhorias-scripts-syncthing.md](./melhorias-scripts-syncthing.md)
-foram implementadas. Este documento é o **passo a passo das configurações manuais que ainda
-faltam** para tudo funcionar de ponta a ponta.
+# Setup pendente — melhorias de tooling
 
 ## O que foi implementado e onde
 
@@ -134,12 +130,18 @@ jobs (issue #73). Para ele valer como porteiro:
 
 1. No GitHub: **Settings → Branches → regra da `main`** (criar se não existir).
 2. Marcar **Require status checks to pass before merging**.
-3. Selecionar **somente** `ci-passed` como required check (remover os demais, se
-   estiverem listados).
+3. Selecionar como required checks **apenas**:
+   - `ci-passed` — agrega todos os jobs do GitHub Actions;
+   - `codecov/patch` — cobertura do código novo ≥ 80% (política em `codecov.yml`).
 
-> O check só aparece na lista de seleção depois da **primeira execução** do workflow
-> com o job — abra o PR primeiro, configure depois. A partir daí, adicionar/remover
-> jobs do CI exige atualizar apenas o `needs` do `ci-passed`, sem mexer no GitHub.
+> Os checks só aparecem na lista de seleção depois da **primeira execução** de cada um
+> — abra o PR primeiro, configure depois. A partir daí, adicionar/remover jobs do CI
+> exige atualizar apenas o `needs` do `ci-passed`, sem mexer no GitHub.
+>
+> Atenção com o `codecov/patch` required: PRs cujo diff "cobrível" seja só código
+> não-testável (ex.: shims de delegação para I/O real, wiring de setup) ficarão
+> vermelhos — a saída é acompanhar o PR com testes, ou um admin mergear com override
+> consciente.
 
 ## 10. Reativar o build e os checks Android (desabilitados em 04/07/2026)
 
@@ -175,3 +177,4 @@ atacante). Quando esses parents atualizarem o `quick-xml`, rode
 | **#4 (parte UI) — Seção "Sobre" no SettingsModal** | É feature de UI, não de tooling | Exibir versão (`__APP_VERSION__` via `define` do Vite), link do repositório e créditos do `AUTHORS` |
 | **THIRD_PARTY_LICENSES.txt no instalador** | Evolução do #8 (requisito legal p/ distribuição pública) | Gerar com `cargo-about` no build e embutir no bundle |
 | **SLSA provenance no release (issue #74)** | Repo privado — attestations descartadas em [distribuicao-publica.md](./distribuicao-publica.md) (verificação exige acesso de leitura ao repo) | Quando o repo virar público: `actions/attest-build-provenance` + permissions `id-token`/`attestations` no `release.yml` |
+| **Assinatura/notarização macOS** | Sem certificado Apple Developer (US$ 99/ano); o build macOS sai **sem assinatura** (usuário abre com clique-direito → Abrir) | Ao obter o certificado: criar os secrets `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` e `APPLE_TEAM_ID` — o step "Habilitar assinatura macOS" do `release.yml` reativa a assinatura sozinho |

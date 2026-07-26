@@ -1,4 +1,5 @@
 mod auth;
+mod backups;
 mod commands;
 mod constants;
 mod device;
@@ -12,6 +13,7 @@ mod secrets;
 mod state;
 mod storage;
 mod sync;
+mod versioning;
 // O process watcher depende de inspecionar processos do SO (`sysinfo`), o que
 // não existe/aplica no mobile — gatilhos automáticos são exclusivos do desktop.
 #[cfg(desktop)]
@@ -160,6 +162,32 @@ pub fn run() {
                 });
             }
 
+            // Retenção de backups: remove no startup as execuções de backup mais
+            // antigas que o limite configurado (default 30 dias; 0 desativa).
+            let retention_db = db.clone();
+            let backups_root = data_dir.join(constants::LOCAL_BACKUP_DIR);
+            tauri::async_runtime::spawn(async move {
+                let days = retention_db
+                    .with(storage::settings::backup_retention_days)
+                    .await
+                    .unwrap_or(constants::BACKUP_RETENTION_DAYS_DEFAULT);
+                let result =
+                    tokio::task::spawn_blocking(move || backups::prune_old(&backups_root, days))
+                        .await;
+                match result {
+                    Ok(Ok(0)) => {}
+                    Ok(Ok(removed)) => {
+                        tracing::info!(
+                            removidas = removed,
+                            dias = days,
+                            "retenção de backups aplicada"
+                        )
+                    }
+                    Ok(Err(err)) => tracing::warn!(error = %err, "falha na retenção de backups"),
+                    Err(err) => tracing::warn!(error = %err, "tarefa de retenção abortada"),
+                }
+            });
+
             // Gatilho "ao iniciar o RetroSync": sync bidirecional em background,
             // se o usuário não tiver desativado o gatilho `startup`. Vale para
             // desktop e mobile (no mobile é o sync ao abrir o app).
@@ -200,6 +228,8 @@ pub fn run() {
             commands::discover_emulators,
             commands::list_emulators,
             commands::list_synced_games,
+            commands::get_emulator_stats,
+            commands::list_emulator_stats,
             commands::remove_emulator,
             commands::sync_now,
             commands::get_last_sync,
@@ -207,16 +237,30 @@ pub fn run() {
             commands::set_device_name,
             commands::set_triggers,
             commands::set_notification_level,
+            commands::set_backup_retention_days,
+            commands::set_scan_interval_minutes,
+            commands::set_max_backup_versions,
+            commands::set_bandwidth_limits,
             commands::get_emulator_categories,
             commands::set_emulator_categories,
+            commands::set_exclude_patterns,
             commands::list_conflicts,
             commands::resolve_conflict,
+            commands::list_pending_ops,
+            commands::retry_pending_op,
+            commands::list_dismissed_notices,
+            commands::dismiss_notice,
+            commands::list_backups,
+            commands::list_file_versions,
+            commands::restore_version,
             commands::pick_emulator_folder,
             commands::detect_emulator_mobile,
             #[cfg(desktop)]
             commands::set_autostart,
             #[cfg(desktop)]
             commands::open_backup_folder,
+            #[cfg(desktop)]
+            commands::reveal_backup_path,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o RetroSync");
