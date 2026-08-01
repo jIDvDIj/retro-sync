@@ -69,6 +69,7 @@ tracing-appender = "0.2"
 # rodou quando o compilador avalia atributos de item.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
 sysinfo = "0.33"
 # Watcher de filesystem nativo (ReadDirectoryChangesW/inotify/FSEvents) para o
 # gatilho "file-change" — sincroniza sem esperar o emulador fechar.
