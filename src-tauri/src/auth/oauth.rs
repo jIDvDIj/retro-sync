@@ -376,7 +376,15 @@ pub async fn refresh_access_token(
 }
 
 async fn post_token(http: &reqwest::Client, form: &[(&str, &str)]) -> AppResult<TokenResponse> {
-    let response = http.post(GOOGLE_TOKEN_ENDPOINT).form(form).send().await?;
+    post_token_at(http, GOOGLE_TOKEN_ENDPOINT, form).await
+}
+
+async fn post_token_at(
+    http: &reqwest::Client,
+    endpoint: &str,
+    form: &[(&str, &str)],
+) -> AppResult<TokenResponse> {
+    let response = http.post(endpoint).form(form).send().await?;
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -418,11 +426,15 @@ pub async fn fetch_user_email(
     http: &reqwest::Client,
     access_token: &str,
 ) -> AppResult<Option<String>> {
-    let response = http
-        .get(GOOGLE_USERINFO_ENDPOINT)
-        .bearer_auth(access_token)
-        .send()
-        .await?;
+    fetch_user_email_at(http, GOOGLE_USERINFO_ENDPOINT, access_token).await
+}
+
+async fn fetch_user_email_at(
+    http: &reqwest::Client,
+    endpoint: &str,
+    access_token: &str,
+) -> AppResult<Option<String>> {
+    let response = http.get(endpoint).bearer_auth(access_token).send().await?;
     if !response.status().is_success() {
         return Ok(None);
     }
@@ -474,5 +486,334 @@ mod tests {
         assert_eq!(parse_redirect_target("/favicon.ico"), None);
         assert_eq!(parse_redirect_target("/"), None);
         assert_eq!(parse_redirect_target("/?foo=bar"), None);
+    }
+
+    #[test]
+    fn random_state_gera_valores_unicos_com_tamanho_esperado() {
+        let a = random_state();
+        let b = random_state();
+        assert_ne!(a, b);
+        // 32 bytes em base64url sem padding = 43 caracteres.
+        assert_eq!(a.len(), 43);
+    }
+
+    #[tokio::test]
+    async fn read_request_target_extrai_linha_de_requisicao() {
+        let listener = TcpListener::bind((LOOPBACK_HOST, 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream
+                .write_all(b"GET /callback?code=abc HTTP/1.1\r\nHost: x\r\n\r\n")
+                .await
+                .unwrap();
+        });
+
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let target = read_request_target(&mut stream).await.unwrap();
+        assert_eq!(target, "/callback?code=abc");
+        client.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn respond_escreve_status_e_corpo_http() {
+        let listener = TcpListener::bind((LOOPBACK_HOST, 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let reader = tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            let mut buf = Vec::new();
+            stream.read_to_end(&mut buf).await.unwrap();
+            String::from_utf8(buf).unwrap()
+        });
+
+        let (mut stream, _) = listener.accept().await.unwrap();
+        respond(&mut stream, "200 OK", SUCCESS_PAGE).await;
+
+        let response = reader.await.unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(response.contains(&format!("Content-Length: {}", SUCCESS_PAGE.len())));
+        assert!(response.ends_with(SUCCESS_PAGE));
+    }
+
+    /// Simula um cliente HTTP simples que faz uma requisição GET de redirect
+    /// contra o listener loopback do `wait_for_code`.
+    async fn send_redirect(addr: std::net::SocketAddr, query: &str) -> String {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(format!("GET /?{query} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        stream.read_to_end(&mut buf).await.unwrap();
+        String::from_utf8(buf).unwrap()
+    }
+
+    #[tokio::test]
+    async fn wait_for_code_ignora_requisicoes_alheias_e_aceita_o_redirect_correto() {
+        let listener = TcpListener::bind((LOOPBACK_HOST, 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let waiter = tokio::spawn(async move { wait_for_code(&listener, "state-ok").await });
+
+        // Requisição irrelevante (ex.: favicon) deve ser ignorada, não encerrar o loop.
+        let favicon_resp = send_redirect(addr, "").await;
+        assert!(favicon_resp.starts_with("HTTP/1.1 404 Not Found"));
+
+        // Agora o redirect de verdade.
+        let ok_resp = send_redirect(addr, "state=state-ok&code=abc123").await;
+        assert!(ok_resp.starts_with("HTTP/1.1 200 OK"));
+
+        let code = waiter.await.unwrap().unwrap();
+        assert_eq!(code, "abc123");
+    }
+
+    #[tokio::test]
+    async fn wait_for_code_rejeita_state_divergente() {
+        let listener = TcpListener::bind((LOOPBACK_HOST, 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let waiter = tokio::spawn(async move { wait_for_code(&listener, "state-esperado").await });
+
+        let resp = send_redirect(addr, "state=state-errado&code=abc123").await;
+        assert!(resp.starts_with("HTTP/1.1 400 Bad Request"));
+
+        let err = waiter.await.unwrap().unwrap_err();
+        assert!(matches!(err, AppError::Auth(msg) if msg.contains("CSRF")));
+    }
+
+    #[tokio::test]
+    async fn wait_for_code_propaga_erro_de_autorizacao_negada() {
+        let listener = TcpListener::bind((LOOPBACK_HOST, 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let waiter = tokio::spawn(async move { wait_for_code(&listener, "state-ok").await });
+
+        let resp = send_redirect(addr, "state=state-ok&error=access_denied").await;
+        assert!(resp.starts_with("HTTP/1.1 200 OK"));
+
+        let err = waiter.await.unwrap().unwrap_err();
+        assert!(matches!(err, AppError::Auth(msg) if msg.contains("access_denied")));
+    }
+
+    // Não há teste para o branch `params.code == None` de `wait_for_code`: como
+    // `parse_redirect_target` só devolve `Some` quando `code` ou `error` estão
+    // presentes, e `error` já é tratado antes, esse branch é inalcançável por
+    // qualquer requisição HTTP real.
+
+    mod http_tests {
+        use wiremock::matchers::{body_string_contains, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        use super::super::*;
+
+        fn proxy_config(proxy_url: &str, proxy_secret: Option<&str>) -> OAuthConfig {
+            OAuthConfig {
+                client_id: "client-teste".into(),
+                token_proxy_url: Some(proxy_url.to_string()),
+                proxy_secret: proxy_secret.map(str::to_string),
+                client_secret: None,
+            }
+        }
+
+        #[tokio::test]
+        async fn exchange_code_via_proxy_retorna_tokens() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/token"))
+                .and(body_string_contains("\"code\":\"auth-code\""))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "access_token": "tok-abc",
+                    "expires_in": 3600,
+                    "refresh_token": "refresh-abc",
+                })))
+                .mount(&server)
+                .await;
+
+            let config = proxy_config(&server.uri(), None);
+            let http = reqwest::Client::new();
+            let tokens = exchange_code(&http, &config, "auth-code", "verifier", "http://redirect")
+                .await
+                .unwrap();
+
+            assert_eq!(tokens.access_token, "tok-abc");
+            assert_eq!(tokens.expires_in, 3600);
+            assert_eq!(tokens.refresh_token.as_deref(), Some("refresh-abc"));
+        }
+
+        #[tokio::test]
+        async fn exchange_code_via_proxy_envia_header_de_secret() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/token"))
+                .and(header("X-Proxy-Secret", "s3gredo"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "access_token": "tok-abc",
+                    "expires_in": 3600,
+                })))
+                .mount(&server)
+                .await;
+
+            let config = proxy_config(&server.uri(), Some("s3gredo"));
+            let http = reqwest::Client::new();
+            exchange_code(&http, &config, "auth-code", "verifier", "http://redirect")
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn exchange_code_via_proxy_propaga_erro_http() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/token"))
+                .respond_with(ResponseTemplate::new(400).set_body_string("code inválido"))
+                .mount(&server)
+                .await;
+
+            let config = proxy_config(&server.uri(), None);
+            let http = reqwest::Client::new();
+            let err = exchange_code(&http, &config, "auth-code", "verifier", "http://redirect")
+                .await
+                .unwrap_err();
+
+            assert!(matches!(err, AppError::Auth(msg) if msg.contains("400") && msg.contains("code inválido")));
+        }
+
+        #[tokio::test]
+        async fn refresh_access_token_via_proxy_retorna_tokens() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/refresh"))
+                .and(body_string_contains("\"refresh_token\":\"refresh-xyz\""))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "access_token": "tok-novo",
+                    "expires_in": 1800,
+                })))
+                .mount(&server)
+                .await;
+
+            let config = proxy_config(&server.uri(), None);
+            let http = reqwest::Client::new();
+            let tokens = refresh_access_token(&http, &config, "refresh-xyz")
+                .await
+                .unwrap();
+
+            assert_eq!(tokens.access_token, "tok-novo");
+            assert_eq!(tokens.expires_in, 1800);
+            assert_eq!(tokens.refresh_token, None);
+        }
+
+        #[tokio::test]
+        async fn refresh_access_token_via_proxy_propaga_erro_http() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/refresh"))
+                .respond_with(ResponseTemplate::new(401))
+                .mount(&server)
+                .await;
+
+            let config = proxy_config(&server.uri(), None);
+            let http = reqwest::Client::new();
+            let err = refresh_access_token(&http, &config, "refresh-xyz")
+                .await
+                .unwrap_err();
+
+            assert!(matches!(err, AppError::Auth(msg) if msg.contains("401")));
+        }
+
+        #[tokio::test]
+        async fn post_token_at_retorna_tokens_no_fluxo_direto() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/token-direto"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "access_token": "tok-direto",
+                    "expires_in": 3600,
+                })))
+                .mount(&server)
+                .await;
+
+            let http = reqwest::Client::new();
+            let endpoint = format!("{}/token-direto", server.uri());
+            let form = [("grant_type", "authorization_code"), ("code", "abc")];
+            let tokens = post_token_at(&http, &endpoint, &form).await.unwrap();
+
+            assert_eq!(tokens.access_token, "tok-direto");
+        }
+
+        #[tokio::test]
+        async fn post_token_at_propaga_erro_http_com_corpo() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/token-direto"))
+                .respond_with(ResponseTemplate::new(500).set_body_string("boom"))
+                .mount(&server)
+                .await;
+
+            let http = reqwest::Client::new();
+            let endpoint = format!("{}/token-direto", server.uri());
+            let err = post_token_at(&http, &endpoint, &[]).await.unwrap_err();
+
+            assert!(matches!(err, AppError::Auth(msg) if msg.contains("500") && msg.contains("boom")));
+        }
+
+        #[tokio::test]
+        async fn fetch_user_email_at_retorna_email_quando_sucesso() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/userinfo"))
+                .and(header("Authorization", "Bearer tok-abc"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(serde_json::json!({ "email": "user@example.com" })),
+                )
+                .mount(&server)
+                .await;
+
+            let http = reqwest::Client::new();
+            let endpoint = format!("{}/userinfo", server.uri());
+            let email = fetch_user_email_at(&http, &endpoint, "tok-abc")
+                .await
+                .unwrap();
+
+            assert_eq!(email.as_deref(), Some("user@example.com"));
+        }
+
+        #[tokio::test]
+        async fn fetch_user_email_at_retorna_none_quando_http_falha() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/userinfo"))
+                .respond_with(ResponseTemplate::new(401))
+                .mount(&server)
+                .await;
+
+            let http = reqwest::Client::new();
+            let endpoint = format!("{}/userinfo", server.uri());
+            let email = fetch_user_email_at(&http, &endpoint, "tok-invalido")
+                .await
+                .unwrap();
+
+            assert_eq!(email, None);
+        }
+
+        #[tokio::test]
+        async fn fetch_user_email_at_retorna_none_quando_campo_email_ausente() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/userinfo"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+                .mount(&server)
+                .await;
+
+            let http = reqwest::Client::new();
+            let endpoint = format!("{}/userinfo", server.uri());
+            let email = fetch_user_email_at(&http, &endpoint, "tok-abc")
+                .await
+                .unwrap();
+
+            assert_eq!(email, None);
+        }
     }
 }

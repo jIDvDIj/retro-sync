@@ -65,6 +65,31 @@ fn owner_of<'a>(watched: &'a [WatchedEmulator], path: &Path) -> Option<&'a str> 
         .map(|w| w.name.as_str())
 }
 
+/// Temporários do próprio sync (`.retrosync-tmp`) nunca disparam um novo sync.
+fn is_tmp_path(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|n| n.to_string_lossy().ends_with(TMP_SUFFIX))
+}
+
+/// Alguma pasta observada mudou desde a última reconciliação (emulador
+/// adicionado/removido ou raiz/paths trocados) — função pura para ser
+/// testável sem tocar o SQLite.
+fn watch_list_changed(old: &[WatchedEmulator], fresh: &[WatchedEmulator]) -> bool {
+    fresh.len() != old.len()
+        || fresh
+            .iter()
+            .zip(old)
+            .any(|(a, b)| a.name != b.name || a.dirs != b.dirs)
+}
+
+/// Algum emulador monitorado está rodando agora — enquanto isso, o disparo do
+/// fs-watcher fica em espera (o gatilho `emulator-stop` cobre o fechamento).
+/// Mutex "envenenado" (thread pânico com o lock preso) é tratado como "livre"
+/// para não travar o watcher para sempre.
+fn is_any_emulator_running(running: &RunningEmulators) -> bool {
+    running.lock().map(|set| !set.is_empty()).unwrap_or(false)
+}
+
 /// Monta a lista de pastas observadas a partir dos perfis configurados
 /// (saves + savestates; config fica de fora — muda o tempo todo com o app
 /// aberto e já sincroniza nos gatilhos de processo).
@@ -145,10 +170,7 @@ pub fn start(db: Db, engine: Arc<SyncEngine>, running: RunningEmulators) {
         loop {
             tokio::select! {
                 Some(path) = rx.recv() => {
-                    if path
-                        .file_name()
-                        .is_some_and(|n| n.to_string_lossy().ends_with(TMP_SUFFIX))
-                    {
+                    if is_tmp_path(&path) {
                         continue;
                     }
                     // Anti-loop: escrita feita pelo próprio sync há pouco.
@@ -166,8 +188,7 @@ pub fn start(db: Db, engine: Arc<SyncEngine>, running: RunningEmulators) {
                     }
                     // Jogo aberto: mantém a janela pendente — o sync sai quando
                     // o emulador fechar (ou no próximo tick sem processo).
-                    let busy = running.lock().map(|set| !set.is_empty()).unwrap_or(false);
-                    if busy {
+                    if is_any_emulator_running(&running) {
                         continue;
                     }
                     for name in due {
@@ -183,11 +204,7 @@ pub fn start(db: Db, engine: Arc<SyncEngine>, running: RunningEmulators) {
                 }
                 _ = reconcile.tick() => {
                     let fresh = watch_list(&db).await;
-                    let changed = fresh.len() != watched.len()
-                        || fresh.iter().zip(&watched).any(|(a, b)| {
-                            a.name != b.name || a.dirs != b.dirs
-                        });
-                    if changed {
+                    if watch_list_changed(&watched, &fresh) {
                         watched = fresh;
                         _watcher = build_watcher(&watched, tx.clone());
                         tracing::info!(emuladores = watched.len(), "fs-watcher: pastas observadas reconciliadas");
@@ -201,6 +218,7 @@ pub fn start(db: Db, engine: Arc<SyncEngine>, running: RunningEmulators) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn due_emulators_respeita_a_janela_de_debounce() {
@@ -306,5 +324,191 @@ mod tests {
             .expect("evento dentro do prazo")
             .expect("canal aberto");
         assert!(event.starts_with(&dir));
+    }
+
+    #[test]
+    fn is_tmp_path_reconhece_sufixo_temporario() {
+        assert!(is_tmp_path(Path::new(
+            "/emu/PSP/SAVEDATA/GAME01/save.bin.retrosync-tmp"
+        )));
+    }
+
+    #[test]
+    fn is_tmp_path_ignora_arquivo_normal() {
+        assert!(!is_tmp_path(Path::new("/emu/PSP/SAVEDATA/GAME01/save.bin")));
+    }
+
+    #[test]
+    fn is_tmp_path_sem_nome_de_arquivo_nao_e_temporario() {
+        // Caminho terminando em "..", sem componente de nome de arquivo.
+        assert!(!is_tmp_path(Path::new("/")));
+    }
+
+    #[test]
+    fn watch_list_changed_falso_quando_identico() {
+        let watched = vec![WatchedEmulator {
+            name: "PPSSPP".into(),
+            dirs: vec![PathBuf::from("/emu/saves")],
+        }];
+        let fresh = vec![WatchedEmulator {
+            name: "PPSSPP".into(),
+            dirs: vec![PathBuf::from("/emu/saves")],
+        }];
+        assert!(!watch_list_changed(&watched, &fresh));
+    }
+
+    #[test]
+    fn watch_list_changed_true_quando_tamanho_difere() {
+        let watched = vec![WatchedEmulator {
+            name: "PPSSPP".into(),
+            dirs: vec![PathBuf::from("/emu/saves")],
+        }];
+        let fresh = vec![
+            WatchedEmulator {
+                name: "PPSSPP".into(),
+                dirs: vec![PathBuf::from("/emu/saves")],
+            },
+            WatchedEmulator {
+                name: "PCSX2".into(),
+                dirs: vec![PathBuf::from("/emu2/saves")],
+            },
+        ];
+        assert!(watch_list_changed(&watched, &fresh));
+    }
+
+    #[test]
+    fn watch_list_changed_true_quando_nome_difere() {
+        let watched = vec![WatchedEmulator {
+            name: "PPSSPP".into(),
+            dirs: vec![PathBuf::from("/emu/saves")],
+        }];
+        let fresh = vec![WatchedEmulator {
+            name: "Outro".into(),
+            dirs: vec![PathBuf::from("/emu/saves")],
+        }];
+        assert!(watch_list_changed(&watched, &fresh));
+    }
+
+    #[test]
+    fn watch_list_changed_true_quando_pastas_diferem() {
+        let watched = vec![WatchedEmulator {
+            name: "PPSSPP".into(),
+            dirs: vec![PathBuf::from("/emu/saves")],
+        }];
+        let fresh = vec![WatchedEmulator {
+            name: "PPSSPP".into(),
+            dirs: vec![PathBuf::from("/emu/saves-novo")],
+        }];
+        assert!(watch_list_changed(&watched, &fresh));
+    }
+
+    #[test]
+    fn is_any_emulator_running_falso_quando_conjunto_vazio() {
+        let running: RunningEmulators = Arc::new(std::sync::Mutex::new(HashSet::new()));
+        assert!(!is_any_emulator_running(&running));
+    }
+
+    #[test]
+    fn is_any_emulator_running_verdadeiro_com_emulador_no_conjunto() {
+        let running: RunningEmulators = Arc::new(std::sync::Mutex::new(HashSet::from([
+            "PPSSPP".to_string()
+        ])));
+        assert!(is_any_emulator_running(&running));
+    }
+
+    #[test]
+    fn is_any_emulator_running_trata_mutex_envenenado_como_livre() {
+        let running: RunningEmulators = Arc::new(std::sync::Mutex::new(HashSet::new()));
+        let clone = running.clone();
+        // Provoca um pânico com o lock preso para envenenar o Mutex.
+        let _ = std::thread::spawn(move || {
+            let _guard = clone.lock().unwrap();
+            panic!("envenenando o mutex de propósito");
+        })
+        .join();
+
+        assert!(!is_any_emulator_running(&running));
+    }
+
+    #[test]
+    fn owner_of_escolhe_o_emulador_correto_entre_varios() {
+        let watched = vec![
+            WatchedEmulator {
+                name: "PPSSPP".into(),
+                dirs: vec![PathBuf::from("/emu/PSP/SAVEDATA")],
+            },
+            WatchedEmulator {
+                name: "PCSX2".into(),
+                dirs: vec![PathBuf::from("/emu/PS2/saves")],
+            },
+        ];
+        assert_eq!(
+            owner_of(&watched, Path::new("/emu/PS2/saves/slot1.ps2")),
+            Some("PCSX2")
+        );
+        assert_eq!(
+            owner_of(&watched, Path::new("/emu/PSP/SAVEDATA/save.bin")),
+            Some("PPSSPP")
+        );
+    }
+
+    #[test]
+    fn due_emulators_retorna_todos_vencidos_simultaneamente() {
+        let now = Instant::now();
+        let debounce = Duration::from_secs(8);
+        let mut pending = HashMap::new();
+        pending.insert("PPSSPP".to_string(), now - Duration::from_secs(10));
+        pending.insert("PCSX2".to_string(), now - Duration::from_secs(9));
+
+        let mut due = due_emulators(&pending, now, debounce);
+        due.sort();
+
+        assert_eq!(due, vec!["PCSX2".to_string(), "PPSSPP".to_string()]);
+    }
+
+    #[test]
+    fn due_emulators_na_borda_exata_do_debounce_conta_como_vencido() {
+        let now = Instant::now();
+        let debounce = Duration::from_secs(8);
+        let mut pending = HashMap::new();
+        pending.insert("PPSSPP".to_string(), now - debounce);
+
+        let due = due_emulators(&pending, now, debounce);
+
+        assert_eq!(due, vec!["PPSSPP".to_string()]);
+    }
+
+    /// Lista vazia de perfis (banco sem nenhum emulador cadastrado) resulta em
+    /// nenhuma pasta observada, sem erro.
+    #[tokio::test]
+    async fn watch_list_vazia_sem_perfis_cadastrados() {
+        let db = crate::storage::db::Db::open_in_memory().unwrap();
+        let watched = watch_list(&db).await;
+        assert!(watched.is_empty());
+    }
+
+    /// `build_watcher` não falha ao tentar observar uma pasta inexistente —
+    /// apenas registra um warning e segue observando as demais pastas válidas.
+    #[tokio::test]
+    async fn build_watcher_ignora_pasta_inexistente_sem_falhar() {
+        let tmp = tempfile::tempdir().unwrap();
+        let existe = tmp.path().join("saves");
+        std::fs::create_dir_all(&existe).unwrap();
+        let nao_existe = tmp.path().join("nao-existe");
+
+        let (tx, mut rx) = mpsc::channel::<PathBuf>(16);
+        let watched = vec![WatchedEmulator {
+            name: "PPSSPP".into(),
+            dirs: vec![existe.clone(), nao_existe],
+        }];
+        let _watcher = build_watcher(&watched, tx).expect("backend nativo disponível");
+
+        std::fs::write(existe.join("save.bin"), b"conteudo").unwrap();
+
+        let event = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("evento dentro do prazo")
+            .expect("canal aberto");
+        assert!(event.starts_with(&existe));
     }
 }
