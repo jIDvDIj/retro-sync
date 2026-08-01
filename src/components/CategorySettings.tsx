@@ -9,10 +9,12 @@ interface Props {
   emulators: EmulatorProfile[];
 }
 
+// "config" (versionamento das pastas de configuração do emulador) fica de
+// fora de propósito: a opção está permanentemente desativada no backend
+// (storage::emulators::SyncCategories) e não deve poder ser reativada pela UI.
 const LABELS = [
   { key: "saves", labelKey: "settings.categories.saves" },
   { key: "savestates", labelKey: "settings.categories.savestates" },
-  { key: "config", labelKey: "settings.categories.config" },
 ] as const satisfies readonly { key: keyof SyncCategories; labelKey: string }[];
 
 /** Toggles de categorias (saves/savestates/config) por emulador configurado. */

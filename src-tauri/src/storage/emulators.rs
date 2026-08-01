@@ -8,7 +8,12 @@ use crate::emulator::EmulatorProfile;
 use crate::error::AppResult;
 
 /// Categorias de sync habilitadas para um emulador. Espelhado em
-/// `src/types/ipc.ts` (`SyncCategories`). Default: todas ativas.
+/// `src/types/ipc.ts` (`SyncCategories`). Default: saves/savestates ativas.
+///
+/// `config` (versionamento das pastas de configuração do emulador) está
+/// permanentemente desativado — `get_categories` sempre devolve `false` e
+/// `set_categories` ignora o valor recebido, independente do que o SQLite
+/// tenha armazenado de sessões antigas. Não há opção na UI para reativar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncCategories {
@@ -22,13 +27,13 @@ impl Default for SyncCategories {
         Self {
             saves: true,
             savestates: true,
-            config: true,
+            config: false,
         }
     }
 }
 
-/// Categorias habilitadas de um emulador; default (todas ativas) se nunca foi
-/// configurado.
+/// Categorias habilitadas de um emulador; default (saves/savestates ativas)
+/// se nunca foi configurado. `config` é sempre forçado a `false`.
 pub fn get_categories(conn: &Connection, emulator: &str) -> AppResult<SyncCategories> {
     let cats = conn
         .query_row(
@@ -44,19 +49,18 @@ pub fn get_categories(conn: &Connection, emulator: &str) -> AppResult<SyncCatego
             },
         )
         .optional()?;
-    Ok(cats.unwrap_or_default())
+    let mut cats = cats.unwrap_or_default();
+    cats.config = false;
+    Ok(cats)
 }
 
+/// Grava as categorias habilitadas. `cats.config` é ignorado — sempre
+/// persistido como desativado, mesmo que o chamador envie `true`.
 pub fn set_categories(conn: &Connection, emulator: &str, cats: &SyncCategories) -> AppResult<()> {
     conn.execute(
         "INSERT OR REPLACE INTO emulator_settings \
          (emulator, saves_enabled, savestates_enabled, config_enabled) VALUES (?1, ?2, ?3, ?4)",
-        params![
-            emulator,
-            cats.saves as i64,
-            cats.savestates as i64,
-            cats.config as i64
-        ],
+        params![emulator, cats.saves as i64, cats.savestates as i64, 0],
     )?;
     Ok(())
 }
@@ -330,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn categorias_default_sao_todas_ativas() {
+    fn categorias_default_sao_saves_e_savestates_config_sempre_off() {
         let db = Db::open_in_memory().unwrap();
         db.with_sync(|conn| {
             assert_eq!(get_categories(conn, "PPSSPP")?, SyncCategories::default());
@@ -339,7 +343,7 @@ mod tests {
                 SyncCategories {
                     saves: true,
                     savestates: true,
-                    config: true,
+                    config: false,
                 }
             );
             Ok(())
@@ -347,16 +351,23 @@ mod tests {
     }
 
     #[test]
-    fn set_e_get_categorias_fazem_roundtrip() {
+    fn set_e_get_categorias_fazem_roundtrip_config_sempre_off() {
         let db = Db::open_in_memory().unwrap();
         db.with_sync(|conn| {
             let cats = SyncCategories {
                 saves: true,
                 savestates: false,
-                config: false,
+                config: true, // ignorado: config nunca fica ativo
             };
             set_categories(conn, "PPSSPP", &cats)?;
-            assert_eq!(get_categories(conn, "PPSSPP")?, cats);
+            assert_eq!(
+                get_categories(conn, "PPSSPP")?,
+                SyncCategories {
+                    saves: true,
+                    savestates: false,
+                    config: false,
+                }
+            );
             Ok(())
         });
     }
@@ -385,6 +396,6 @@ mod tests {
         let json = serde_json::to_value(SyncCategories::default()).unwrap();
         assert_eq!(json["saves"], true);
         assert_eq!(json["savestates"], true);
-        assert_eq!(json["config"], true);
+        assert_eq!(json["config"], false);
     }
 }
