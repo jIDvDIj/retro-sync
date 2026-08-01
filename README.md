@@ -3,6 +3,7 @@
 [![CI](https://github.com/jIDvDIj/retro-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/jIDvDIj/retro-sync/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/jIDvDIj/retro-sync/graph/badge.svg)](https://codecov.io/gh/jIDvDIj/retro-sync)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](./LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/jIDvDIj/retro-sync)](https://github.com/jIDvDIj/retro-sync/releases/latest)
 
 **Seus jogos, do ponto exato onde você parou — em qualquer máquina.**
 
