@@ -100,6 +100,21 @@ jobs:
             --ignore RUSTSEC-2026-0194 \
             --ignore RUSTSEC-2026-0195
 
+  # Varredura de segredos no diff do PR (gitleaks). Complementa o secret
+  # scanning nativo do GitHub, que só reconhece formatos de provedores
+  # conhecidos — pega também padrões "nossos" (ex.: PROXY_SECRET).
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # Licenças das dependências Rust — política em src-tauri/deny.toml.
   licenses:
     runs-on: ubuntu-latest
@@ -195,7 +210,7 @@ jobs:
   # "skipped", e aqui só "success" passa) — devolver ao reativar.
   ci-passed:
     if: always()
-    needs: [checks, test, clippy, audit, licenses, coverage]
+    needs: [checks, test, clippy, audit, licenses, coverage, secrets]
     runs-on: ubuntu-latest
     steps:
       - name: Verificar resultado de todos os jobs
