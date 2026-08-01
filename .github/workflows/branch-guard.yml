@@ -1,0 +1,21 @@
+name: Branch Guard
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  only-from-develop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar branch de origem
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [ "$HEAD_REF" != "develop" ]; then
+            echo "::error::PRs para main só são aceitas vindas de 'develop' (esta PR vem de '$HEAD_REF')."
+            exit 1
+          fi
+          echo "OK: PR vem de develop."
