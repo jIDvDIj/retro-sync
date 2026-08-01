@@ -19,8 +19,8 @@ jobs:
   version:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.tag.outputs.new_version }}
-      tag: ${{ steps.tag.outputs.new_tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
       # Corpo da release: relnotes manuais + notas geradas pela API do GitHub.
       release_body: ${{ steps.notes.outputs.body }}
     steps:
@@ -28,13 +28,68 @@ jobs:
         with:
           fetch-depth: 0 # histórico completo p/ calcular o bump
 
-      - name: Calcular versão e criar tag
+      # dry_run: só calcula a próxima versão, não cria/empurra a tag ainda —
+      # o passo "resolve" abaixo pode rebaixar o resultado antes disso.
+      - name: Calcular a próxima versão
         id: tag
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           tag_prefix: app-v
           default_bump: patch # fix→patch, feat→minor, BREAKING→major
+          dry_run: true
+
+      # Cada major (1.0.0, 2.0.0, 3.0.0...) é um marco de roadmap, não um bump
+      # automático: só sai quando o milestone "vN.0" correspondente (issues +
+      # PRs planejados pra essa fase) estiver com tudo fechado. Um commit com
+      # "BREAKING CHANGE"/"feat!" antes disso bumparia o major sozinho — aqui
+      # ele é rebaixado pra um bump de minor (fica na major anterior) em vez de
+      # travar a release inteira. Generalizado: cadastre o milestone "vN.0" no
+      # GitHub ao planejar a fase N, feche-o quando pronto — nenhum ajuste
+      # neste workflow é necessário para N=2, N=3 etc.
+      - name: Resolver versão final (rebaixa major prematuro)
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.tag.outputs.new_version }}
+          PREV_TAG: ${{ steps.tag.outputs.previous_tag }}
+        run: |
+          version="$VERSION"
+
+          prev_version="${PREV_TAG#app-v}"
+          prev_version="${prev_version:-0.0.0}"
+          prev_major="${prev_version%%.*}"
+          prev_rest="${prev_version#*.}"
+          prev_minor="${prev_rest%%.*}"
+
+          new_major="${version%%.*}"
+          new_rest="${version#*.}"
+          new_minor="${new_rest%%.*}"
+          new_patch="${new_rest#*.}"
+
+          # Só entra em jogo quando o bump cruza pra um major novo (X.0.0 exato).
+          if [ "$new_major" -gt "$prev_major" ] && [ "$new_minor" = "0" ] && [ "$new_patch" = "0" ]; then
+            milestone_title="v${new_major}.0"
+            open=$(gh api "repos/${GITHUB_REPOSITORY}/milestones" \
+              --jq --arg t "$milestone_title" '.[] | select(.title == $t) | .open_issues')
+            if [ "$open" = "0" ]; then
+              echo "Milestone \"$milestone_title\" concluído — liberando $version."
+            else
+              # "$open" vazio (milestone não encontrado) conta como "não confirmado" — rebaixa também.
+              echo "::notice::Milestone \"$milestone_title\" ainda não concluído (aberto(s): ${open:-desconhecido}) — rebaixando de $version para minor."
+              version="${prev_major}.$((prev_minor + 1)).0"
+            fi
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=app-v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Criar e enviar a tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git tag "${{ steps.resolve.outputs.tag }}"
+          git push origin "${{ steps.resolve.outputs.tag }}"
 
       # Combina os destaques manuais (relnotes/vX.Y.md, se existir) com as notas
       # automáticas da API do GitHub (lista de PRs + contribuidores). Se a API
@@ -43,9 +98,9 @@ jobs:
         id: notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.tag.outputs.new_tag }}
+          TAG: ${{ steps.resolve.outputs.tag }}
           PREV_TAG: ${{ steps.tag.outputs.previous_tag }}
-          VERSION: ${{ steps.tag.outputs.new_version }}
+          VERSION: ${{ steps.resolve.outputs.version }}
           CHANGELOG: ${{ steps.tag.outputs.changelog }}
         run: |
           body_file=$(mktemp)
