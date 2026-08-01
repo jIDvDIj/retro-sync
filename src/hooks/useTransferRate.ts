@@ -18,6 +18,12 @@ export function useTransferRate(progress: SyncProgress | null): number {
   useEffect(() => {
     if (!progress) {
       last.current = null;
+      // A suavização por EMA depende de performance.now() (tempo de parede)
+      // e de estado acumulado entre chamadas — mover isso pro corpo do
+      // render seria impuro e, sob StrictMode, computaria o EMA duas vezes
+      // por commit. eslint-disable justificado, não é o padrão "derivar
+      // estado de prop" que a regra pretende capturar.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRate(0);
       return;
     }

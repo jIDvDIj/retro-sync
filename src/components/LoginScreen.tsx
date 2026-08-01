@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
 import { useErrorMessage } from "../lib/errors";
@@ -32,9 +32,13 @@ export function LoginScreen({ initialDeviceName, onConnected, theme, onToggleThe
   const [error, setError] = useState<string | null>(null);
 
   // Pré-preenche com o nome já salvo, sem sobrescrever o que o usuário digita.
-  useEffect(() => {
+  // Ajuste durante o render (em vez de useEffect): initialDeviceName pode
+  // chegar depois da primeira renderização (carregado de forma assíncrona).
+  const [prevInitialDeviceName, setPrevInitialDeviceName] = useState(initialDeviceName);
+  if (initialDeviceName !== prevInitialDeviceName) {
+    setPrevInitialDeviceName(initialDeviceName);
     setDevice((cur) => cur || initialDeviceName || "");
-  }, [initialDeviceName]);
+  }
 
   const handleConnect = useCallback(async () => {
     const name = device.trim();
