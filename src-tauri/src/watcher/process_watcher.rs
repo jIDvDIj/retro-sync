@@ -193,6 +193,48 @@ mod tests {
         assert_eq!(evs, vec![WatcherEvent::EmulatorStarted("PPSSPP".into())]);
     }
 
+    /// `poll_once` faz a ponte real com o SO via `sysinfo`: usa o próprio
+    /// processo de teste (garantidamente rodando) como "emulador monitorado".
+    #[test]
+    fn poll_once_detecta_o_proprio_processo_como_presente() {
+        let mut system = System::new_all();
+        system
+            .refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+        let pid = sysinfo::get_current_pid().expect("PID do processo atual");
+        let own_name = system
+            .process(pid)
+            .expect("processo atual visível no sysinfo")
+            .name()
+            .to_string_lossy()
+            .to_string();
+
+        let monitored = vec![MonitoredEmulator {
+            name: "self".into(),
+            process_names: vec![own_name],
+        }];
+        let mut tracker = RunStateTracker::new(2);
+
+        let evs = poll_once(&mut system, &mut tracker, &monitored);
+        assert_eq!(evs, vec![WatcherEvent::EmulatorStarted("self".into())]);
+
+        // Continua presente: segunda chamada não reemite Started.
+        let evs = poll_once(&mut system, &mut tracker, &monitored);
+        assert!(evs.is_empty());
+    }
+
+    #[test]
+    fn poll_once_processo_desconhecido_fica_ausente() {
+        let mut system = System::new_all();
+        let monitored = vec![MonitoredEmulator {
+            name: "fantasma".into(),
+            process_names: vec!["processo-que-nao-existe-de-verdade-xyz".into()],
+        }];
+        let mut tracker = RunStateTracker::new(2);
+
+        let evs = poll_once(&mut system, &mut tracker, &monitored);
+        assert!(evs.is_empty());
+    }
+
     #[test]
     fn dois_emuladores_sao_rastreados_independentemente() {
         let mut t = RunStateTracker::new(1);

@@ -167,17 +167,54 @@ impl DriveApi for DriveClient {
 mod tests {
     use std::sync::Arc;
 
+    use serde_json::json;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
     use super::*;
     use crate::auth::AuthManager;
+    use crate::drive::test_support::client_against;
     use crate::secrets::MemSecrets;
     use crate::storage::db::Db;
     use crate::storage::drive_folders;
 
+    /// Exercita a delegação do trait para o `DriveClient` real nos métodos que
+    /// dependem de HTTP (`list_tree`/`find_child`/`download`), contra o mesmo
+    /// `MockServer` usado por `drive::files`. Uma delegação trocada (copy/paste
+    /// para o método errado) falharia aqui.
+    #[tokio::test]
+    async fn delegacao_dos_metodos_http_para_o_cliente_real() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+        let api: &dyn DriveApi = &client;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "files": [{"id": "f1", "name": "save.bin", "mimeType": "application/octet-stream"}]
+            })))
+            .mount(&server)
+            .await;
+        let tree = api.list_tree("root-id").await.unwrap();
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].rel_path, "save.bin");
+
+        let found = api.find_child("root-id", "save.bin").await.unwrap();
+        assert_eq!(found.unwrap().id, "f1");
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files/f1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"conteudo".to_vec()))
+            .mount(&server)
+            .await;
+        assert_eq!(api.download("f1").await.unwrap(), b"conteudo");
+    }
+
     /// Exercita a delegação do trait para o `DriveClient` real pelos caminhos
     /// que dispensam rede (cache persistido + batch vazio). Uma delegação
     /// trocada (copy/paste para o método errado) falharia aqui. Os métodos
-    /// restantes (list/find/download/upload_*) exigem HTTP real e ficam para
-    /// os testes atrás da feature `integration-tests`.
+    /// restantes de upload/rename exigem HTTP real e ficam para os testes
+    /// atrás da feature `integration-tests`.
     #[tokio::test]
     async fn delegacao_para_o_cliente_real_nos_caminhos_sem_rede() {
         let db = Db::open_in_memory().unwrap();

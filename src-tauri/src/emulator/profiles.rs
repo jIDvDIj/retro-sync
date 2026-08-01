@@ -605,6 +605,13 @@ mod tests {
     }
 
     #[test]
+    fn expand_placeholders_sem_resto_devolve_a_propria_base() {
+        // "{home}" sem sufixo: o resultado é a própria pasta base, sem join.
+        let home = dirs::home_dir().expect("HOME deveria existir no ambiente de teste");
+        assert_eq!(expand_placeholders("{home}"), Some(home));
+    }
+
+    #[test]
     fn data_dirs_do_so_atual_nao_sao_vazios_no_catalogo() {
         // Cada perfil deve ter ao menos um data_dir para o SO de teste, senão a
         // descoberta automática nunca o encontraria nesta plataforma.

@@ -161,4 +161,49 @@ mod tests {
         assert_eq!(v["message"], "falha específica");
         assert_eq!(v["detail"], "falha específica");
     }
+
+    #[test]
+    fn integrity_serializa_code_e_detail() {
+        let v = payload(AppError::Integrity("checksum divergente".into()));
+        assert_eq!(v["code"], "integrity");
+        assert_eq!(v["detail"], "checksum divergente");
+    }
+
+    #[test]
+    fn io_serializa_code_e_detalhe_da_lib_subjacente() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "arquivo sumiu");
+        let v = payload(AppError::from(io_err));
+        assert_eq!(v["code"], "io");
+        assert!(v["detail"].as_str().unwrap().contains("arquivo sumiu"));
+    }
+
+    #[test]
+    fn database_serializa_code_e_detalhe_da_lib_subjacente() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let db_err = conn.execute("SELECT * FROM tabela_inexistente", []).unwrap_err();
+        let v = payload(AppError::from(db_err));
+        assert_eq!(v["code"], "database");
+        assert!(!v["detail"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn serialization_serializa_code_e_detalhe_da_lib_subjacente() {
+        let json_err = serde_json::from_str::<serde_json::Value>("não é json").unwrap_err();
+        let v = payload(AppError::from(json_err));
+        assert_eq!(v["code"], "serialization");
+        assert!(!v["detail"].as_str().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn network_serializa_code_e_detalhe_da_lib_subjacente() {
+        // Porta 1 em loopback: conexão recusada de forma rápida e determinística.
+        let net_err = reqwest::Client::new()
+            .get("http://127.0.0.1:1")
+            .send()
+            .await
+            .unwrap_err();
+        let v = payload(AppError::from(net_err));
+        assert_eq!(v["code"], "network");
+        assert!(!v["detail"].as_str().unwrap().is_empty());
+    }
 }

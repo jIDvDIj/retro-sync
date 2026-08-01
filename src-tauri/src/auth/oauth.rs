@@ -351,7 +351,7 @@ async fn exchange_code(
     if let Some(secret) = config.client_secret.as_deref() {
         form.push(("client_secret", secret));
     }
-    post_token(http, &form).await
+    post_token_at(http, GOOGLE_TOKEN_ENDPOINT, &form).await
 }
 
 pub async fn refresh_access_token(
@@ -372,11 +372,7 @@ pub async fn refresh_access_token(
     if let Some(secret) = config.client_secret.as_deref() {
         form.push(("client_secret", secret));
     }
-    post_token(http, &form).await
-}
-
-async fn post_token(http: &reqwest::Client, form: &[(&str, &str)]) -> AppResult<TokenResponse> {
-    post_token_at(http, GOOGLE_TOKEN_ENDPOINT, form).await
+    post_token_at(http, GOOGLE_TOKEN_ENDPOINT, &form).await
 }
 
 async fn post_token_at(
@@ -421,15 +417,10 @@ struct UserInfo {
     email: Option<String>,
 }
 
-/// Best-effort: falha em obter o e-mail não impede a conexão.
-pub async fn fetch_user_email(
-    http: &reqwest::Client,
-    access_token: &str,
-) -> AppResult<Option<String>> {
-    fetch_user_email_at(http, GOOGLE_USERINFO_ENDPOINT, access_token).await
-}
-
-async fn fetch_user_email_at(
+/// Best-effort: falha em obter o e-mail não impede a conexão. Endpoint
+/// injetável (sempre `GOOGLE_USERINFO_ENDPOINT` em produção) para os
+/// chamadores poderem testar contra um servidor fake.
+pub(super) async fn fetch_user_email_at(
     http: &reqwest::Client,
     endpoint: &str,
     access_token: &str,

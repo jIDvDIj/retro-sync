@@ -13,6 +13,7 @@ mod token_store;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -20,6 +21,35 @@ use crate::error::{AppError, AppResult};
 use crate::secrets::SecretStore;
 use oauth::OAuthConfig;
 use token_store::{StoredAuth, TokenStore};
+
+/// Obtenção de tokens + email via o fluxo interativo completo (navegador +
+/// rede real). Isolado atrás de um trait para que `connect()` seja testável
+/// com um dublê — a implementação real nunca é exercitada em teste.
+#[async_trait]
+trait AuthorizeFlow: Send + Sync {
+    async fn run(
+        &self,
+        http: &reqwest::Client,
+        config: &OAuthConfig,
+    ) -> AppResult<(oauth::TokenResponse, Option<String>)>;
+}
+
+struct RealAuthorizeFlow;
+
+#[async_trait]
+impl AuthorizeFlow for RealAuthorizeFlow {
+    async fn run(
+        &self,
+        http: &reqwest::Client,
+        config: &OAuthConfig,
+    ) -> AppResult<(oauth::TokenResponse, Option<String>)> {
+        let tokens = oauth::authorize_interactive(http, config).await?;
+        let email = oauth::fetch_user_email_at(http, oauth::GOOGLE_USERINFO_ENDPOINT, &tokens.access_token)
+            .await
+            .unwrap_or(None);
+        Ok((tokens, email))
+    }
+}
 
 /// Estado da conexão com o Google Drive exposto ao frontend.
 /// Espelhado em `src/types/ipc.ts` (`AuthStatus`).
@@ -52,6 +82,7 @@ pub struct AuthManager {
     config: Option<OAuthConfig>,
     cached: RwLock<Option<CachedToken>>,
     secrets: Arc<dyn SecretStore>,
+    authorize_flow: Box<dyn AuthorizeFlow>,
     /// Token "sempre renovável" para testes de retry: quando setado, uma
     /// invalidação (401) é seguida por uma renovação sem OAuth real — os
     /// testes de `send_with_retry` não precisam mockar o endpoint do Google.
@@ -72,6 +103,7 @@ impl AuthManager {
             config,
             cached: RwLock::new(None),
             secrets,
+            authorize_flow: Box::new(RealAuthorizeFlow),
             #[cfg(test)]
             test_fixed_token: RwLock::new(None),
         }
@@ -90,10 +122,7 @@ impl AuthManager {
     /// Persiste o refresh token no keyring e retorna o novo status.
     pub async fn connect(&self) -> AppResult<AuthStatus> {
         let config = self.config()?;
-        let tokens = oauth::authorize_interactive(&self.http, config).await?;
-        let email = oauth::fetch_user_email(&self.http, &tokens.access_token)
-            .await
-            .unwrap_or(None);
+        let (tokens, email) = self.authorize_flow.run(&self.http, config).await?;
 
         let status = self.finish_connect(tokens, email).await?;
         tracing::info!(
@@ -145,7 +174,11 @@ impl AuthManager {
         let config = self.config()?;
         let tokens =
             oauth::authorize_interactive_mobile(&self.http, config, app, redirect_rx).await?;
-        let email = oauth::fetch_user_email(&self.http, &tokens.access_token)
+        let email = oauth::fetch_user_email_at(
+            &self.http,
+            oauth::GOOGLE_USERINFO_ENDPOINT,
+            &tokens.access_token,
+        )
             .await
             .unwrap_or(None);
 
@@ -249,26 +282,75 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    use async_trait::async_trait;
+
     use super::oauth::OAuthConfig;
     use super::token_store::{StoredAuth, TokenStore};
-    use super::{AuthManager, CachedToken};
+    use super::{AuthManager, AuthorizeFlow, CachedToken};
     use crate::constants::KEYRING_REFRESH_TOKEN_KEY;
-    use crate::error::AppError;
+    use crate::error::{AppError, AppResult};
     use crate::secrets::{MemSecrets, SecretStore};
 
     fn manager(secrets: &Arc<MemSecrets>) -> AuthManager {
         AuthManager::new(reqwest::Client::new(), secrets.clone())
     }
 
+    /// Dublê de `AuthorizeFlow`: nunca toca rede/browser — devolve um
+    /// resultado fixo, combinado na hora de montar o `AuthManager` de teste.
+    struct FakeAuthorizeFlow(AppResult<(super::oauth::TokenResponse, Option<String>)>);
+
+    impl Clone for FakeAuthorizeFlow {
+        fn clone(&self) -> Self {
+            match &self.0 {
+                Ok((tokens, email)) => FakeAuthorizeFlow(Ok((
+                    super::oauth::TokenResponse {
+                        access_token: tokens.access_token.clone(),
+                        expires_in: tokens.expires_in,
+                        refresh_token: tokens.refresh_token.clone(),
+                    },
+                    email.clone(),
+                ))),
+                Err(AppError::Auth(msg)) => FakeAuthorizeFlow(Err(AppError::Auth(msg.clone()))),
+                Err(_) => FakeAuthorizeFlow(Err(AppError::Auth("falha simulada".into()))),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl AuthorizeFlow for FakeAuthorizeFlow {
+        async fn run(
+            &self,
+            _http: &reqwest::Client,
+            _config: &OAuthConfig,
+        ) -> AppResult<(super::oauth::TokenResponse, Option<String>)> {
+            self.clone().0
+        }
+    }
+
     /// Constrói um `AuthManager` com uma `OAuthConfig` explícita (em vez da
     /// lida de env por `new`), para exercitar os fluxos de refresh contra um
-    /// `wiremock::MockServer` local via `token_proxy_url`.
+    /// `wiremock::MockServer` local via `token_proxy_url`. O `authorize_flow`
+    /// nunca é chamado por esses testes — usa um dublê que sempre falha, para
+    /// que qualquer chamada acidental a `connect()` não bata na rede real.
     fn manager_with_config(secrets: &Arc<MemSecrets>, config: Option<OAuthConfig>) -> AuthManager {
+        manager_with_flow(
+            secrets,
+            config,
+            FakeAuthorizeFlow(Err(AppError::Auth("não usado neste teste".into()))),
+        )
+    }
+
+    fn manager_with_flow(
+        secrets: &Arc<MemSecrets>,
+        config: Option<OAuthConfig>,
+        flow: FakeAuthorizeFlow,
+    ) -> AuthManager {
         AuthManager {
             http: reqwest::Client::new(),
             config,
             cached: tokio::sync::RwLock::new(None),
             secrets: secrets.clone(),
+            authorize_flow: Box::new(flow),
             test_fixed_token: tokio::sync::RwLock::new(None),
         }
     }
@@ -539,6 +621,63 @@ mod tests {
 
         let err = m.connect().await.unwrap_err();
         assert!(matches!(err, AppError::Auth(_)));
+    }
+
+    #[tokio::test]
+    async fn connect_persiste_cacheia_e_retorna_status_conectado() {
+        let secrets = Arc::new(MemSecrets::default());
+        let flow = FakeAuthorizeFlow(Ok((
+            super::oauth::TokenResponse {
+                access_token: "acesso".into(),
+                expires_in: 3600,
+                refresh_token: Some("refresh-novo".into()),
+            },
+            Some("dev@retrosync".into()),
+        )));
+        let m = manager_with_flow(&secrets, Some(proxy_config("http://127.0.0.1:1")), flow);
+
+        let status = m.connect().await.unwrap();
+
+        assert!(status.connected);
+        assert_eq!(status.email.as_deref(), Some("dev@retrosync"));
+        let stored = TokenStore::load(&*secrets as &dyn SecretStore)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.refresh_token, "refresh-novo");
+        assert_eq!(
+            m.cached.read().await.as_ref().unwrap().access_token,
+            "acesso"
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_propaga_erro_do_fluxo_de_autorizacao() {
+        let secrets = Arc::new(MemSecrets::default());
+        let flow = FakeAuthorizeFlow(Err(AppError::Auth("autorização negada".into())));
+        let m = manager_with_flow(&secrets, Some(proxy_config("http://127.0.0.1:1")), flow);
+
+        let err = m.connect().await.unwrap_err();
+        assert!(matches!(err, AppError::Auth(msg) if msg.contains("negada")));
+    }
+
+    #[tokio::test]
+    async fn connect_falha_sem_refresh_token_nao_persiste_nada() {
+        let secrets = Arc::new(MemSecrets::default());
+        let flow = FakeAuthorizeFlow(Ok((
+            super::oauth::TokenResponse {
+                access_token: "acesso".into(),
+                expires_in: 3600,
+                refresh_token: None,
+            },
+            None,
+        )));
+        let m = manager_with_flow(&secrets, Some(proxy_config("http://127.0.0.1:1")), flow);
+
+        let err = m.connect().await.unwrap_err();
+        assert!(matches!(err, AppError::Auth(msg) if msg.contains("refresh token")));
+        assert!(TokenStore::load(&*secrets as &dyn SecretStore)
+            .unwrap()
+            .is_none());
     }
 
     fn tokens(refresh_token: Option<&str>) -> super::oauth::TokenResponse {
