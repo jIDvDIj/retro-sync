@@ -446,6 +446,24 @@ mod tests {
         }
     }
 
+    /// Preenche o campo de `data_dirs` do SO em que o teste está rodando
+    /// (mesmo critério de `data_dirs_for_os`). Setar sempre `.linux` fazia
+    /// esses testes passarem em vazio no CI Windows, sem exercitar nada.
+    fn set_data_dir(spec: &mut ProfileSpec, path: String) {
+        #[cfg(target_os = "windows")]
+        {
+            spec.data_dirs.windows = vec![path];
+        }
+        #[cfg(target_os = "macos")]
+        {
+            spec.data_dirs.macos = vec![path];
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            spec.data_dirs.linux = vec![path];
+        }
+    }
+
     #[test]
     fn try_match_aceita_apenas_com_required_quando_markers_vazio() {
         let tmp = tempfile::tempdir().unwrap();
@@ -506,7 +524,7 @@ mod tests {
         spec.markers = vec!["SAVEDATA".into()];
         spec.saves = vec!["SAVEDATA".into()];
         // Caminho literal (sem placeholder) — evita depender de $HOME/$XDG.
-        spec.data_dirs.linux = vec![tmp.path().to_string_lossy().into_owned()];
+        set_data_dir(&mut spec, tmp.path().to_string_lossy().into_owned());
 
         let discovered = discover_one(&spec).expect("deveria descobrir via data_dir");
         assert_eq!(discovered.name, "Sintetico");
@@ -522,7 +540,7 @@ mod tests {
     fn discover_one_retorna_none_sem_data_dir_nem_registro() {
         let mut spec = synthetic_spec("Inexistente");
         // data_dirs vazio, sem markers/registry — nada bate.
-        spec.data_dirs.linux = vec!["/caminho/que/nao/existe/em/lugar/nenhum".into()];
+        set_data_dir(&mut spec, "/caminho/que/nao/existe/em/lugar/nenhum".into());
         spec.markers = vec!["qualquer".into()];
         spec.saves = vec!["qualquer".into()];
 
@@ -535,7 +553,7 @@ mod tests {
         // O data_dir existe, mas nenhum base_candidate sob ele existe.
         let mut spec = synthetic_spec("Sintetico");
         spec.base_candidates = vec!["nao_existe".into()];
-        spec.data_dirs.linux = vec![tmp.path().to_string_lossy().into_owned()];
+        set_data_dir(&mut spec, tmp.path().to_string_lossy().into_owned());
 
         assert!(discover_one(&spec).is_none());
     }
