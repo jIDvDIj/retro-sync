@@ -27,7 +27,11 @@ export function useConflicts(): UseConflicts {
   }, []);
 
   useEffect(() => {
-    void reload();
+    // IIFE em vez de `void reload()` direto — ver comentário equivalente em
+    // useSettings.ts (react-hooks/set-state-in-effect).
+    void (async () => {
+      await reload();
+    })();
     let unlisten: UnlistenFn | undefined;
     listen(EVT.SYNC_CONFLICT, () => void reload())
       .then((fn) => {

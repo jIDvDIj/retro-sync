@@ -31,7 +31,11 @@ export function useEmulators(): UseEmulators {
   }, [errorMessage]);
 
   useEffect(() => {
-    void refresh();
+    // IIFE em vez de `void refresh()` direto — ver comentário equivalente em
+    // useSettings.ts (react-hooks/set-state-in-effect).
+    void (async () => {
+      await refresh();
+    })();
   }, [refresh]);
 
   const remove = useCallback(

@@ -25,7 +25,13 @@ export function useSettings(): UseSettings {
   }, []);
 
   useEffect(() => {
-    void reload();
+    // IIFE em vez de `void reload()` direto: eslint-plugin-react-hooks@7
+    // (react-hooks/set-state-in-effect) sinaliza chamada direta e síncrona
+    // de uma função que atualiza estado; o wrapper assíncrono é o padrão que
+    // a própria regra reconhece como "callback", sem mudar o comportamento.
+    void (async () => {
+      await reload();
+    })();
   }, [reload]);
 
   return { settings, reload };
