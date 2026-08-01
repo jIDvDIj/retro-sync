@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "Sincronização automática de saves e configurações de emuladores com o Google Drive"
 authors = ["David"]
 edition = "2021"
-# App distribuído como binário, nunca publicado no crates.io; também permite ao
-# cargo-deny ignorar a ausência de license field neste crate (deny.toml).
+license = "GPL-3.0-or-later"
+# App distribuído como binário, nunca publicado no crates.io.
 publish = false
 
 [lib]
@@ -69,6 +69,7 @@ tracing-appender = "0.2"
 # rodou quando o compilador avalia atributos de item.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
 sysinfo = "0.33"
 # Watcher de filesystem nativo (ReadDirectoryChangesW/inotify/FSEvents) para o
 # gatilho "file-change" — sincroniza sem esperar o emulador fechar.

@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/jIDvDIj/retro-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/jIDvDIj/retro-sync/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/jIDvDIj/retro-sync/graph/badge.svg)](https://codecov.io/gh/jIDvDIj/retro-sync)
+[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](./LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/jIDvDIj/retro-sync)](https://github.com/jIDvDIj/retro-sync/releases/latest)
 
 **Seus jogos, do ponto exato onde você parou — em qualquer máquina.**
 
@@ -20,7 +22,27 @@ sobrescrever a versão certa.
 O RetroSync resolve isso rodando discretamente em segundo plano e mantendo tudo guardado e
 atualizado na sua conta do Google Drive, automaticamente.
 
-## Como é usar
+## Objetivos
+
+O que guia as decisões de projeto, em ordem de prioridade:
+
+1. **Seguro contra perda de dados.** O sync nunca deleta nada no Drive. Conflito entre
+   duas máquinas é resolvido dando a você a decisão final, não por sobrescrita silenciosa.
+
+2. **Suas credenciais ficam só suas.** O RetroSync só enxerga os arquivos que ele mesmo
+   cria no Drive. O token de acesso fica no cofre de credenciais do seu sistema
+   operacional — nunca em texto plano, nunca trafega além do necessário.
+
+3. **Automático.** Depois de conectar a conta e apontar a pasta do emulador, não há mais
+   nada para fazer — ele sincroniza sozinho, nos momentos certos.
+
+4. **Resiliente a falhas.** Sem internet, ou com o arquivo em uso? Vira uma pendência que
+   é resolvida assim que possível, nunca um erro que trava o app.
+
+5. **Extensível.** O núcleo de sincronização não conhece nenhum emulador específico —
+   suporte a um novo emulador é configuração declarativa, não reescrita de código.
+
+## Getting started
 
 1. **Conecte sua conta Google.** Um clique, e pronto — o app só acessa o que ele mesmo cria
    no seu Drive, nada mais.
@@ -65,12 +87,32 @@ funcionamento do app.
 - Tudo que ele guarda no Drive fica organizado numa pasta dedicada: `RetroSync`, com uma
   subpasta para cada emulador.
 
-## Por dentro
+## Contribuindo e reportando problemas
 
-O RetroSync é um app desktop construído com **Tauri**, com a lógica em **Rust** e a
-interface em **React**. É leve, roda em segundo plano e foi feito para ser confiável: não
-destrói arquivos, lida bem com falhas de rede e mantém tudo organizado.
+Quer contribuir? Veja o [guia de contribuição](./CONTRIBUTING.md) — inclui como configurar
+suas próprias credenciais de teste, sem depender das de produção.
 
-A documentação técnica completa — arquitetura, decisões de projeto e instruções de
-instalação e build — está na pasta [`docs/`](./docs/).
-</content>
+Encontrou um bug? Abra uma [issue](https://github.com/jIDvDIj/retro-sync/issues).
+
+Encontrou uma vulnerabilidade de segurança? **Não abra uma issue pública** — siga o processo
+de divulgação responsável descrito em [`SECURITY.md`](./SECURITY.md).
+
+## Build
+
+O app é construído com **Tauri v2** (Rust + React). O `CLAUDE.md` na raiz do repositório
+tem os comandos completos de build, teste e as particularidades de ambiente (WSL, Windows
+nativo). Resumo rápido:
+
+```bash
+npm install
+npm run tauri build      # build completo (Windows/macOS/Linux)
+cargo test --manifest-path src-tauri/Cargo.toml   # testes do backend
+```
+
+## Documentação
+
+A documentação técnica completa — arquitetura, decisões de projeto e catálogo da fronteira
+Rust↔TypeScript — está na pasta [`docs/`](./docs/), com índice em
+[`docs/README.md`](./docs/README.md).
+
+Todo o código é licenciado sob a [GPL-3.0-or-later](./LICENSE).

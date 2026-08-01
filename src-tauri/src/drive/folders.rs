@@ -218,3 +218,243 @@ mod tests {
         assert!(persisted.is_empty());
     }
 }
+
+/// Testes de HTTP contra um servidor fake (`wiremock`): exercitam a resolução
+/// real de pastas (find/create) sem cache seedado, incluindo persistência do
+/// ID resolvido no SQLite e propagação de erro do Drive.
+#[cfg(test)]
+mod http_tests {
+    use wiremock::matchers::{body_string_contains, method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use crate::drive::test_support::client_against;
+    use crate::storage::drive_folders;
+    use crate::sync::SyncCategory;
+
+    #[tokio::test]
+    async fn ensure_root_usa_pasta_existente_quando_find_encontra() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .and(query_param(
+                "q",
+                "name = 'RetroSync' and 'root' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "files": [{"id": "root-existente", "name": "RetroSync", "mimeType": "application/vnd.google-apps.folder"}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        // Nenhum mock de criação montado: se o código chamar create_folder, a
+        // request cai sem match e a resposta 404 padrão do wiremock quebra o teste.
+
+        let id = client.ensure_root().await.unwrap();
+        assert_eq!(id, "root-existente");
+
+        // O ID resolvido fica no cache em memória e espelhado no SQLite.
+        assert_eq!(
+            client.folder_cache.read().await.get("RetroSync").unwrap(),
+            "root-existente"
+        );
+        let persisted = client
+            .db
+            .with_conn_blocking(drive_folders::load_all)
+            .unwrap();
+        assert_eq!(persisted.get("RetroSync").unwrap(), "root-existente");
+    }
+
+    #[tokio::test]
+    async fn ensure_root_cria_pasta_quando_find_nao_encontra() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "files": [] })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/drive/v3/files"))
+            .and(body_string_contains("\"name\":\"RetroSync\""))
+            .and(body_string_contains(
+                "\"mimeType\":\"application/vnd.google-apps.folder\"",
+            ))
+            .and(body_string_contains("\"parents\":[\"root\"]"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "root-novo", "name": "RetroSync", "mimeType": "application/vnd.google-apps.folder"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let id = client.ensure_root().await.unwrap();
+        assert_eq!(id, "root-novo");
+    }
+
+    /// Segunda chamada com o mesmo cache_key não deve bater na rede: o mock de
+    /// `find` tem `expect(1)` e falharia se `ensure_root` fosse chamado de novo
+    /// sem resolver pelo cache em memória.
+    #[tokio::test]
+    async fn ensure_root_so_resolve_via_http_na_primeira_chamada() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "files": [{"id": "root-1", "name": "RetroSync", "mimeType": "application/vnd.google-apps.folder"}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        assert_eq!(client.ensure_root().await.unwrap(), "root-1");
+        assert_eq!(client.ensure_root().await.unwrap(), "root-1");
+    }
+
+    #[tokio::test]
+    async fn ensure_root_propaga_erro_do_find() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let err = client.ensure_root().await.unwrap_err();
+        assert!(matches!(err, crate::error::AppError::DriveObjectNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn ensure_root_propaga_erro_do_create() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "files": [] })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/drive/v3/files"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let err = client.ensure_root().await.unwrap_err();
+        assert!(matches!(err, crate::error::AppError::DriveObjectNotFound(_)));
+        assert!(client.folder_cache.read().await.get("RetroSync").is_none());
+    }
+
+    #[tokio::test]
+    async fn ensure_category_folder_cria_a_cadeia_completa_via_http() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        // find nunca encontra nada: toda a cadeia é criada do zero.
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "files": [] })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/drive/v3/files"))
+            .and(body_string_contains("\"parents\":[\"root\"]"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "id-root", "name": "RetroSync", "mimeType": "application/vnd.google-apps.folder"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/drive/v3/files"))
+            .and(body_string_contains("\"parents\":[\"id-root\"]"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "id-emu", "name": "PPSSPP", "mimeType": "application/vnd.google-apps.folder"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/drive/v3/files"))
+            .and(body_string_contains("\"parents\":[\"id-emu\"]"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "id-saves", "name": "saves", "mimeType": "application/vnd.google-apps.folder"
+            })))
+            .mount(&server)
+            .await;
+
+        let id = client
+            .ensure_category_folder("PPSSPP", SyncCategory::Saves)
+            .await
+            .unwrap();
+        assert_eq!(id, "id-saves");
+
+        let persisted = client
+            .db
+            .with_conn_blocking(drive_folders::load_all)
+            .unwrap();
+        assert_eq!(persisted.get("RetroSync").unwrap(), "id-root");
+        assert_eq!(persisted.get("RetroSync/PPSSPP").unwrap(), "id-emu");
+        assert_eq!(persisted.get("RetroSync/PPSSPP/saves").unwrap(), "id-saves");
+    }
+
+    #[tokio::test]
+    async fn ensure_subpath_cria_segmentos_novos_via_http() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/drive/v3/files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "files": [] })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/drive/v3/files"))
+            .and(body_string_contains("\"parents\":[\"id-saves\"]"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "id-jogo", "name": "jogo", "mimeType": "application/vnd.google-apps.folder"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/drive/v3/files"))
+            .and(body_string_contains("\"parents\":[\"id-jogo\"]"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "id-slot1", "name": "slot1", "mimeType": "application/vnd.google-apps.folder"
+            })))
+            .mount(&server)
+            .await;
+
+        let id = client
+            .ensure_subpath("id-saves", "RetroSync/PPSSPP/saves", "jogo/slot1")
+            .await
+            .unwrap();
+        assert_eq!(id, "id-slot1");
+    }
+
+    /// `ensure_subpath` com `rel_dir` vazio (ou só barras) não deve tocar a rede:
+    /// nenhum mock é montado e o ID base é devolvido direto.
+    #[tokio::test]
+    async fn ensure_subpath_com_rel_dir_vazio_nao_chama_rede() {
+        let server = MockServer::start().await;
+        let client = client_against(&server).await;
+
+        let id = client
+            .ensure_subpath("id-saves", "RetroSync/PPSSPP/saves", "")
+            .await
+            .unwrap();
+        assert_eq!(id, "id-saves");
+
+        let id = client
+            .ensure_subpath("id-saves", "RetroSync/PPSSPP/saves", "///")
+            .await
+            .unwrap();
+        assert_eq!(id, "id-saves");
+    }
+}

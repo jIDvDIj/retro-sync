@@ -424,7 +424,163 @@ fn try_match(root: &Path, spec: &ProfileSpec) -> Option<EmulatorProfile> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
+
+    /// Monta um `ProfileSpec` sintético com defaults vazios, para exercitar
+    /// `try_match`/`discover_one` sem depender do `profiles.toml` real.
+    fn synthetic_spec(name: &str) -> ProfileSpec {
+        ProfileSpec {
+            name: name.to_string(),
+            process_names: Vec::new(),
+            base_candidates: Vec::new(),
+            required: Vec::new(),
+            markers: Vec::new(),
+            saves: Vec::new(),
+            states: Vec::new(),
+            config: Vec::new(),
+            exclude: Vec::new(),
+            data_dirs: DataDirs::default(),
+            registry: RegistryHints::default(),
+        }
+    }
+
+    /// Preenche o campo de `data_dirs` do SO em que o teste está rodando
+    /// (mesmo critério de `data_dirs_for_os`). Setar sempre `.linux` fazia
+    /// esses testes passarem em vazio no CI Windows, sem exercitar nada.
+    fn set_data_dir(spec: &mut ProfileSpec, path: String) {
+        #[cfg(target_os = "windows")]
+        {
+            spec.data_dirs.windows = vec![path];
+        }
+        #[cfg(target_os = "macos")]
+        {
+            spec.data_dirs.macos = vec![path];
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            spec.data_dirs.linux = vec![path];
+        }
+    }
+
+    #[test]
+    fn try_match_aceita_apenas_com_required_quando_markers_vazio() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("saves_dir")).unwrap();
+
+        let mut spec = synthetic_spec("Sintetico");
+        spec.required = vec!["saves_dir".into()];
+        spec.saves = vec!["saves_dir".into()];
+
+        let profile = try_match(tmp.path(), &spec).expect("markers vazio não deveria bloquear");
+        assert_eq!(profile.name, "Sintetico");
+        assert_eq!(profile.saves_paths, vec![PathBuf::from("saves_dir")]);
+    }
+
+    #[test]
+    fn try_match_falha_quando_required_ausente() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut spec = synthetic_spec("Sintetico");
+        spec.required = vec!["nao_existe".into()];
+
+        assert!(try_match(tmp.path(), &spec).is_none());
+    }
+
+    #[test]
+    fn try_match_falha_quando_nenhum_base_candidate_existe() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut spec = synthetic_spec("Sintetico");
+        spec.base_candidates = vec!["a".into(), "b".into()];
+
+        assert!(try_match(tmp.path(), &spec).is_none());
+    }
+
+    #[test]
+    fn try_match_usa_o_primeiro_base_candidate_existente() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("b").join("SAVEDATA")).unwrap();
+
+        let mut spec = synthetic_spec("Sintetico");
+        spec.base_candidates = vec!["a".into(), "b".into()];
+        spec.markers = vec!["SAVEDATA".into()];
+        spec.saves = vec!["SAVEDATA".into()];
+
+        let profile = try_match(tmp.path(), &spec).expect("deveria casar via base 'b'");
+        assert_eq!(
+            profile.saves_paths,
+            vec![Path::new("b").join("SAVEDATA")]
+        );
+    }
+
+    #[test]
+    fn discover_one_encontra_via_data_dir_literal() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("SAVEDATA")).unwrap();
+
+        let mut spec = synthetic_spec("Sintetico");
+        spec.markers = vec!["SAVEDATA".into()];
+        spec.saves = vec!["SAVEDATA".into()];
+        // Caminho literal (sem placeholder) — evita depender de $HOME/$XDG.
+        set_data_dir(&mut spec, tmp.path().to_string_lossy().into_owned());
+
+        let discovered = discover_one(&spec).expect("deveria descobrir via data_dir");
+        assert_eq!(discovered.name, "Sintetico");
+        let profile = discovered.profile.expect("perfil deveria ter sido montado");
+        assert_eq!(profile.saves_paths, vec![PathBuf::from("SAVEDATA")]);
+        // Fora do Windows o registro nunca confirma instalação (stub sempre
+        // "não instalado"), então a fonte deve ser só DataDir.
+        #[cfg(not(windows))]
+        assert!(matches!(discovered.source, DiscoverySource::DataDir));
+    }
+
+    #[test]
+    fn discover_one_retorna_none_sem_data_dir_nem_registro() {
+        let mut spec = synthetic_spec("Inexistente");
+        // data_dirs vazio, sem markers/registry — nada bate.
+        set_data_dir(&mut spec, "/caminho/que/nao/existe/em/lugar/nenhum".into());
+        spec.markers = vec!["qualquer".into()];
+        spec.saves = vec!["qualquer".into()];
+
+        assert!(discover_one(&spec).is_none());
+    }
+
+    #[test]
+    fn discover_one_ignora_base_candidate_ausente_mesmo_com_data_dir_valido() {
+        let tmp = tempfile::tempdir().unwrap();
+        // O data_dir existe, mas nenhum base_candidate sob ele existe.
+        let mut spec = synthetic_spec("Sintetico");
+        spec.base_candidates = vec!["nao_existe".into()];
+        set_data_dir(&mut spec, tmp.path().to_string_lossy().into_owned());
+
+        assert!(discover_one(&spec).is_none());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn registry_match_fora_do_windows_nunca_confirma_instalacao() {
+        let mut spec = synthetic_spec("Qualquer");
+        spec.registry.uninstall_names = vec!["Qualquer".into()];
+        spec.registry.app_paths = vec!["qualquer.exe".into()];
+
+        let result = registry_match(&spec);
+        assert!(!result.installed);
+        assert!(result.install_location.is_none());
+    }
+
+    #[test]
+    fn discover_installed_nao_panica_e_respeita_o_catalogo() {
+        let known_names: Vec<&str> = specs().iter().map(|s| s.name.as_str()).collect();
+        for discovered in discover_installed() {
+            assert!(
+                known_names.contains(&discovered.name.as_str()),
+                "descobriu emulador fora do catálogo: {}",
+                discovered.name
+            );
+        }
+    }
 
     #[test]
     fn profiles_toml_parseia_e_contem_perfis_conhecidos() {
@@ -464,6 +620,13 @@ mod tests {
             expand_placeholders("/abs/literal"),
             Some(PathBuf::from("/abs/literal"))
         );
+    }
+
+    #[test]
+    fn expand_placeholders_sem_resto_devolve_a_propria_base() {
+        // "{home}" sem sufixo: o resultado é a própria pasta base, sem join.
+        let home = dirs::home_dir().expect("HOME deveria existir no ambiente de teste");
+        assert_eq!(expand_placeholders("{home}"), Some(home));
     }
 
     #[test]

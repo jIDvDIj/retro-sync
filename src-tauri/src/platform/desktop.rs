@@ -99,7 +99,7 @@ fn on_tray_menu_event(app: &AppHandle, event: MenuEvent) {
     }
 }
 
-fn show_main_window(app: &AppHandle) {
+pub(crate) fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(constants::MAIN_WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.unminimize();

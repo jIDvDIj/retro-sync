@@ -9,3 +9,13 @@ coverage:
     patch:
       default:
         target: 80%
+
+# Bootstrap/orquestração testados manualmente (rodando o app), não por unit
+# test: setup do Tauri (plugins, janela, tray) e o loop assíncrono do
+# fs-watcher que só encadeia chamadas às funções puras já cobertas em
+# watcher/fs_watcher.rs. Sem `ignore`, o patch check bloquearia PRs por
+# linhas que nenhum teste unitário plausível exercitaria.
+ignore:
+  - "src-tauri/src/lib.rs"
+  - "src-tauri/src/platform/desktop.rs"
+  - "src-tauri/src/watcher/fs_watcher.rs"

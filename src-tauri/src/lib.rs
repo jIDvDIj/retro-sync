@@ -38,9 +38,16 @@ pub fn run() {
     // Recursos só-desktop registrados no builder: autostart ("subir com o
     // sistema") e o fechar-esconde da janela (o app segue vivo na bandeja). No
     // mobile não há bandeja nem ciclo de janela equivalente.
+    // `single-instance` precisa ser o primeiro plugin registrado (exigência da
+    // própria crate). Uma segunda tentativa de abrir o app só foca a janela
+    // existente — evita duas instâncias concorrentes disputando o keyring e o
+    // listener loopback do OAuth.
     #[cfg(desktop)]
     {
         builder = builder
+            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                platform::desktop::show_main_window(app);
+            }))
             .plugin(tauri_plugin_autostart::init(
                 tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                 Some(vec![constants::STARTUP_MINIMIZED_FLAG]),
