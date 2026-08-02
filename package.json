@@ -22,15 +22,15 @@
     "i18next": "^26.3.6",
     "react": "^19.1.0",
     "react-dom": "^19.2.8",
-    "react-i18next": "^17.0.8"
+    "react-i18next": "^17.0.11"
   },
   "devDependencies": {
-    "@eslint/js": "^9",
+    "@eslint/js": "^10",
     "@tauri-apps/cli": "^2.11.4",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
-    "eslint": "^9",
+    "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^10",
     "eslint-config-prettier": "^10",
     "eslint-plugin-i18next": "^6.1.5",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -38,6 +38,6 @@
     "prettier": "^3",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8",
-    "vite": "^7.3.6"
+    "vite": "^8.2.0"
   }
 }
