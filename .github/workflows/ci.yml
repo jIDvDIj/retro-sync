@@ -10,9 +10,9 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: npm
@@ -42,7 +42,7 @@ jobs:
         os: [ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -63,7 +63,7 @@ jobs:
   clippy:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -85,10 +85,10 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Instalar cargo-audit
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-audit
 
@@ -109,12 +109,12 @@ jobs:
   secrets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -122,7 +122,7 @@ jobs:
   licenses:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Checar licenças (cargo-deny)
         uses: EmbarkStudios/cargo-deny-action@v2
@@ -141,10 +141,10 @@ jobs:
     if: false
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       # Mesma versão de NDK do job android do release.yml.
       - name: Install NDK
@@ -176,7 +176,7 @@ jobs:
   coverage:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -190,7 +190,7 @@ jobs:
           workspaces: ./src-tauri -> target
 
       - name: Instalar cargo-tarpaulin
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-tarpaulin
 
@@ -200,7 +200,7 @@ jobs:
             --engine llvm --out Xml --output-dir coverage --timeout 300
 
       - name: Upload para o Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: coverage/cobertura.xml
           token: ${{ secrets.CODECOV_TOKEN }}

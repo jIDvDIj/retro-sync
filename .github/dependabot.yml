@@ -3,13 +3,24 @@ updates:
   # Frontend (npm)
   - package-ecosystem: "npm"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    groups:
+      eslint:
+        patterns:
+          - "eslint"
+          - "eslint-*"
+          - "@eslint/*"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
+          - "globals"
 
   # Backend (cargo)
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
@@ -17,6 +28,7 @@ updates:
   # Actions usadas nos workflows de CI/release
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10

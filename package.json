@@ -19,9 +19,9 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-notification": "^2",
-    "i18next": "^26.3.1",
+    "i18next": "^26.3.6",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "react-dom": "^19.2.8",
     "react-i18next": "^17.0.8"
   },
   "devDependencies": {
@@ -34,10 +34,10 @@
     "eslint-config-prettier": "^10",
     "eslint-plugin-i18next": "^6.1.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "globals": "^16",
+    "globals": "^17",
     "prettier": "^3",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8",
-    "vite": "^7.0.4"
+    "vite": "^7.3.6"
   }
 }

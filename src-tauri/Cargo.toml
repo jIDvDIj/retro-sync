@@ -38,7 +38,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "charset",
 ] }
 
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 chrono = { version = "0.4", features = ["serde"] }
 url = "2"
@@ -46,12 +46,12 @@ open = "5"
 dirs = "6"
 futures = "0.3"
 filetime = "0.2"
-sha2 = "0.10"
+sha2 = "0.11"
 globset = "0.4"
 # Confere o conteúdo baixado contra o `md5Checksum` devolvido pela API do Drive.
-md-5 = "0.10"
+md-5 = "0.11"
 rand = "0.8"
-base64 = "0.22"
+base64 = "0.23"
 uuid = { version = "1", features = ["v4"] }
 
 tracing = "0.1"
@@ -85,7 +85,7 @@ tauri-plugin-opener = "2"
 
 # Leitura do registro do Windows para a descoberta de instalações (Sinal B).
 [target.'cfg(windows)'.dependencies]
-winreg = "0.55"
+winreg = "0.56"
 
 [dev-dependencies]
 tempfile = "3"
