@@ -73,7 +73,7 @@ tauri-plugin-single-instance = "2"
 sysinfo = "0.39"
 # Watcher de filesystem nativo (ReadDirectoryChangesW/inotify/FSEvents) para o
 # gatilho "file-change" — sincroniza sem esperar o emulador fechar.
-notify = "6"
+notify = "8"
 keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
 
 # Dependências exclusivas do mobile.
