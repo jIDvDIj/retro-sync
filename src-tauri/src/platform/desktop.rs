@@ -167,7 +167,7 @@ fn start_scheduled_scan(
                 continue;
             }
 
-            let jitter = rand::thread_rng().gen_range(0.75..1.25);
+            let jitter = rand::rng().random_range(0.75..1.25);
             let delay = std::time::Duration::from_secs_f64(f64::from(minutes) * 60.0 * jitter);
             tokio::time::sleep(delay).await;
 
