@@ -94,7 +94,7 @@ struct Pkce {
 
 fn generate_pkce() -> Pkce {
     let mut bytes = [0u8; 64];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let verifier = URL_SAFE_NO_PAD.encode(bytes);
     let challenge = challenge_for(&verifier);
     Pkce {
@@ -109,7 +109,7 @@ fn challenge_for(verifier: &str) -> String {
 
 fn random_state() -> String {
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
