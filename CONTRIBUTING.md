@@ -50,8 +50,3 @@ indisponível.
   `.gitignore` antes de forçar a inclusão de algo).
 - Não inclua segredos, tokens ou credenciais reais em código, testes ou
   mensagens de commit, mesmo de exemplo.
-
-## Ambiente de desenvolvimento
-
-Veja o `CLAUDE.md` na raiz do repositório para os comandos de build, teste
-e as particularidades de rodar em WSL/Windows.
