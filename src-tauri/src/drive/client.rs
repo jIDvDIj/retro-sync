@@ -223,7 +223,7 @@ impl DriveClient {
 /// 500ms, 1s, 2s... + jitter de até 250ms.
 fn backoff_delay(attempt: u32) -> Duration {
     let base = 500u64.saturating_mul(2u64.saturating_pow(attempt.saturating_sub(1)));
-    let jitter = rand::thread_rng().gen_range(0..250);
+    let jitter = rand::rng().random_range(0..250);
     Duration::from_millis(base + jitter)
 }
 
