@@ -29,7 +29,7 @@ pub const DRIVE_APP_PROP_DEVICE_ID: &str = "deviceId";
 pub const LOCAL_DB_FILE: &str = "retrosync.db";
 
 /// Pasta de backups locais (criada no diretório de dados do app). Recebe o
-/// arquivo local antes de ser sobrescrito no primeiro sync (BUG-001).
+/// arquivo local antes de ser sobrescrito no primeiro sync.
 pub const LOCAL_BACKUP_DIR: &str = "backups";
 
 /// Identificação das credenciais no keychain do SO.
@@ -60,7 +60,7 @@ pub const DRIVE_MAX_RETRIES: u32 = 3;
 
 /// Máximo de transferências simultâneas com o Drive. Elevado de 3 → 6 para
 /// encurtar o tempo total em coleções com muitos arquivos pequenos; o
-/// `send_with_retry` absorve eventuais 429/rateLimit com backoff (FEATURE-006).
+/// `send_with_retry` absorve eventuais 429/rateLimit com backoff.
 pub const DRIVE_MAX_CONCURRENT_TRANSFERS: usize = 6;
 
 /// Acima deste tamanho o upload usa sessão resumable; abaixo, multipart — e o
@@ -72,7 +72,7 @@ pub const DRIVE_BATCH_MAX_OPS: usize = 100;
 
 /// Mínimo de uploads novos elegíveis para valer a pena montar um batch. Abaixo
 /// disso, o caminho per-file concorrente já resolve sem o overhead do batch —
-/// o ganho do batch aparece no primeiro sync de coleções grandes (FEATURE-004).
+/// o ganho do batch aparece no primeiro sync de coleções grandes.
 pub const DRIVE_BATCH_MIN_OPS: usize = 12;
 
 /// Sufixo de arquivos temporários de download (gravação atômica via rename).

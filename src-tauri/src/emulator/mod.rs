@@ -106,7 +106,7 @@ pub fn discover_installed() -> Vec<DiscoveredEmulator> {
 ///
 /// **Não** verifica se as pastas existem — essa checagem (que no mobile depende
 /// do SAF, não de `std::fs`) é feita pelo chamador via
-/// [`crate::sync::LocalStorage::subdir_exists`] (BUG-005). Função pura, sem I/O.
+/// [`crate::sync::LocalStorage::subdir_exists`]. Função pura, sem I/O.
 pub fn build_manual_profile(
     root: &Path,
     name: String,
@@ -310,7 +310,7 @@ mod tests {
     }
 
     // A existência de cada pasta passou a ser conferida no comando via
-    // `LocalStorage::subdir_exists` (BUG-005) — coberta pelos testes de
+    // `LocalStorage::subdir_exists` — coberta pelos testes de
     // `subdir_exists` em `sync::storage`. Aqui só validamos segurança de caminho.
 
     #[test]

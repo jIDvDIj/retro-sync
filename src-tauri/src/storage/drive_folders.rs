@@ -4,7 +4,7 @@
 //! O `DriveClient` mantém um `HashMap` em memória do mesmo mapa; esta tabela é o
 //! espelho durável. Sem ela, o cache zera a cada reinício e o sync de startup
 //! re-resolve toda a cadeia `RetroSync/<Emu>/<categoria>/...` via `files.list`
-//! (uma chamada de latência pura por segmento) — ver FEATURE-006.
+//! (uma chamada de latência pura por segmento).
 //!
 //! Invalidação: uma entrada cujo ID retornar `notFound` numa operação é
 //! descartada (memória + disco) e re-resolvida; no logout/troca de conta o cache

@@ -77,7 +77,7 @@ impl DriveClient {
             .await
             .insert(cache_key.to_string(), folder.id.clone());
 
-        // Espelha o ID no SQLite para sobreviver a reinícios (FEATURE-006).
+        // Espelha o ID no SQLite para sobreviver a reinícios.
         // Best-effort: uma falha aqui só faz o próximo boot re-resolver esta pasta.
         let (key, id) = (cache_key.to_string(), folder.id.clone());
         if let Err(err) = self

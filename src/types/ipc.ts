@@ -101,7 +101,7 @@ export interface SyncCategories {
   config: boolean;
 }
 
-/** `games::SyncedGame` — jogo sincronizado, agregado do manifest (FEATURE-001) */
+/** `games::SyncedGame` — jogo sincronizado, agregado do manifest */
 export interface SyncedGame {
   /** Serial técnico extraído do caminho (`ULUS12345`) ou nome de arquivo. */
   serial: string;

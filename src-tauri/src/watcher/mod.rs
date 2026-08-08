@@ -7,7 +7,7 @@
 //! - **consumidor**: para cada transição, dispara o sync direcionado e emite
 //!   o status ao frontend.
 //!
-//! Gatilhos (Passo 6 da especificação):
+//! Gatilhos:
 //! - emulador **abriu** → sync Drive → Local (saves frescos antes do jogo carregar);
 //! - emulador **fechou** → sync Local → Drive (sobe os saves da sessão).
 

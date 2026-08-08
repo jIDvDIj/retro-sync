@@ -1,4 +1,4 @@
-//! `DriveApi` — a porta do `SyncEngine` para o Drive (issue #82).
+//! `DriveApi` — a porta do `SyncEngine` para o Drive.
 //!
 //! O engine depende deste trait, nunca do `DriveClient` concreto: em produção
 //! o `DriveClient` (HTTP real) o implementa por delegação; nos testes, o
@@ -63,8 +63,8 @@ pub trait DriveApi: Send + Sync {
         device: DeviceTag<'_>,
     ) -> AppResult<DriveFile>;
 
-    /// Envia arquivos novos e pequenos em um único `multipart/mixed`
-    /// (FEATURE-004). Retorna os `DriveFile` na MESMA ordem das operações.
+    /// Envia arquivos novos e pequenos em um único `multipart/mixed`.
+    /// Retorna os `DriveFile` na MESMA ordem das operações.
     async fn upload_batch(&self, ops: Vec<BatchUploadOp>) -> AppResult<Vec<DriveFile>>;
 
     /// Renomeia (e opcionalmente move) um arquivo sem reenviar conteúdo

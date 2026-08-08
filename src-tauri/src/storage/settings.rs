@@ -2,8 +2,8 @@
 //!
 //! Um único `Settings` agrega as configurações expostas ao frontend; cada
 //! campo é persistido como uma linha chave→valor, com defaults aplicados na
-//! leitura. Começa com o nome do dispositivo (Passo 1); cresce com gatilhos e
-//! nível de notificação nos passos seguintes.
+//! leitura. Inclui nome do dispositivo, gatilhos de sync e nível de
+//! notificação, entre outras configurações.
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};

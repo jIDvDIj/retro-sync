@@ -1,6 +1,6 @@
 //! Tabela `sync_conflicts`: arquivos em que ambos os lados (local e Drive)
 //! mudaram desde o último sync. Enquanto houver conflito para um emulador, o
-//! sync dele fica bloqueado (BUG-002) até o usuário escolher qual versão manter.
+//! sync dele fica bloqueado até o usuário escolher qual versão manter.
 
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;

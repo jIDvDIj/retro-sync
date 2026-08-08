@@ -48,9 +48,9 @@ pub struct SyncSummary {
     pub failed: u32,
     pub queued: u32,
     /// Arquivos locais copiados para backup antes de serem sobrescritos no
-    /// primeiro sync (BUG-001). `> 0` sinaliza à UI que há backups a oferecer.
+    /// primeiro sync. `> 0` sinaliza à UI que há backups a oferecer.
     pub backed_up: u32,
-    /// Conflitos detectados neste sync (ambos os lados mudaram — BUG-002).
+    /// Conflitos detectados neste sync (ambos os lados mudaram).
     pub conflicts: u32,
     /// Renomeações detectadas por hash e aplicadas no Drive sem retransferir.
     pub renamed: u32,
@@ -104,9 +104,9 @@ pub type LastSyncStore = Arc<std::sync::Mutex<Option<LastSync>>>;
 enum OpOutcome {
     Uploaded,
     Downloaded,
-    /// Download que também gerou um backup local (primeiro sync, BUG-001).
+    /// Download que também gerou um backup local (primeiro sync).
     DownloadedWithBackup,
-    /// Conflito registrado; nenhuma transferência feita (BUG-002).
+    /// Conflito registrado; nenhuma transferência feita.
     Conflicted,
     Queued,
     Failed,
@@ -156,7 +156,7 @@ struct CategoryCtx {
 /// Genérico sobre o runtime do Tauri para ser testável: em produção é o `Wry`
 /// (default); nos testes de cenário (`sync::scenarios`), o `MockRuntime` do
 /// `tauri::test`. O Drive entra pelo trait [`DriveApi`] — `DriveClient` real
-/// ou `MockDrive` em memória (issue #82).
+/// ou `MockDrive` em memória.
 pub struct SyncEngine<R: Runtime = Wry> {
     db: Db,
     drive: Arc<dyn DriveApi>,
@@ -254,7 +254,7 @@ impl<R: Runtime> SyncEngine<R> {
     }
 
     /// Zera o cache de IDs de pasta do Drive (memória + SQLite). Chamado no
-    /// logout para não reaproveitar IDs de outra conta Google (FEATURE-006).
+    /// logout para não reaproveitar IDs de outra conta Google.
     pub async fn clear_folder_cache(&self) {
         self.drive.clear_folder_cache().await;
     }
@@ -355,7 +355,7 @@ impl<R: Runtime> SyncEngine<R> {
         let mut summary = SyncSummary::default();
         for target in &targets {
             // Emulador com conflito pendente fica bloqueado até o usuário
-            // resolver — nem manual nem automático sincroniza (BUG-002).
+            // resolver — nem manual nem automático sincroniza.
             let name = target.label.clone();
             let blocked = self
                 .db
@@ -523,7 +523,7 @@ impl<R: Runtime> SyncEngine<R> {
                 Err(AppError::DriveObjectNotFound(detail)) => {
                     // ID de pasta cacheado ficou obsoleto (pasta movida/apagada
                     // no Drive). Invalida a subárvore e re-resolve — reencontra a
-                    // existente ou recria (FEATURE-006).
+                    // existente ou recria.
                     tracing::warn!(
                         emulador = %target.label,
                         categoria = category.as_str(),
@@ -659,8 +659,8 @@ impl<R: Runtime> SyncEngine<R> {
                 bytes_done: AtomicU64::new(0),
             };
 
-            // FEATURE-004: uploads de arquivos NOVOS e pequenos vão em lote (Batch
-            // API), cortando ~100× as chamadas HTTP no primeiro sync de coleções
+            // Uploads de arquivos NOVOS e pequenos vão em lote (Batch API),
+            // cortando ~100× as chamadas HTTP no primeiro sync de coleções
             // grandes. Os demais (downloads, updates, conflitos, arquivos grandes)
             // e o que o batch não conseguir seguem pelo caminho per-file abaixo.
             let plan = self.batch_new_uploads(&ctx, plan, &mut summary).await;
@@ -716,7 +716,7 @@ impl<R: Runtime> SyncEngine<R> {
         local
     }
 
-    /// Detecção de renomeação por hash (issue #12): um Upload novo cujo MD5
+    /// Detecção de renomeação por hash: um Upload novo cujo MD5
     /// bate com o `md5Checksum` de um Download órfão (arquivo remoto que sumiu
     /// localmente) é a mesma coisa renomeada — aplica `files.update` no Drive,
     /// reancora o manifest e remove os dois lados do plano. MD5 ambíguo (dois
@@ -972,7 +972,7 @@ impl<R: Runtime> SyncEngine<R> {
         );
     }
 
-    /// Pré-passo de batch (FEATURE-004): envia em lote os uploads de arquivos
+    /// Pré-passo de batch: envia em lote os uploads de arquivos
     /// novos e pequenos, atualizando manifest/summary/progresso, e devolve o
     /// plano restante para o caminho per-file. Ops inelegíveis ou que não puderam
     /// ser preparadas (arquivo em uso, parent irresolvível) voltam ao restante,
@@ -1192,8 +1192,8 @@ impl<R: Runtime> SyncEngine<R> {
 
     /// Primeiro sync de um arquivo que existe nos dois lados: copia o local
     /// para a pasta de backup e só então baixa o do Drive (que vence). O backup
-    /// roda ANTES do download — se falhar, o download não acontece, evitando a
-    /// perda irreversível que o BUG-001 descreve.
+    /// roda ANTES do download — se falhar, o download não acontece, evitando
+    /// perder a versão local sem uma cópia de segurança.
     async fn do_download_with_backup(&self, ctx: &CategoryCtx, op: &PlannedOp) -> AppResult<()> {
         if let Some(local) = op.local.as_ref() {
             let backup_dest = self.storage.join(&ctx.backup_base, &op.rel_path);
@@ -1292,8 +1292,8 @@ impl<R: Runtime> SyncEngine<R> {
         }
 
         // Versionamento: arquiva a versão local vigente ANTES de sobrescrever
-        // (só em downloads comuns — o primeiro sync tem o backup dedicado do
-        // BUG-001). Best-effort: falha de arquivamento não bloqueia o sync,
+        // (só em downloads comuns — o primeiro sync já tem seu próprio backup
+        // dedicado). Best-effort: falha de arquivamento não bloqueia o sync,
         // pois a versão anterior já esteve no Drive em algum momento.
         if op.action == SyncAction::Download {
             self.archive_previous_version(ctx, op).await;
@@ -1322,7 +1322,7 @@ impl<R: Runtime> SyncEngine<R> {
 
     /// Registra um conflito (ambos os lados mudaram desde o último sync). Não
     /// transfere nada; emite evento e notifica. O emulador fica bloqueado até a
-    /// resolução pelo usuário (BUG-002).
+    /// resolução pelo usuário.
     async fn record_conflict(&self, ctx: &CategoryCtx, op: &PlannedOp) -> AppResult<()> {
         let local = op
             .local

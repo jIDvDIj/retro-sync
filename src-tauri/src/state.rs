@@ -16,6 +16,6 @@ pub struct AppState {
     pub last_sync: LastSyncStore,
     /// Acesso ao armazenamento local (filesystem no desktop; plugin SAF no
     /// mobile). Os comandos validam raiz/subpastas de emulador por aqui, sem
-    /// tocar `std::fs` diretamente (BUG-005).
+    /// tocar `std::fs` diretamente.
     pub storage: Arc<dyn LocalStorage>,
 }

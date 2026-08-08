@@ -1,4 +1,4 @@
-//! Identificação legível dos jogos sincronizados (FEATURE-001).
+//! Identificação legível dos jogos sincronizados.
 //!
 //! O serial do jogo (`ULUS12345`, `SLUS-12345`) já vive no `rel_path` de cada
 //! entrada do `sync_manifest` — é o primeiro componente do caminho nos saves do
@@ -9,9 +9,8 @@
 //! 3. traduz o serial para um nome legível quando conhecido ([`resolve_name`]).
 //!
 //! A tradução usa uma tabela embutida pequena (semente verificada). A cobertura
-//! ampla e offline virá do empacotamento do OpenVGDB (asset SQLite) — ver
-//! `docs/features/feature-001-identificacao-jogos.md`. Sem correspondência, a UI
-//! exibe o próprio serial.
+//! ampla e offline virá do empacotamento do OpenVGDB (asset SQLite). Sem
+//! correspondência, a UI exibe o próprio serial.
 
 use std::collections::BTreeMap;
 
@@ -135,7 +134,7 @@ fn normalize(serial: &str) -> String {
 }
 
 /// Semente pequena e verificada de `serial → nome` (chaves já normalizadas, sem
-/// hífen). Substituível/ampliável pelo OpenVGDB no futuro (FEATURE-001).
+/// hífen). Substituível/ampliável pelo OpenVGDB no futuro.
 static NAMES: &[(&str, &str)] = &[
     // PSP
     ("ULUS10041", "Grand Theft Auto: Liberty City Stories"),

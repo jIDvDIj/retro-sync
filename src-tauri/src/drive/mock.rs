@@ -1,4 +1,4 @@
-//! `MockDrive` — implementação em memória do [`DriveApi`] para testes (issue #82).
+//! `MockDrive` — implementação em memória do [`DriveApi`] para testes.
 //!
 //! Modela o Drive como pastas e arquivos num mapa, sem rede nem credenciais.
 //! Além do contrato do trait, expõe helpers de fixture (`seed_category_file`,

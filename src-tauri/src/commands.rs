@@ -163,7 +163,7 @@ pub async fn disconnect_google_drive(
 ) -> AppResult<AuthStatus> {
     let status = state.auth.disconnect().await?;
     // Os IDs de pasta cacheados são por conta Google — zera para não reaproveitá-los
-    // ao conectar com outra conta (FEATURE-006).
+    // ao conectar com outra conta.
     state.engine.clear_folder_cache().await;
     let _ = app.emit(EVT_AUTH_STATUS, &status);
     Ok(status)
@@ -172,7 +172,7 @@ pub async fn disconnect_google_drive(
 /// Valida via `LocalStorage` que `path` aponta para uma pasta acessível. No
 /// desktop é `Path::is_dir`; no mobile a raiz é uma URI SAF conferida pelo
 /// plugin nativo. Centraliza a checagem que antes vazava `std::fs` e era pulada
-/// no mobile (BUG-005).
+/// no mobile.
 async fn ensure_valid_root(state: &State<'_, AppState>, path: &str) -> AppResult<()> {
     let loc = FileLoc::from_path(PathBuf::from(path));
     if state.storage.is_valid_root(&loc).await {
@@ -274,7 +274,7 @@ pub async fn add_emulator_manual(
     let root = PathBuf::from(&path);
     let root_loc = FileLoc::from_path(root.clone());
     // No mobile o path é uma URI SAF (content://...); a checagem de existência
-    // passa pelo plugin nativo via LocalStorage, não por std::fs (BUG-005).
+    // passa pelo plugin nativo via LocalStorage, não por std::fs.
     ensure_valid_root(&state, &path).await?;
 
     let profile =
@@ -332,7 +332,7 @@ pub async fn list_emulators(state: State<'_, AppState>) -> AppResult<Vec<Emulato
 }
 
 /// Jogos cujos arquivos foram sincronizados, agregados a partir do manifest e
-/// com o serial traduzido para nome legível quando conhecido (FEATURE-001). A
+/// com o serial traduzido para nome legível quando conhecido. A
 /// UI lista por emulador; sem nome, exibe o próprio serial.
 #[tauri::command]
 pub async fn list_synced_games(state: State<'_, AppState>) -> AppResult<Vec<SyncedGame>> {
@@ -517,7 +517,7 @@ fn autostart_enabled(_app: &AppHandle) -> AppResult<bool> {
 }
 
 /// Abre a pasta de backups locais no gerenciador de arquivos do SO. A pasta é
-/// criada se ainda não existir (BUG-001 — backups do primeiro sync).
+/// criada se ainda não existir (recebe os backups do primeiro sync).
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn open_backup_folder(app: AppHandle) -> AppResult<()> {

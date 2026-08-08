@@ -7,7 +7,7 @@
 //!   resumable (>5 MB), sempre preservando o mtime original em `modifiedTime`.
 //!
 //! Escopo OAuth: `drive.file` — o app só enxerga o que ele mesmo criou.
-//! Nunca deleta nada no Drive (regra da v1.0).
+//! Nunca deleta nada no Drive.
 
 mod api;
 mod client;
