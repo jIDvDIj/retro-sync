@@ -26,21 +26,14 @@ atualizado na sua conta do Google Drive, automaticamente.
 
 O que guia as decisões de projeto, em ordem de prioridade:
 
-1. **Seguro contra perda de dados.** O sync nunca deleta nada no Drive. Conflito entre
-   duas máquinas é resolvido dando a você a decisão final, não por sobrescrita silenciosa.
+1. **Seguro contra perda de dados.**
+2. **Suas credenciais ficam só suas.**
+3. **Automático.**
+4. **Resiliente a falhas.**
+5. **Extensível.**
 
-2. **Suas credenciais ficam só suas.** O RetroSync só enxerga os arquivos que ele mesmo
-   cria no Drive. O token de acesso fica no cofre de credenciais do seu sistema
-   operacional — nunca em texto plano, nunca trafega além do necessário.
-
-3. **Automático.** Depois de conectar a conta e apontar a pasta do emulador, não há mais
-   nada para fazer — ele sincroniza sozinho, nos momentos certos.
-
-4. **Resiliente a falhas.** Sem internet, ou com o arquivo em uso? Vira uma pendência que
-   é resolvida assim que possível, nunca um erro que trava o app.
-
-5. **Extensível.** O núcleo de sincronização não conhece nenhum emulador específico —
-   suporte a um novo emulador é configuração declarativa, não reescrita de código.
+Esta é a versão resumida. Para mais contexto sobre cada objetivo e os princípios de
+engenharia que os sustentam, veja o [`GOALS.md`](./GOALS.md) completo.
 
 ## Getting started
 
@@ -109,8 +102,12 @@ cargo test --manifest-path src-tauri/Cargo.toml   # testes do backend
 
 ## Documentação
 
-A documentação técnica completa — arquitetura, decisões de projeto e catálogo da fronteira
-Rust↔TypeScript — está na pasta [`docs/`](./docs/), com índice em
-[`docs/README.md`](./docs/README.md).
+Procurando como **instalar e usar** o RetroSync? Veja o
+[guia do usuário](https://jidvdij.github.io/retrosync-site/docs/).
+
+A documentação técnica — arquitetura, decisões de projeto e catálogo da fronteira
+Rust↔TypeScript — mora no site, na aba
+[Para desenvolvedores](https://jidvdij.github.io/retrosync-site/docs/dev/). Antes de abrir um
+PR, leia o [`CONTRIBUTING.md`](./CONTRIBUTING.md) e o [`CONDUCT.md`](./CONDUCT.md).
 
 Todo o código é licenciado sob a [GPL-3.0-or-later](./LICENSE).

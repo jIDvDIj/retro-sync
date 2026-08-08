@@ -2,7 +2,7 @@
 
 Lado nativo do plugin de armazenamento de saves, consumido pela `MobileStorage`
 em Rust (`src-tauri/src/sync/mobile_storage.rs`). Ver o contrato dos comandos e o
-panorama em [`docs/multiplataforma-checklist.md`](../../docs/multiplataforma-checklist.md).
+panorama em [Status multiplataforma](https://jidvdij.github.io/retrosync-site/docs/referencia/status-multiplataforma/).
 
 > ⚠️ **Esqueleto não compilado/testado.** Escrito fora do toolchain Android/iOS —
 > serve de ponto de partida. Validar com `tauri android dev` num device/emulador.
