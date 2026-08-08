@@ -19,8 +19,7 @@ use serde::Serialize;
 use crate::storage::manifest::ManifestEntry;
 use crate::sync::SyncCategory;
 
-/// Um jogo cujos arquivos foram sincronizados, agregado a partir do manifest.
-/// Espelhado em `src/types/ipc.ts` (`SyncedGame`).
+/// Um jogo cujos arquivos foram sincronizados, agregado a partir do manifest. (→ ipc.ts)
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncedGame {

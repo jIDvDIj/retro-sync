@@ -22,8 +22,7 @@ const VERSION_SEP: char = '~';
 /// Formato do carimbo de versão (`20250717-103000`).
 const STAMP_FORMAT: &str = "%Y%m%d-%H%M%S";
 
-/// Uma versão arquivada de um arquivo. Espelhada em `src/types/ipc.ts`
-/// (`FileVersion`).
+/// Uma versão arquivada de um arquivo. (→ ipc.ts)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileVersion {

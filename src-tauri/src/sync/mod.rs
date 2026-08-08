@@ -51,7 +51,7 @@ pub(crate) fn md5_hex(bytes: &[u8]) -> String {
     bytes_to_hex(Md5::digest(bytes))
 }
 
-/// Direção de uma operação de sync. Espelhado em `src/types/ipc.ts`.
+/// Direção de uma operação de sync. (→ ipc.ts)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SyncDirection {
     DriveToLocal,
@@ -88,7 +88,7 @@ impl SyncCategory {
     }
 }
 
-/// Payload do evento `sync:progress`. Espelhado em `src/types/ipc.ts`.
+/// Payload do evento `sync:progress`. (→ ipc.ts)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncProgress {

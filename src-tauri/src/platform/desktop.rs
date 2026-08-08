@@ -124,7 +124,7 @@ fn spawn_sync(app: AppHandle, trigger: &'static str, then_exit: bool) {
 }
 
 /// A janela nasce oculta (`visible: false` no tauri.conf.json). Em abertura
-/// normal nós a mostramos; quando o SO lança o app com `--minimized`
+/// normal ela é exibida; quando o SO lança o app com `--minimized`
 /// (autostart junto com o sistema), fica só na bandeja.
 fn maybe_show_window(app: &AppHandle) {
     let launched_minimized = std::env::args().any(|a| a == constants::STARTUP_MINIMIZED_FLAG);

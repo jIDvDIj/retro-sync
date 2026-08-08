@@ -38,7 +38,7 @@ use crate::storage::settings::{self, NotificationLevel};
 use crate::storage::{emulators, queue, stats};
 use crate::versioning::Versioner;
 
-/// Resultado agregado de um sync. Espelhado em `src/types/ipc.ts`.
+/// Resultado agregado de um sync. (→ ipc.ts)
 #[derive(Debug, Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncSummary {
@@ -70,7 +70,7 @@ impl SyncSummary {
     }
 }
 
-/// Payload do evento `sync:started`. Espelhado em `src/types/ipc.ts`.
+/// Payload do evento `sync:started`. (→ ipc.ts)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncStarted {
@@ -78,7 +78,7 @@ pub struct SyncStarted {
     pub direction: SyncDirection,
 }
 
-/// Payload do evento `sync:error`. Espelhado em `src/types/ipc.ts`.
+/// Payload do evento `sync:error`. (→ ipc.ts)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncError {
@@ -87,8 +87,7 @@ pub struct SyncError {
 }
 
 /// Resumo do último sync concluído, exposto à UI via `get_last_sync` (e
-/// atualizado ao vivo pelo evento `sync:completed`). Espelhado em
-/// `src/types/ipc.ts`.
+/// atualizado ao vivo pelo evento `sync:completed`). (→ ipc.ts)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LastSync {
@@ -112,7 +111,7 @@ enum OpOutcome {
     Failed,
 }
 
-/// Escolha do usuário ao resolver um conflito. Espelhado em `src/types/ipc.ts`.
+/// Escolha do usuário ao resolver um conflito. (→ ipc.ts)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ConflictResolution {

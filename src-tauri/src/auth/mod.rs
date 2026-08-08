@@ -51,8 +51,7 @@ impl AuthorizeFlow for RealAuthorizeFlow {
     }
 }
 
-/// Estado da conexão com o Google Drive exposto ao frontend.
-/// Espelhado em `src/types/ipc.ts` (`AuthStatus`).
+/// Estado da conexão com o Google Drive exposto ao frontend. (→ ipc.ts)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthStatus {

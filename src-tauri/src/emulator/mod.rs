@@ -12,8 +12,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Descrição de um emulador configurado. Cruza a boundary para o frontend —
-/// espelhado em `src/types/ipc.ts` (`EmulatorProfile`).
+/// Descrição de um emulador configurado. Cruza a boundary para o frontend. (→ ipc.ts)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EmulatorProfile {
@@ -34,8 +33,7 @@ pub struct EmulatorProfile {
     pub exclude_patterns: Vec<String>,
 }
 
-/// Sugestão da descoberta automática — espelhado em `src/types/ipc.ts`
-/// (`DiscoveredEmulator`).
+/// Sugestão da descoberta automática. (→ ipc.ts)
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveredEmulator {
@@ -49,7 +47,7 @@ pub struct DiscoveredEmulator {
 }
 
 /// Origem do reconhecimento na descoberta — serializa em camelCase
-/// (`dataDir`/`registry`/`both`). Espelhado em `src/types/ipc.ts`.
+/// (`dataDir`/`registry`/`both`). (→ ipc.ts)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DiscoverySource {

@@ -8,8 +8,7 @@ use serde::Serialize;
 use crate::error::AppResult;
 use crate::sync::SyncCategory;
 
-/// Um conflito pendente, com os metadados dos dois lados para a UI decidir.
-/// Espelhado em `src/types/ipc.ts` (`Conflict`).
+/// Um conflito pendente, com os metadados dos dois lados para a UI decidir. (→ ipc.ts)
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Conflict {

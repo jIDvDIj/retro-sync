@@ -99,9 +99,7 @@ de divulgação responsável descrito em [`SECURITY.md`](./SECURITY.md).
 
 ## Build
 
-O app é construído com **Tauri v2** (Rust + React). O `CLAUDE.md` na raiz do repositório
-tem os comandos completos de build, teste e as particularidades de ambiente (WSL, Windows
-nativo). Resumo rápido:
+O app é construído com **Tauri v2** (Rust + React). Resumo rápido:
 
 ```bash
 npm install

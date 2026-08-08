@@ -21,9 +21,6 @@ import app.tauri.plugin.Plugin
 // (src-tauri/src/sync/mobile_storage.rs): comandos listFiles/stat/exists/read/
 // write/copy sobre uma "árvore" concedida pelo Storage Access Framework (SAF).
 // `tree` é a URI da árvore (content://...); `rel` é o caminho relativo a ela.
-//
-// ⚠️ ESQUELETO NÃO COMPILADO/TESTADO — escrito fora do toolchain Android. Validar
-// com `tauri android dev`/device. Ver src-tauri/mobile/README.md.
 
 @InvokeArg
 class ListArgs {

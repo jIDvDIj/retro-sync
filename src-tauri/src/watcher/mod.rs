@@ -44,7 +44,7 @@ pub enum WatcherEvent {
     EmulatorStopped(String),
 }
 
-/// Payload do evento `emulator:status`. Espelhado em `src/types/ipc.ts`.
+/// Payload do evento `emulator:status`. (→ ipc.ts)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EmulatorStatusEvent {

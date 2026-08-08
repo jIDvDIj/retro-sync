@@ -24,7 +24,7 @@ function App() {
   const { settings, reload: reloadSettings } = useSettings();
   const theme = useTheme();
 
-  // Enquanto o status de auth não chega, não decidimos qual tela mostrar.
+  // Enquanto o status de auth não chega, não decide qual tela mostrar.
   if (auth.loading) {
     return (
       <main className="login-screen">
